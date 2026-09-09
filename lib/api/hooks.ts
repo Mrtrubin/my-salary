@@ -3,19 +3,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   addTeamMembers,
-  createEmployee,
+  createMember,
   createScheme,
   createTeam,
   deleteTeam,
   getCurrentProfile,
-  listEmployees,
+  listMembers,
   listPerformance,
   listPositions,
   listSalaryRecords,
   listSchemes,
   listTeams,
   removeTeamMember,
-  setEmployeeStatus,
+  setMemberStatus,
+  updateMember,
   updatePerformanceStatus,
   updateSalaryStatus,
   updateTeam,
@@ -23,7 +24,7 @@ import {
 
 export const keys = {
   profile: ["profile"] as const,
-  employees: ["employees"] as const,
+  members: ["members"] as const,
   positions: ["positions"] as const,
   performance: ["performance"] as const,
   schemes: ["schemes"] as const,
@@ -31,20 +32,24 @@ export const keys = {
   teams: ["teams"] as const,
 };
 export function useCurrentProfile() { return useQuery({ queryKey: keys.profile, queryFn: getCurrentProfile }); }
-export function useEmployees() { return useQuery({ queryKey: keys.employees, queryFn: listEmployees }); }
+export function useMembers() { return useQuery({ queryKey: keys.members, queryFn: listMembers }); }
 export function usePositions() { return useQuery({ queryKey: keys.positions, queryFn: listPositions }); }
 export function usePerformance() { return useQuery({ queryKey: keys.performance, queryFn: listPerformance }); }
 export function useSchemes() { return useQuery({ queryKey: keys.schemes, queryFn: listSchemes }); }
 export function useSalaryRecords() { return useQuery({ queryKey: keys.salary, queryFn: listSalaryRecords }); }
 export function useTeams() { return useQuery({ queryKey: keys.teams, queryFn: listTeams }); }
 
-export function useCreateEmployee() {
+export function useCreateMember() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: createEmployee, onSuccess: () => client.invalidateQueries({ queryKey: keys.employees }) });
+  return useMutation({ mutationFn: createMember, onSuccess: () => client.invalidateQueries({ queryKey: keys.members }) });
 }
-export function useSetEmployeeStatus() {
+export function useSetMemberStatus() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: ({ id, status }: { id: string; status: "active" | "disabled" }) => setEmployeeStatus(id, status), onSuccess: () => client.invalidateQueries({ queryKey: keys.employees }) });
+  return useMutation({ mutationFn: ({ id, status }: { id: string; status: "active" | "disabled" }) => setMemberStatus(id, status), onSuccess: () => client.invalidateQueries({ queryKey: keys.members }) });
+}
+export function useUpdateMember() {
+  const client = useQueryClient();
+  return useMutation({ mutationFn: updateMember, onSuccess: () => client.invalidateQueries({ queryKey: keys.members }) });
 }
 export function useUpdatePerformanceStatus() {
   const client = useQueryClient();

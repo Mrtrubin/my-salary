@@ -65,7 +65,7 @@ export default function LoginPage() {
       });      const profile = await getCurrentProfile();
       if (!profile) {
         await signOut();
-        setSubmitError("账号尚未关联员工资料，请联系管理员");
+        setSubmitError("账号尚未关联成员资料，请联系管理员");
         return;
       }
       if (profile.status === "disabled") {

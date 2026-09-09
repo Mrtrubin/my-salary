@@ -91,7 +91,7 @@ Deno.serve(async (req: Request) => {
   if (profileError) {
     // 回滚 auth 用户，避免出现无 profile 的孤儿账号
     await admin.auth.admin.deleteUser(created.user.id);
-    return json({ code: "UNKNOWN", message: "创建员工资料失败，请稍后再试" }, 500);
+    return json({ code: "UNKNOWN", message: "创建成员资料失败，请稍后再试" }, 500);
   }
 
   return json({ code: "OK", message: "注册成功" });

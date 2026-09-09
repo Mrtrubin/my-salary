@@ -21,7 +21,7 @@ export interface SignInInput {
 export interface SignUpInput {
   username: string;
   password: string;
-  /** 选填联系邮箱，仅保存在员工资料中。 */
+  /** 选填联系邮箱，仅保存在成员资料中。 */
   email?: string;
   /** 选填显示姓名，缺省使用用户名。 */
   name?: string;
@@ -64,7 +64,7 @@ export async function signInWithPassword({
 
 /**
  * 自助注册（用户名 + 密码 + 选填邮箱）。
- * 经 auth-register Edge Function（service role）创建 Auth 用户与员工资料；
+ * 经 auth-register Edge Function（service role）创建 Auth 用户与成员资料；
  * 首个注册账号自动成为管理员，其余为普通用户。
  */
 export async function signUpWithUsername(input: SignUpInput): Promise<void> {

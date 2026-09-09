@@ -13,7 +13,7 @@ import {
   useAddTeamMembers,
   useCreateTeam,
   useDeleteTeam,
-  useEmployees,
+  useMembers,
   useRemoveTeamMember,
   useTeams,
 } from "@/lib/api/hooks";
@@ -26,7 +26,7 @@ function hasPosition(emp: { user_positions: { position: { code: string } | null 
 
 export default function TeamsPage() {
   const teams = useTeams();
-  const employees = useEmployees();
+  const members = useMembers();
   const create = useCreateTeam();
   const remove = useDeleteTeam();
   const addMembers = useAddTeamMembers();
@@ -35,9 +35,9 @@ export default function TeamsPage() {
   const [selectedAnchors, setSelectedAnchors] = useState<string[]>([]);
   const { register, handleSubmit, reset } = useForm<FormValues>();
 
-  const hosts = useMemo(() => employees.data?.filter((e) => hasPosition(e, "host")) ?? [], [employees.data]);
-  const anchors = useMemo(() => employees.data?.filter((e) => hasPosition(e, "anchor")) ?? [], [employees.data]);
-  const anchorName = (id: string) => employees.data?.find((e) => e.id === id)?.name ?? id;
+  const hosts = useMemo(() => members.data?.filter((e) => hasPosition(e, "host")) ?? [], [members.data]);
+  const anchors = useMemo(() => members.data?.filter((e) => hasPosition(e, "anchor")) ?? [], [members.data]);
+  const anchorName = (id: string) => members.data?.find((e) => e.id === id)?.name ?? id;
 
   async function submit(values: FormValues) {
     await create.mutateAsync({ name: values.name, hostProfileId: values.hostProfileId, anchorProfileIds: selectedAnchors });

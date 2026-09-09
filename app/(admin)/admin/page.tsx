@@ -6,15 +6,15 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { QueryMessage } from "@/components/query-message";
 import { PageHeader, StatCard } from "@/components/ui/stat-card";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { useEmployees, usePerformance, useSalaryRecords } from "@/lib/api/hooks";
+import { useMembers, usePerformance, useSalaryRecords } from "@/lib/api/hooks";
 import { formatCentsToYuan, formatMonth } from "@/lib/format";
 
 export default function AdminHomePage() {
-  const employees = useEmployees();
+  const members = useMembers();
   const performance = usePerformance();
   const salary = useSalaryRecords();
-  const loading = employees.isLoading || performance.isLoading || salary.isLoading;
-  const error = employees.error || performance.error || salary.error;
+  const loading = members.isLoading || performance.isLoading || salary.isLoading;
+  const error = members.error || performance.error || salary.error;
   const records = performance.data ?? [];
   const payroll = salary.data ?? [];
   const currentMonth = new Date().toISOString().slice(0, 7);
@@ -33,7 +33,7 @@ export default function AdminHomePage() {
         <StatCard label="工资核算进度" value={`${payroll.length - drafts}/${payroll.length}`} />
       </div>
       <Card className="mt-6"><CardHeader title="待审核业绩" action={<Link href="/admin/review" className="text-xs text-indigo-600">全部处理 →</Link>} /><CardContent className="p-0"><Table><THead><TH isRowHeader>主播</TH><TH>月份</TH><TH className="text-right">流水</TH><TH>状态</TH></THead><TBody>{pending.map((item) => <TR key={item.id}><TD>{item.profile?.name ?? "未关联"}</TD><TD>{formatMonth(item.month.slice(0, 7))}</TD><TD className="text-right">{formatCentsToYuan(item.revenue_cents)}</TD><TD><PerformanceStatusBadge status={item.status} /></TD></TR>)}</TBody></Table><QueryMessage loading={false} error={null} empty={!pending.length} /></CardContent></Card>
-      <p className="mt-4 text-sm text-slate-500">在职员工 {employees.data?.filter((item) => item.status === "active").length ?? 0} / {employees.data?.length ?? 0}</p>
+      <p className="mt-4 text-sm text-slate-500">在职成员 {members.data?.filter((item) => item.status === "active").length ?? 0} / {members.data?.length ?? 0}</p>
     </> : null}
   </>;
 }

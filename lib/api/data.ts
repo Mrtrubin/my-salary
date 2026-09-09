@@ -1,5 +1,6 @@
 import { ApiError, ApiErrorCode } from "@/lib/api/contracts/errors";
 import { getBrowserSupabase } from "@/lib/supabase/client";
+import { getPublicSupabaseEnv } from "@/lib/supabase/env";
 import type { Database } from "@/lib/supabase/database.types";
 
 export type PerformanceStatus = Database["public"]["Enums"]["performance_status"];
@@ -9,41 +10,170 @@ export type Position = Database["public"]["Tables"]["positions"]["Row"];
 export type PerformanceRecord = Database["public"]["Tables"]["performance_records"]["Row"] & { profile: Pick<Profile, "name"> | null; host: Pick<Profile, "name"> | null };
 export type SalaryScheme = Database["public"]["Tables"]["salary_schemes"]["Row"] & { profile: Pick<Profile, "name"> | null; position: Pick<Position, "name"> | null };
 export type SalaryRecord = Database["public"]["Tables"]["salary_records"]["Row"] & { profile: Pick<Profile, "name"> | null; position: Pick<Position, "name"> | null };
-export type Employee = Profile & { user_positions: { position: Position | null }[] };
+export type Member = Profile & { user_positions: { position: Position | null }[] };
 
 function fail(error: { message: string; code?: string } | null): never {
   throw new ApiError(error?.code === "42501" ? ApiErrorCode.FORBIDDEN : ApiErrorCode.UNKNOWN, error?.message ?? "数据请求失败", error);
 }
 
-export async function getCurrentProfile(): Promise<Employee | null> {
+export async function getCurrentProfile(): Promise<Member | null> {
   const supabase = getBrowserSupabase();
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) return null;
   const { data, error } = await supabase.from("profiles").select("*, user_positions(position:positions(*))").eq("auth_user_id", auth.user.id).maybeSingle();
   if (error) fail(error);
-  return data as Employee | null;
+  return data as Member | null;
 }
 
-export async function listEmployees(): Promise<Employee[]> {
+export async function listMembers(): Promise<Member[]> {
   const { data, error } = await getBrowserSupabase().from("profiles").select("*, user_positions(position:positions(*))").order("name");
   if (error) fail(error);
-  return data as Employee[];
+  return data as Member[];
 }
 
-export async function createEmployee(input: { name: string; phone: string; hireDate: string; positionIds: number[] }) {
+export interface CreateMemberInput {
+  /** 用户名（必填，允许 UTF-8，唯一）。 */
+  username: string;
+  /** 登录密码（必填，6-64 位）。 */
+  password: string;
+  /** 入职日期（必填，YYYY-MM-DD）。 */
+  hireDate: string;
+  /** 显示姓名（选填，缺省使用用户名）。 */
+  name?: string;
+  /** 手机号（选填）。 */
+  phone?: string;
+  /** 联系邮箱（选填）。 */
+  email?: string;
+  /** 身份证号（选填）。 */
+  idCard?: string;
+  /** 职位 ID 列表（选填）。 */
+  positionIds?: number[];
+}
+/**
+ * 管理员新增成员：经 admin-create-member Edge Function（service role）
+ * 一次性创建登录账号 + 成员资料 + 职位关联。普通客户端不可直接写 profiles。
+ */
+export async function createMember(input: CreateMemberInput): Promise<{ id: string }> {
+  const { url, anonKey } = getPublicSupabaseEnv();
   const supabase = getBrowserSupabase();
-  const { data, error } = await supabase.from("profiles").insert({ name: input.name, phone: input.phone, hire_date: input.hireDate }).select().single();
-  if (error) fail(error);
-  if (input.positionIds.length) {
-    const { error: positionError } = await supabase.from("user_positions").insert(input.positionIds.map((positionId) => ({ profile_id: data.id, position_id: positionId })));
-    if (positionError) fail(positionError);
+  const { data: sessionData } = await supabase.auth.getSession();
+
+  const response = await fetch(`${url}/functions/v1/admin-create-member`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: anonKey,
+      Authorization: `Bearer ${sessionData.session?.access_token ?? anonKey}`,
+    },
+    body: JSON.stringify({
+      username: input.username.trim(),
+      password: input.password,
+      name: input.name?.trim() ?? "",
+      phone: input.phone?.trim() ?? "",
+      email: input.email?.trim() ?? "",
+      idCard: input.idCard?.trim() ?? "",
+      hireDate: input.hireDate,
+      positionIds: input.positionIds ?? [],
+    }),
+  });
+
+  let body: { code?: string; message?: string; id?: string } = {};
+  try {
+    body = await response.json();
+  } catch {
+    throw new ApiError(ApiErrorCode.UNKNOWN, "新增成员服务响应异常", response.status);
   }
-  return data;
+
+  if (!response.ok) {
+    if (body.code === "USERNAME_TAKEN") {
+      throw new ApiError(ApiErrorCode.INVALID_INPUT, "该用户名已被占用");
+    }
+    if (body.code === "INVALID_INPUT") {
+      throw new ApiError(ApiErrorCode.INVALID_INPUT, body.message ?? "输入不合法");
+    }
+    if (body.code === "FORBIDDEN") {
+      throw new ApiError(ApiErrorCode.FORBIDDEN, body.message ?? "仅管理员可新增成员");
+    }
+    throw new ApiError(ApiErrorCode.UNKNOWN, body.message ?? "新增成员失败，请稍后再试");
+  }
+
+  return { id: body.id ?? "" };
 }
 
-export async function setEmployeeStatus(id: string, status: "active" | "disabled") {
+export async function setMemberStatus(id: string, status: "active" | "disabled") {
   const { error } = await getBrowserSupabase().from("profiles").update({ status, updated_at: new Date().toISOString() }).eq("id", id);
   if (error) fail(error);
+}
+
+export interface UpdateMemberInput {
+  /** 成员资料 ID（必填）。 */
+  id: string;
+  /** 用户名（选填，传入才更新；唯一，1-32 位）。 */
+  username?: string;
+  /** 重置登录密码（选填，传入非空才重置；6-64 位）。 */
+  password?: string;
+  /** 显示姓名（选填，传入才更新，不能为空）。 */
+  name?: string;
+  /** 手机号（选填）。 */
+  phone?: string;
+  /** 联系邮箱（选填，传空串表示清空）。 */
+  email?: string;
+  /** 入职日期（选填，YYYY-MM-DD）。 */
+  hireDate?: string;
+  /** 身份证号（选填，传空串表示清空）。 */
+  idCard?: string;
+  /** 在职状态（选填）。 */
+  status?: "active" | "disabled";
+  /** 职位 ID 列表（选填，传入即按全量覆盖）。 */
+  positionIds?: number[];
+}
+
+/**
+ * 管理员编辑成员：经 admin-update-member Edge Function（service role）
+ * 统一更新成员资料 + 职位关联 + 可选重置密码。未传字段保持不变。
+ */
+export async function updateMember(input: UpdateMemberInput): Promise<{ id: string }> {
+  const { url, anonKey } = getPublicSupabaseEnv();
+  const supabase = getBrowserSupabase();
+  const { data: sessionData } = await supabase.auth.getSession();
+
+  const body: Record<string, unknown> = { id: input.id };
+  if (input.username !== undefined) body.username = input.username.trim();
+  if (input.password !== undefined && input.password !== "") body.password = input.password;
+  if (input.name !== undefined) body.name = input.name.trim();
+  if (input.phone !== undefined) body.phone = input.phone.trim();
+  if (input.email !== undefined) body.email = input.email.trim();
+  if (input.hireDate !== undefined) body.hireDate = input.hireDate;
+  if (input.idCard !== undefined) body.idCard = input.idCard.trim();
+  if (input.status !== undefined) body.status = input.status;
+  if (input.positionIds !== undefined) body.positionIds = input.positionIds;
+
+  const response = await fetch(`${url}/functions/v1/admin-update-member`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: anonKey,
+      Authorization: `Bearer ${sessionData.session?.access_token ?? anonKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  let result: { code?: string; message?: string; id?: string } = {};
+  try {
+    result = await response.json();
+  } catch {
+    throw new ApiError(ApiErrorCode.UNKNOWN, "编辑成员服务响应异常", response.status);
+  }
+
+  if (!response.ok) {
+    if (result.code === "USERNAME_TAKEN") throw new ApiError(ApiErrorCode.INVALID_INPUT, "该用户名已被占用");
+    if (result.code === "EMAIL_TAKEN") throw new ApiError(ApiErrorCode.INVALID_INPUT, "该邮箱已被占用");
+    if (result.code === "INVALID_INPUT") throw new ApiError(ApiErrorCode.INVALID_INPUT, result.message ?? "输入不合法");
+    if (result.code === "FORBIDDEN") throw new ApiError(ApiErrorCode.FORBIDDEN, result.message ?? "仅管理员可编辑成员");
+    throw new ApiError(ApiErrorCode.UNKNOWN, result.message ?? "编辑成员失败，请稍后再试");
+  }
+
+  return { id: result.id ?? input.id };
 }
 
 export async function listPositions(): Promise<Position[]> {
