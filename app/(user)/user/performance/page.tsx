@@ -1,36 +1,78 @@
 "use client";
 
-import { PerformanceStatusBadge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useMemo } from "react";
+import { Button } from "@/components/ui/button";
 import { QueryMessage } from "@/components/query-message";
-import { usePerformance } from "@/lib/api/hooks";
-import { formatCentsToYuan, formatMonth } from "@/lib/format";
+import { useCurrentProfile, useTeamPerformance, useTeams } from "@/lib/api/hooks";
+import { TeamPerformanceCard, type DailyGroup } from "./TeamPerformanceCard";
 
 export default function UserPerformancePage() {
-  const query = usePerformance();
+  const router = useRouter();
+  const teamQuery = useTeamPerformance();
+  const profile = useCurrentProfile();
+  const teams = useTeams();
+
+  // 是否为某团队主持人：决定「上传绩效」入口与团队每日绩效视图是否显示
+  const isHost = useMemo(
+    () => !!profile.data?.id && (teams.data?.some((t) => t.host?.id === profile.data?.id) ?? false),
+    [teams.data, profile.data?.id],
+  );
+
+  // 按「团队 + 日期」聚合团队绩效记录，倒序排列成每日卡片。
+  // 同一成员同一绩效点同一天可能有多条记录，仅保留最新一条（不同绩效点各自保留）。
+  const dailyGroups = useMemo<DailyGroup[]>(() => {
+    const rows = teamQuery.data ?? [];
+    const map = new Map<string, DailyGroup>();
+    const seen = new Set<string>();
+    rows.forEach((r) => {
+      // 成员 + 绩效点 + 日期 维度去重：查询已按 created_at 倒序，首次遇到即最新。
+      const memberPointKey = `${r.profile_id}__${r.point_id ?? "none"}__${r.perf_date}`;
+      if (seen.has(memberPointKey)) return;
+      seen.add(memberPointKey);
+
+      const key = `${r.team_id}__${r.perf_date}`;
+      const g =
+        map.get(key) ??
+        {
+          key,
+          teamName: r.team?.name ?? "团队",
+          perfDate: r.perf_date,
+          broadcastMinutes: r.broadcast_minutes,
+          rows: [],
+        };
+      g.broadcastMinutes = Math.max(g.broadcastMinutes, r.broadcast_minutes);
+      g.rows.push(r);
+      map.set(key, g);
+    });
+    return Array.from(map.values()).sort((a, b) => b.perfDate.localeCompare(a.perfDate));
+  }, [teamQuery.data]);
 
   return (
     <div className="space-y-4">
-      <QueryMessage loading={query.isLoading} error={query.error} empty={!query.data?.length} />
+      {isHost ? (
+        <Link href="/user/performance/upload" className="block">
+          <Button className="w-full">上传绩效</Button>
+        </Link>
+      ) : null}
 
+      <QueryMessage
+        loading={teamQuery.isLoading}
+        error={teamQuery.error}
+        empty={!dailyGroups.length}
+      />
       <ul className="space-y-3">
-        {query.data?.map((item) => (
-          <li key={item.id}>
-            <Card className="px-5 py-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">{formatMonth(item.month.slice(0, 7))}</span>
-                <PerformanceStatusBadge status={item.status} />
-              </div>
-              <div className="mt-3 flex items-end justify-between">
-                <span className="text-xs text-muted">当月流水</span>
-                <span className="text-xl font-semibold tabular-nums tracking-tight">{formatCentsToYuan(item.revenue_cents)}</span>
-              </div>
-              {item.reject_reason ? (
-                <p className="mt-3 rounded-xl bg-red-50 px-3 py-2.5 text-xs leading-relaxed text-danger">
-                  驳回原因：{item.reject_reason}
-                </p>
-              ) : null}
-            </Card>
+        {dailyGroups.map((g) => (
+          <li key={g.key}>
+            <TeamPerformanceCard
+              group={g}
+              onEdit={
+                isHost
+                  ? () => router.push(`/user/performance/upload?editTeamId=${g.rows[0]?.team_id}&editDate=${g.perfDate}`)
+                  : undefined
+              }
+            />
           </li>
         ))}
       </ul>

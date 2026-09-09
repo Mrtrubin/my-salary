@@ -1,0 +1,1 @@
+alter table public.performance_records drop constraint if exists performance_records_month_check;

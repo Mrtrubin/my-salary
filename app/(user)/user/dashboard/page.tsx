@@ -3,7 +3,7 @@
 import { Card } from "@/components/ui/card";
 import { QueryMessage } from "@/components/query-message";
 import { useCurrentProfile, usePerformance, useSalaryRecords } from "@/lib/api/hooks";
-import { formatCentsToYuan, formatMonth } from "@/lib/format";
+import { formatCentsToYuan, formatDate, formatMonth } from "@/lib/format";
 
 export default function UserDashboardPage() {
   const profile = useCurrentProfile();
@@ -32,7 +32,7 @@ export default function UserDashboardPage() {
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium">最近业绩</h2>
           {latestPerformance ? (
-            <span className="text-xs text-muted">{formatMonth(latestPerformance.month.slice(0, 7))}</span>
+            <span className="text-xs text-muted">{formatDate(latestPerformance.month)}</span>
           ) : null}
         </div>
         {latestPerformance ? (

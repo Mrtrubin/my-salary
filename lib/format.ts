@@ -25,6 +25,12 @@ export function formatMonth(month: string): string {
   return `${y}年${Number(m)}月`;
 }
 
+/** "YYYY-MM-DD" → "YYYY年M月D日"。用于精确到日的绩效日期展示。 */
+export function formatDate(value: string): string {
+  const [y, m, d] = value.slice(0, 10).split("-");
+  return `${y}年${Number(m)}月${Number(d)}日`;
+}
+
 /** 当前月份 "YYYY-MM"。 */
 export function currentMonth(): string {
   const now = new Date();

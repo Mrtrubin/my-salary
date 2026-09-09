@@ -7,7 +7,7 @@ import { QueryMessage } from "@/components/query-message";
 import { PageHeader, StatCard } from "@/components/ui/stat-card";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { useMembers, usePerformance, useSalaryRecords } from "@/lib/api/hooks";
-import { formatCentsToYuan, formatMonth } from "@/lib/format";
+import { formatCentsToYuan, formatDate } from "@/lib/format";
 
 export default function AdminHomePage() {
   const members = useMembers();
@@ -32,7 +32,7 @@ export default function AdminHomePage() {
         <StatCard label="待审核业绩" value={`${pending.length} 条`} />
         <StatCard label="工资核算进度" value={`${payroll.length - drafts}/${payroll.length}`} />
       </div>
-      <Card className="mt-6"><CardHeader title="待审核业绩" action={<Link href="/admin/review" className="text-xs text-indigo-600">全部处理 →</Link>} /><CardContent className="p-0"><Table><THead><TH isRowHeader>主播</TH><TH>月份</TH><TH className="text-right">流水</TH><TH>状态</TH></THead><TBody>{pending.map((item) => <TR key={item.id}><TD>{item.profile?.name ?? "未关联"}</TD><TD>{formatMonth(item.month.slice(0, 7))}</TD><TD className="text-right">{formatCentsToYuan(item.revenue_cents)}</TD><TD><PerformanceStatusBadge status={item.status} /></TD></TR>)}</TBody></Table><QueryMessage loading={false} error={null} empty={!pending.length} /></CardContent></Card>
+      <Card className="mt-6"><CardHeader title="待审核业绩" action={<Link href="/admin/review" className="text-xs text-indigo-600">全部处理 →</Link>} /><CardContent className="p-0"><Table><THead><TH isRowHeader>主播</TH><TH>日期</TH><TH className="text-right">流水</TH><TH>状态</TH></THead><TBody>{pending.map((item) => <TR key={item.id}><TD>{item.profile?.name ?? "未关联"}</TD><TD>{formatDate(item.month)}</TD><TD className="text-right">{formatCentsToYuan(item.revenue_cents)}</TD><TD><PerformanceStatusBadge status={item.status} /></TD></TR>)}</TBody></Table><QueryMessage loading={false} error={null} empty={!pending.length} /></CardContent></Card>
       <p className="mt-4 text-sm text-slate-500">在职成员 {members.data?.filter((item) => item.status === "active").length ?? 0} / {members.data?.length ?? 0}</p>
     </> : null}
   </>;
