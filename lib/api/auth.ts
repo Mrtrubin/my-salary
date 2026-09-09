@@ -105,6 +105,9 @@ export async function signUpWithUsername(input: SignUpInput): Promise<void> {
   }
 }
 
+/** 密码最小长度（与注册保持一致）。 */
+export const PASSWORD_MIN_LENGTH = 6;
+
 /** 登出当前会话。 */
 export async function signOut(): Promise<void> {
   const supabase = getBrowserSupabase();

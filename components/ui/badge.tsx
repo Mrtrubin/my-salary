@@ -1,6 +1,6 @@
 import { Chip } from "@heroui/react";
 import type { ReactNode } from "react";
-import type { PerformanceStatus, SalaryRecordStatus } from "@/lib/api/data";
+import type { ChangeRequestStatus, PerformanceStatus, SalaryRecordStatus } from "@/lib/api/data";
 
 type Tone = "slate" | "indigo" | "green" | "amber" | "red";
 
@@ -39,7 +39,17 @@ export function PerformanceStatusBadge({ status }: { status: PerformanceStatus }
   return <Badge tone={tone}>{label}</Badge>;
 }
 
-/** 工资记录状态徽章（已确认/已发布只冲正不覆盖）。 */
+/** 资料修改申请状态徽章（字段级独立审核）。 */
+export function ChangeRequestStatusBadge({ status }: { status: ChangeRequestStatus }) {
+  const map: Record<ChangeRequestStatus, { tone: Tone; label: string }> = {
+    pending: { tone: "amber", label: "待审核" },
+    approved: { tone: "green", label: "已通过" },
+    rejected: { tone: "red", label: "已驳回" },
+    superseded: { tone: "slate", label: "已作废" },
+  };
+  const { tone, label } = map[status];
+  return <Badge tone={tone}>{label}</Badge>;
+}
 export function SalaryRecordStatusBadge({ status }: { status: SalaryRecordStatus }) {
   const map: Record<SalaryRecordStatus, { tone: Tone; label: string }> = {
     draft: { tone: "slate", label: "草稿" },

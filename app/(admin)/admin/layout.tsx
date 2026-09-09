@@ -9,7 +9,7 @@ import { signOut } from "@/lib/api/auth";
 import { useCurrentProfile } from "@/lib/api/hooks";
 import { Logo } from "@/components/logo";
 
-const NAV_ITEMS = [{ href: "/admin", label: "控制台" }, { href: "/admin/members", label: "成员管理" }, { href: "/admin/teams", label: "团队管理" }, { href: "/admin/positions", label: "职位与权限" }, { href: "/admin/schemes", label: "工资方案" }, { href: "/admin/review", label: "业绩审核" }, { href: "/admin/payroll", label: "工资核算" }];
+const NAV_ITEMS = [{ href: "/admin", label: "控制台" }, { href: "/admin/members", label: "成员管理" }, { href: "/admin/teams", label: "团队管理" }, { href: "/admin/positions", label: "职位与权限" }, { href: "/admin/schemes", label: "工资方案" }, { href: "/admin/review", label: "业绩审核" }, { href: "/admin/change-requests", label: "资料审核" }, { href: "/admin/payroll", label: "工资核算" }];
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();

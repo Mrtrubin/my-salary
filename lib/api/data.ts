@@ -260,3 +260,96 @@ export async function removeTeamMember(teamId: string, profileId: string) {
   const { error } = await getBrowserSupabase().from("team_members").delete().eq("team_id", teamId).eq("profile_id", profileId);
   if (error) fail(error);
 }
+
+// ==================== 成员资料修改申请（字段级审核）====================
+
+export type ChangeRequestStatus = Database["public"]["Enums"]["change_request_status"];
+export type ChangeableField = "name" | "phone" | "email" | "id_card";
+export type ProfileChangeRequest = Database["public"]["Tables"]["profile_change_requests"]["Row"] & { profile: Pick<Profile, "name"> | null };
+
+/** 成员可申请修改的字段 → 中文标签（用户端表单与管理端展示共用）。 */
+export const EDITABLE_PROFILE_FIELDS: { field: ChangeableField; label: string; type: "text" | "email" }[] = [
+  { field: "name", label: "姓名", type: "text" },
+  { field: "phone", label: "手机号", type: "text" },
+  { field: "email", label: "邮箱", type: "email" },
+  { field: "id_card", label: "身份证号", type: "text" },
+];
+
+/** 成员查看自己的资料修改申请（含 pending 与历史）。 */
+export async function listMyChangeRequests(): Promise<ProfileChangeRequest[]> {
+  const supabase = getBrowserSupabase();
+  const profileId = await getCurrentProfileId();
+  if (!profileId) return [];
+  const { data, error } = await supabase
+    .from("profile_change_requests")
+    .select("*")
+    .eq("profile_id", profileId)
+    .order("created_at", { ascending: false });
+  if (error) fail(error);
+  return data as unknown as ProfileChangeRequest[];
+}
+
+/** 管理员查看全部待审核申请（关联申请人姓名）。 */
+export async function listPendingChangeRequests(): Promise<ProfileChangeRequest[]> {
+  const { data, error } = await getBrowserSupabase()
+    .from("profile_change_requests")
+    .select("*, profile:profiles!profile_change_requests_profile_id_fkey(name)")
+    .eq("status", "pending")
+    .order("created_at", { ascending: true });
+  if (error) fail(error);
+  return data as unknown as ProfileChangeRequest[];
+}
+
+async function getCurrentProfileId(): Promise<string | null> {
+  const supabase = getBrowserSupabase();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth.user) return null;
+  const { data } = await supabase.from("profiles").select("id").eq("auth_user_id", auth.user.id).maybeSingle();
+  return data?.id ?? null;
+}
+
+async function callEdgeFunction(name: string, body: unknown): Promise<Record<string, unknown>> {
+  const { url, anonKey } = getPublicSupabaseEnv();
+  const supabase = getBrowserSupabase();
+  const { data: sessionData } = await supabase.auth.getSession();
+  const response = await fetch(`${url}/functions/v1/${name}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: anonKey, Authorization: `Bearer ${sessionData.session?.access_token ?? anonKey}` },
+    body: JSON.stringify(body),
+  });
+  let result: Record<string, unknown> = {};
+  try {
+    result = await response.json();
+  } catch {
+    throw new ApiError(ApiErrorCode.UNKNOWN, "服务响应异常", response.status);
+  }
+  if (!response.ok) {
+    const code = result.code as string | undefined;
+    const message = (result.message as string | undefined) ?? "操作失败，请稍后再试";
+    if (code === "FORBIDDEN") throw new ApiError(ApiErrorCode.FORBIDDEN, message);
+    if (code === "INVALID_INPUT" || code === "EMAIL_TAKEN") throw new ApiError(ApiErrorCode.INVALID_INPUT, message);
+    throw new ApiError(ApiErrorCode.UNKNOWN, message);
+  }
+  return result;
+}
+
+/** 成员批量提交资料修改申请（覆盖同字段旧 pending）。 */
+export async function submitProfileChanges(changes: { field: ChangeableField; newValue: string }[]): Promise<{ batchId: string; count: number }> {
+  const result = await callEdgeFunction("submit-profile-changes", { changes });
+  return { batchId: (result.batchId as string) ?? "", count: (result.count as number) ?? 0 };
+}
+
+/** 管理员审核申请：approve / reject（reject 需 reason），支持单条/多条/一键。 */
+export async function reviewProfileChanges(input: { ids: string[]; action: "approve" | "reject"; reason?: string }): Promise<{ approved: number; rejected: number }> {
+  const result = await callEdgeFunction("review-profile-change", { ids: input.ids, action: input.action, reason: input.reason });
+  return { approved: (result.approved as number) ?? 0, rejected: (result.rejected as number) ?? 0 };
+}
+
+/**
+ * 成员提交「修改密码」申请（走管理员审核）。
+ * 提交时用当前密码校验身份；新密码由 Edge Function 加密后存储，审核通过才写入 Auth。
+ */
+export async function submitPasswordChange(input: { currentPassword: string; newPassword: string }): Promise<{ batchId: string }> {
+  const result = await callEdgeFunction("submit-password-change", { currentPassword: input.currentPassword, newPassword: input.newPassword });
+  return { batchId: (result.batchId as string) ?? "" };
+}

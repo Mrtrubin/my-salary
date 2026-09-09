@@ -9,13 +9,18 @@ import {
   deleteTeam,
   getCurrentProfile,
   listMembers,
+  listMyChangeRequests,
+  listPendingChangeRequests,
   listPerformance,
   listPositions,
   listSalaryRecords,
   listSchemes,
   listTeams,
   removeTeamMember,
+  reviewProfileChanges,
   setMemberStatus,
+  submitProfileChanges,
+  submitPasswordChange,
   updateMember,
   updatePerformanceStatus,
   updateSalaryStatus,
@@ -30,6 +35,7 @@ export const keys = {
   schemes: ["schemes"] as const,
   salary: ["salary"] as const,
   teams: ["teams"] as const,
+  changeRequests: ["changeRequests"] as const,
 };
 export function useCurrentProfile() { return useQuery({ queryKey: keys.profile, queryFn: getCurrentProfile }); }
 export function useMembers() { return useQuery({ queryKey: keys.members, queryFn: listMembers }); }
@@ -82,4 +88,18 @@ export function useAddTeamMembers() {
 export function useRemoveTeamMember() {
   const client = useQueryClient();
   return useMutation({ mutationFn: ({ teamId, profileId }: { teamId: string; profileId: string }) => removeTeamMember(teamId, profileId), onSuccess: () => client.invalidateQueries({ queryKey: keys.teams }) });
+}
+export function useMyChangeRequests() { return useQuery({ queryKey: keys.changeRequests, queryFn: listMyChangeRequests }); }
+export function usePendingChangeRequests() { return useQuery({ queryKey: keys.changeRequests, queryFn: listPendingChangeRequests }); }
+export function useSubmitProfileChanges() {
+  const client = useQueryClient();
+  return useMutation({ mutationFn: submitProfileChanges, onSuccess: () => { client.invalidateQueries({ queryKey: keys.profile }); client.invalidateQueries({ queryKey: keys.changeRequests }); } });
+}
+export function useReviewProfileChanges() {
+  const client = useQueryClient();
+  return useMutation({ mutationFn: reviewProfileChanges, onSuccess: () => { client.invalidateQueries({ queryKey: keys.members }); client.invalidateQueries({ queryKey: keys.changeRequests }); } });
+}
+export function useSubmitPasswordChange() {
+  const client = useQueryClient();
+  return useMutation({ mutationFn: submitPasswordChange, onSuccess: () => { client.invalidateQueries({ queryKey: keys.changeRequests }); } });
 }
