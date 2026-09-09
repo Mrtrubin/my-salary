@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">MY SALARY 古典币章</title>
+  <desc id="desc">黑色方形背景上的白色古典人民币币章</desc>
+  <rect width="512" height="512" fill="#000000"/>
+  <circle cx="256" cy="256" r="176" fill="#ffffff"/>
+  <circle cx="256" cy="256" r="143" fill="#000000"/>
+  <text x="256" y="322" fill="#ffffff" font-family="Georgia, 'Times New Roman', serif" font-size="190" font-weight="700" text-anchor="middle">¥</text>
+</svg>

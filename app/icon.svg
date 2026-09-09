@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="768" height="773" viewBox="0 0 768 773" role="img" aria-labelledby="title desc">
+  <title id="title">Geometric two-color logo</title>
+  <desc id="desc">Black geometric frame containing orange and mint-green squares.</desc>
+  <rect width="768" height="773" fill="#ffffff"/>
+  <path fill="#11120f" d="M6 4h570v46H402v311h364v411H6V566h47v157h301V406H6V4Zm396 403v316h315V407H402Z"/>
+  <rect x="54" y="51" width="300" height="309" fill="#ef7c3d"/>
+  <rect x="402" y="407" width="315" height="316" fill="#82c2b4"/>
+</svg>
