@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input, FormField } from "@/components/ui/input";
 import { signOut, PASSWORD_MIN_LENGTH } from "@/lib/api/auth";
 import { useMyChangeRequests, useSubmitPasswordChange } from "@/lib/api/hooks";
+import { clearCachedProfile } from "@/lib/api/profile-cache";
 
 export default function UserSettingsPage() {
   const router = useRouter();
@@ -31,6 +32,7 @@ export default function UserSettingsPage() {
   async function logout() {
     await signOut();
     queryClient.clear();
+    clearCachedProfile();
     router.replace("/login");
   }
 

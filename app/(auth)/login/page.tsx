@@ -19,6 +19,7 @@ import { Logo } from "@/components/logo";
 import { USERNAME_PATTERN, signInWithPassword, signUpWithUsername, signOut } from "@/lib/api/auth";
 import { getCurrentProfile } from "@/lib/api/data";
 import { keys } from "@/lib/api/hooks";
+import { writeCachedProfile } from "@/lib/api/profile-cache";
 import { ApiError, ApiErrorCode } from "@/lib/api/contracts/errors";
 
 const loginSchema = z.object({
@@ -75,6 +76,7 @@ export default function LoginPage() {
       }
       queryClient.clear();
       queryClient.setQueryData(keys.profile, profile);
+      writeCachedProfile(profile);
       router.push(profile.system_role === "admin" ? "/admin" : "/user/dashboard");
     } catch (error) {
       if (error instanceof ApiError && error.code === ApiErrorCode.UNAUTHENTICATED) {
@@ -107,6 +109,7 @@ export default function LoginPage() {
       }
       queryClient.clear();
       queryClient.setQueryData(keys.profile, profile);
+      writeCachedProfile(profile);
       router.push(profile.system_role === "admin" ? "/admin" : "/user/dashboard");
     } catch (error) {
       if (error instanceof ApiError && error.code === ApiErrorCode.INVALID_INPUT) {

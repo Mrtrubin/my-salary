@@ -37,6 +37,7 @@ import {
   updateTeamPerformanceStatus,
   updateTeam,
 } from "./data";
+import { readCachedProfile, writeCachedProfile } from "./profile-cache";
 
 export const keys = {
   profile: ["profile"] as const,
@@ -49,7 +50,23 @@ export const keys = {
   teams: ["teams"] as const,
   changeRequests: ["changeRequests"] as const,
 };
-export function useCurrentProfile() { return useQuery({ queryKey: keys.profile, queryFn: getCurrentProfile }); }
+export function useCurrentProfile() {
+  const cached = typeof window !== "undefined" ? readCachedProfile() : null;
+  return useQuery({
+    queryKey: keys.profile,
+    queryFn: async () => {
+      const profile = await getCurrentProfile();
+      writeCachedProfile(profile);
+      return profile;
+    },
+    staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+    initialData: cached ?? undefined,
+  });
+}
 export function useMembers() { return useQuery({ queryKey: keys.members, queryFn: listMembers }); }
 export function usePositions() { return useQuery({ queryKey: keys.positions, queryFn: listPositions }); }
 export function usePerformance() { return useQuery({ queryKey: keys.performance, queryFn: listPerformance }); }

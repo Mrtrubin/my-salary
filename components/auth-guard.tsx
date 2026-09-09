@@ -10,8 +10,8 @@ export function AuthGuard({ role, children }: { role: "admin" | "user"; children
   useEffect(() => {
     if (!profile.isLoading && (!profile.data || profile.data.system_role !== role)) router.replace("/login");
   }, [profile.data, profile.isLoading, role, router]);
-  if (profile.isLoading) return <div className="p-8 text-sm text-slate-500">正在验证登录状态…</div>;
+  // 已有缓存数据时直接放行（后台可静默重新验证），避免切换页面时闪现占位符
+  if (profile.data) return profile.data.system_role === role ? children : null;
   if (profile.error) return <div className="p-8 text-sm text-red-600">无法读取账号信息</div>;
-  if (!profile.data || profile.data.system_role !== role) return null;
-  return children;
+  return null;
 }

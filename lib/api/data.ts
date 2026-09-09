@@ -18,9 +18,11 @@ function fail(error: { message: string; code?: string } | null): never {
 
 export async function getCurrentProfile(): Promise<Member | null> {
   const supabase = getBrowserSupabase();
-  const { data: auth } = await supabase.auth.getUser();
-  if (!auth.user) return null;
-  const { data, error } = await supabase.from("profiles").select("*, user_positions(position:positions(*))").eq("auth_user_id", auth.user.id).maybeSingle();
+  // 使用 getSession() 读取本地持久化会话，避免每次都向 Supabase 发起 getUser() 网络校验请求
+  const { data: session } = await supabase.auth.getSession();
+  const userId = session.session?.user.id;
+  if (!userId) return null;
+  const { data, error } = await supabase.from("profiles").select("*, user_positions(position:positions(*))").eq("auth_user_id", userId).maybeSingle();
   if (error) fail(error);
   return data as Member | null;
 }
