@@ -7,6 +7,7 @@ import {
   addTeamPerformancePoint,
   createMember,
   createPerformancePoint,
+  createPosition,
   createPerformanceRecords,
   createScheme,
   createTeam,
@@ -42,6 +43,7 @@ import {
   updateMember,
   updatePerformancePoint,
   updatePerformanceStatus,
+  updatePosition,
   updateTeamPerformanceStatus,
   updateTeam,
 } from "./data";
@@ -83,6 +85,14 @@ export function useCurrentProfile() {
 }
 export function useMembers() { return useQuery({ queryKey: keys.members, queryFn: listMembers }); }
 export function usePositions() { return useQuery({ queryKey: keys.positions, queryFn: listPositions }); }
+export function useCreatePosition() {
+  const client = useQueryClient();
+  return useMutation({ mutationFn: createPosition, onSuccess: () => client.invalidateQueries({ queryKey: keys.positions }) });
+}
+export function useUpdatePosition() {
+  const client = useQueryClient();
+  return useMutation({ mutationFn: ({ id, ...input }: { id: number; code?: string; name?: string }) => updatePosition(id, input), onSuccess: () => client.invalidateQueries({ queryKey: keys.positions }) });
+}
 export function usePerformance() { return useQuery({ queryKey: keys.performance, queryFn: listPerformance }); }
 export function useTeamPerformance() { return useQuery({ queryKey: keys.teamPerformance, queryFn: listTeamPerformance }); }
 export function useSchemes() { return useQuery({ queryKey: keys.schemes, queryFn: listSchemes }); }

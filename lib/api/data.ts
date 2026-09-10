@@ -186,6 +186,34 @@ export async function listPositions(): Promise<Position[]> {
   return data;
 }
 
+export interface PositionInput {
+  /** 职位编码（必填，唯一，非空）。 */
+  code: string;
+  /** 职位名称（必填，唯一，非空）。 */
+  name: string;
+}
+
+/** 管理员新增职位。 */
+export async function createPosition(input: PositionInput): Promise<Position> {
+  const { data, error } = await getBrowserSupabase()
+    .from("positions")
+    .insert({ code: input.code.trim(), name: input.name.trim() })
+    .select()
+    .single();
+  if (error) fail(error);
+  return data;
+}
+
+/** 管理员编辑职位（code/name）。 */
+export async function updatePosition(id: number, input: Partial<PositionInput>): Promise<Position> {
+  const body: Database["public"]["Tables"]["positions"]["Update"] = {};
+  if (input.code !== undefined) body.code = input.code.trim();
+  if (input.name !== undefined) body.name = input.name.trim();
+  const { data, error } = await getBrowserSupabase().from("positions").update(body).eq("id", id).select().single();
+  if (error) fail(error);
+  return data;
+}
+
 export async function listPerformance(): Promise<PerformanceRecord[]> {
   const { data, error } = await getBrowserSupabase().from("performance_records").select("*, profile:profiles!performance_records_profile_id_fkey(name), host:profiles!performance_records_host_profile_id_fkey(name)").order("month", { ascending: false });
   if (error) fail(error);
