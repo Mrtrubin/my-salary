@@ -17,6 +17,7 @@ const STATUS_OPTIONS: { value: "all" | PerformanceStatus; label: string }[] = [
   { value: "approved", label: "已通过" },
   { value: "rejected", label: "已驳回" },
   { value: "pending", label: "待审核" },
+  { value: "voided", label: "已作废" },
 ];
 
 function toHours(minutes: number): string {
@@ -94,14 +95,16 @@ export default function TeamReviewPage() {
               <TH className="text-right">操作</TH>
             </THead>
             <TBody>
-              {filtered.map((item) => (
+              {filtered.map((item) => {
+                const voided = item.status === "voided";
+                return (
                 <TR key={item.id}>
-                  <TD>{formatDate(item.perf_date)}</TD>
-                  <TD>{item.team?.name ?? "—"}</TD>
-                  <TD>{item.profile?.name ?? "—"}</TD>
-                  <TD>{item.no_perf ? (item.no_perf_note || "停播") : (item.point?.name ?? "—")}</TD>
-                  <TD className="text-right">{toHours(item.broadcast_minutes)}</TD>
-                  <TD className="text-right">{item.no_perf ? "—" : item.points_amount.toLocaleString()}</TD>
+                  <TD className={voided ? "line-through text-slate-400" : undefined}>{formatDate(item.perf_date)}</TD>
+                  <TD className={voided ? "line-through text-slate-400" : undefined}>{item.team?.name ?? "—"}</TD>
+                  <TD className={voided ? "line-through text-slate-400" : undefined}>{item.profile?.name ?? "—"}</TD>
+                  <TD className={voided ? "line-through text-slate-400" : undefined}>{item.no_perf ? (item.no_perf_note || "停播") : (item.point?.name ?? "—")}</TD>
+                  <TD className={`text-right${voided ? " line-through text-slate-400" : ""}`}>{toHours(item.broadcast_minutes)}</TD>
+                  <TD className={`text-right${voided ? " line-through text-slate-400" : ""}`}>{item.no_perf ? "—" : item.points_amount.toLocaleString()}</TD>
                   <TD>
                     <PerformanceStatusBadge status={item.status} />
                     {item.reject_reason ? <p className="text-xs text-red-600">{item.reject_reason}</p> : null}
@@ -111,6 +114,8 @@ export default function TeamReviewPage() {
                       <Button variant="secondary" onClick={() => mutation.mutate({ id: item.id, status: "approved" })}>
                         恢复通过
                       </Button>
+                    ) : item.status === "voided" ? (
+                      "—"
                     ) : (
                       <Button variant="danger" onClick={() => setRejectingId(item.id)}>
                         驳回
@@ -118,7 +123,8 @@ export default function TeamReviewPage() {
                     )}
                   </TD>
                 </TR>
-              ))}
+                );
+              })}
             </TBody>
           </Table>
         </CardContent>

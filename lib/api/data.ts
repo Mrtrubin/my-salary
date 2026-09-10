@@ -451,6 +451,21 @@ export async function rejectAndRecompute(id: string, _options?: { operatorProfil
     .lte("perf_date", record.period_end);
   if (perfError) fail(perfError);
 
+  // 上月是否达标：取该成员+岗位 period_end < 本月周期起始的最近一条记录 is_qualified。
+  // 无上月记录视为达标（保底优先，沿用初始保底）。
+  const { data: lastMonthRows, error: lastMonthError } = await supabase
+    .from("salary_records")
+    .select("is_qualified")
+    .eq("team_id", record.team_id)
+    .eq("profile_id", record.profile_id)
+    .eq("position_id", record.position_id)
+    .lt("period_end", record.period_start)
+    .order("period_end", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (lastMonthError) fail(lastMonthError);
+  const lastMonthQualified = lastMonthRows?.is_qualified ?? true;
+
   const [draft] = aggregateSettlement(
     { start: record.period_start, end: record.period_end },
     [{
@@ -461,9 +476,8 @@ export async function rejectAndRecompute(id: string, _options?: { operatorProfil
         baseSalaryInCents: scheme.base_salary_cents,
         guaranteedSalaryInCents: scheme.guaranteed_salary_cents,
         thresholdMultiplierBps: scheme.threshold_multiplier_bps,
-        commissionRateBps: scheme.commission_rate_bps,
       },
-      commissionRateBps: scheme.commission_rate_bps,
+      lastMonthQualified,
       hireDate: profile.hire_date,
     }],
     (perfRows ?? []).map((r) => ({ profileId: r.profile_id, perfDate: r.perf_date, revenueCents: r.revenue_cents })),
@@ -474,7 +488,10 @@ export async function rejectAndRecompute(id: string, _options?: { operatorProfil
     p_id: id,
     p_revenue_cents: draft.revenueCents,
     p_tenure_month: draft.tenureMonth,
+    p_base_guarantee_cents: draft.baseGuaranteeCents,
     p_threshold_cents: draft.thresholdCents,
+    p_commission_start_cents: draft.commissionStartCents,
+    p_commission_rate_bps: draft.commissionRateBps,
     p_is_qualified: draft.isQualified,
     p_is_grace_period: draft.isGracePeriod,
     p_guaranteed_component_cents: draft.guaranteedComponentCents,
@@ -482,7 +499,6 @@ export async function rejectAndRecompute(id: string, _options?: { operatorProfil
     p_gross_cents: draft.grossCents,
     p_service_fee_cents: draft.serviceFeeCents,
     p_net_cents: draft.netCents,
-    p_commission_rate_bps: draft.commissionRateBps,
     p_note: "管理员驳回，已按当前流水重新计算",
   });
   if (rpcError) {
@@ -503,6 +519,32 @@ export async function listSalaryStatusLogs(salaryRecordId: string): Promise<Sala
     .order("created_at", { ascending: true });
   if (error) fail(error);
   return data as unknown as SalaryStatusLog[];
+}
+
+export interface SettlePayrollResult {
+  code: string;
+  message: string;
+  asOf?: string;
+  settledTeams: number;
+  settledRecords: number;
+  failedTeams?: { teamId: string; error: string }[];
+}
+
+/**
+ * 管理员手动触发工资核算：全量 recheck 所有活跃团队成员的未结算/需重算周期。
+ * 不传 teamId 则核算全部团队；传 teamId 则仅核算该团队。走 settle-team-payroll Edge Function（service_role），
+ * 幂等：已锁定（confirmed/completed）的周期跳过，业绩未变更的待审周期跳过。
+ */
+export async function settleTeamPayroll(teamId?: string, asOfDate?: string): Promise<SettlePayrollResult> {
+  const result = await callEdgeFunction("settle-team-payroll", { teamId, asOfDate });
+  return {
+    code: result.code as string ?? "OK",
+    message: result.message as string ?? "",
+    asOf: result.asOf as string | undefined,
+    settledTeams: (result.settledTeams as number) ?? 0,
+    settledRecords: (result.settledRecords as number) ?? 0,
+    failedTeams: (result.failedTeams as { teamId: string; error: string }[]) ?? [],
+  };
 }
 
 /**

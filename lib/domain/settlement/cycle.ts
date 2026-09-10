@@ -72,6 +72,40 @@ function prevDay(date: string): string {
   return toDate(py, pm, daysInMonth(py, pm));
 }
 
+/** 后一天（跨月/跨年安全）。 */
+export function nextDay(date: string): string {
+  const [y, m, d] = parts(date);
+  const max = daysInMonth(y, m);
+  if (d < max) return toDate(y, m, d + 1);
+  const [ny, nm] = addMonths(y, m, 1);
+  return toDate(ny, nm, 1);
+}
+
+/**
+ * 从 `seedDate`（含）起，按团队结算周期依次枚举连续周期区间，直到覆盖 `asOfDate`（含）。
+ * 返回的周期按时间正序排列，相邻周期间无空隙、无重叠。用于「全量 recheck」补齐历史未结算周期。
+ * 例：monthly 且 seed=2026-08-15, asOf=2026-09-10 → [08-01..08-31, 09-01..09-30]。
+ */
+export function listPeriodRangesFrom(
+  type: SettlementType,
+  startDay: number,
+  seedDate: string,
+  asOfDate: string,
+): PeriodRange[] {
+  assertDate(seedDate);
+  assertDate(asOfDate);
+  const ranges: PeriodRange[] = [];
+  let cursor: string = seedDate;
+  // 防御：极端异常日期最多迭代 1200 个周期（约 100 年），避免死循环。
+  for (let i = 0; i < 1200; i += 1) {
+    if (cursor > asOfDate) break;
+    const range = getPeriodRange(type, startDay, cursor);
+    ranges.push(range);
+    cursor = nextDay(range.end);
+  }
+  return ranges;
+}
+
 /**
  * 计算包含指定日期 `date` 的当前结算周期区间。
  * monthly：当月 1 号 → 当月最后一天。

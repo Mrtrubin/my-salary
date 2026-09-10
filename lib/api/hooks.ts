@@ -35,6 +35,7 @@ import {
   rejectAndRecompute,
   listSalaryStatusLogs,
   confirmSalaryRecord,
+  settleTeamPayroll,
   listNotifications,
   markNotificationRead,
   markAllNotificationsRead,
@@ -166,6 +167,16 @@ export function useConfirmSalaryRecord() {
   return useMutation({
     mutationFn: ({ id, profileId }: { id: string; profileId: string }) => confirmSalaryRecord(id, profileId),
     onSuccess: () => client.invalidateQueries({ queryKey: keys.salary }),
+  });
+}
+export function useSettleTeamPayroll() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ teamId, asOfDate }: { teamId?: string; asOfDate?: string } = {}) => settleTeamPayroll(teamId, asOfDate),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: keys.salary });
+      client.invalidateQueries({ queryKey: keys.teams });
+    },
   });
 }
 export function useNotifications(profileId: string | null) {

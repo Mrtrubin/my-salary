@@ -242,7 +242,9 @@ export type Database = {
       }
       salary_records: {
         Row: {
+          base_guarantee_cents: number
           commission_rate_bps: number
+          commission_start_cents: number
           created_at: string
           gross_cents: number
           guaranteed_component_cents: number
@@ -273,7 +275,9 @@ export type Database = {
           completed_by: string | null
         }
         Insert: {
+          base_guarantee_cents?: number
           commission_rate_bps: number
+          commission_start_cents?: number
           created_at?: string
           gross_cents: number
           guaranteed_component_cents: number
@@ -304,7 +308,9 @@ export type Database = {
           completed_by?: string | null
         }
         Update: {
+          base_guarantee_cents?: number
           commission_rate_bps?: number
+          commission_start_cents?: number
           created_at?: string
           gross_cents?: number
           guaranteed_component_cents?: number
@@ -361,7 +367,6 @@ export type Database = {
       salary_schemes: {
         Row: {
           base_salary_cents: number
-          commission_rate_bps: number
           created_at: string
           effective_from: string
           guaranteed_salary_cents: number
@@ -375,7 +380,6 @@ export type Database = {
         }
         Insert: {
           base_salary_cents: number
-          commission_rate_bps: number
           created_at?: string
           effective_from: string
           guaranteed_salary_cents: number
@@ -389,7 +393,6 @@ export type Database = {
         }
         Update: {
           base_salary_cents?: number
-          commission_rate_bps?: number
           created_at?: string
           effective_from?: string
           guaranteed_salary_cents?: number
@@ -760,6 +763,7 @@ export type Database = {
           p_period_start: string
           p_period_end: string
           p_members: Json
+          p_force?: boolean
         }
         Returns: number
       }
@@ -768,7 +772,10 @@ export type Database = {
           p_id: string
           p_revenue_cents: number
           p_tenure_month: number
+          p_base_guarantee_cents: number
           p_threshold_cents: number
+          p_commission_start_cents: number
+          p_commission_rate_bps: number
           p_is_qualified: boolean
           p_is_grace_period: boolean
           p_guaranteed_component_cents: number
@@ -776,7 +783,6 @@ export type Database = {
           p_gross_cents: number
           p_service_fee_cents: number
           p_net_cents: number
-          p_commission_rate_bps: number
           p_note?: string | null
         }
         Returns: undefined
@@ -785,7 +791,7 @@ export type Database = {
     Enums: {
       change_request_status: "pending" | "approved" | "rejected" | "superseded"
       employment_status: "active" | "disabled"
-      performance_status: "draft" | "pending" | "approved" | "rejected"
+      performance_status: "draft" | "pending" | "approved" | "rejected" | "voided"
       salary_record_status: "pending_review" | "pending_confirm" | "confirmed" | "completed"
       scheme_status: "active" | "archived"
       system_role: "admin" | "user"
@@ -919,7 +925,7 @@ export const Constants = {
     Enums: {
       change_request_status: ["pending", "approved", "rejected", "superseded"],
       employment_status: ["active", "disabled"],
-      performance_status: ["draft", "pending", "approved", "rejected"],
+      performance_status: ["draft", "pending", "approved", "rejected", "voided"],
       salary_record_status: ["pending_review", "pending_confirm", "confirmed", "completed"],
       scheme_status: ["active", "archived"],
       system_role: ["admin", "user"],

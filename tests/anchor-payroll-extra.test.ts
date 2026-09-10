@@ -6,7 +6,6 @@ const scheme: AnchorSalaryScheme = {
   baseSalaryInCents: 800000,
   guaranteedSalaryInCents: 500000,
   thresholdMultiplierBps: 26500,
-  commissionRateBps: 2000,
 };
 
 const THRESHOLD = 2120000; // 800000 × 2.65
@@ -26,21 +25,24 @@ describe("主播工资计算器 - 服务费费率", () => {
   });
 });
 
-describe("主播工资计算器 - 高额流水", () => {
-  it("流水 30 万：绩效按全部流水 20% 计提", () => {
+describe("主播工资计算器 - 高额流水阶梯提成", () => {
+  it("流水 30 万：25% 封顶计提", () => {
     const revenue = 30000000; // 300,000 元
     const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: revenue, tenureMonth: 8 });
-    const perf = 6000000; // floor(30000000 × 20%)
+    expect(r.commissionRateBps).toBe(2500);
+    const perf = 7500000; // floor(30000000 × 25%)
     expect(r.performanceComponentInCents).toBe(perf);
     expect(r.grossSalaryInCents).toBe(800000 + perf);
-    // 服务费 = ceil(6800000 × 3%) = 204000
-    expect(r.serviceFeeInCents).toBe(204000);
-    expect(r.netSalaryInCents).toBe(6800000 - 204000);
+    // 服务费 = ceil(8300000 × 3%) = 249000
+    expect(r.serviceFeeInCents).toBe(249000);
+    expect(r.netSalaryInCents).toBe(8300000 - 249000);
   });
 
-  it("非整除流水向下取整：3123456 分 × 20% = 624691.2 → 624691", () => {
-    const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: 3123456, tenureMonth: 8 });
-    expect(r.performanceComponentInCents).toBe(624691);
+  it("非整除流水向下取整：8123456 分 → 24% 提成取整", () => {
+    const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: 8123456, tenureMonth: 8 });
+    // 8万档（8123456 分 ≈ 81234 元）→ 24%
+    expect(r.commissionRateBps).toBe(2400);
+    expect(r.performanceComponentInCents).toBe(Math.floor((8123456 * 2400) / 10000));
   });
 });
 

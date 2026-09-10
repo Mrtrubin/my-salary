@@ -2,8 +2,9 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import {
   type SettlementType,
-  getPreviousPeriodRange,
+  getPeriodRange,
   isPeriodFirstDay,
+  nextDay,
 } from "./cycle.ts";
 import { computePayroll, type PayrollScheme } from "./payroll.ts";
 
@@ -53,7 +54,6 @@ interface MemberScheme {
   positionId: number;
   schemeId: string | null;
   scheme: PayrollScheme;
-  commissionRateBps: number;
   hireDate: string;
 }
 
@@ -83,6 +83,7 @@ async function loadMembers(
     .lte("joined_at", periodEnd)
     .or(`left_at.is.null,left_at.gte.${periodStart}`);
   if (error) throw new Error(`加载团队成员失败：${error.message}`);
+
   const result: MemberScheme[] = [];
   for (const m of members ?? []) {
     // deno-lint-ignore no-explicit-any
@@ -90,34 +91,66 @@ async function loadMembers(
     const profileId = row.profile_id as string;
     const hireDate = row.profiles?.hire_date as string | undefined;
     if (!hireDate) continue;
-    // 取该成员在本周期生效（effective_from <= periodEnd）且 active、effective_from 最新的方案。
-    const { data: scheme } = await db
+
+    // 成员岗位列表：每个岗位一套方案（个人方案优先，否则回退岗位模板）。
+    const { data: positions } = await db
+      .from("user_positions")
+      .select("position_id")
+      .eq("profile_id", profileId);
+    const positionIds = (positions ?? [])
+      .map((p) => (p as { position_id: number }).position_id)
+      .filter((id): id is number => typeof id === "number");
+
+    for (const positionId of positionIds) {
+      const scheme = await resolveScheme(db, profileId, positionId, periodEnd);
+      if (!scheme) continue; // 该岗位无个人方案也无模板，不结算。
+      result.push({
+        profileId,
+        positionId,
+        schemeId: scheme.id as string,
+        scheme: {
+          baseSalaryInCents: scheme.base_salary_cents as number,
+          guaranteedSalaryInCents: scheme.guaranteed_salary_cents as number,
+          thresholdMultiplierBps: scheme.threshold_multiplier_bps as number,
+        },
+        hireDate,
+      });
+    }
+  }
+  return result;
+}
+
+/**
+ * 解析某成员某岗位在结算周期内生效的工资方案：
+ *  1. 个人方案优先：profile_id 精确匹配该成员且 position_id 匹配该岗位；
+ *  2. 无个人方案时回退「岗位模板」：profile_id 为空（作为该岗位共享默认）且 position_id 匹配。
+ * 均要求 status=active 且 effective_from <= periodEnd，取 effective_from 最新一条。
+ */
+async function resolveScheme(
+  db: Db,
+  profileId: string,
+  positionId: number,
+  periodEnd: string,
+): Promise<(Record<string, unknown> & { id: string }) | null> {
+  const selectCols =
+    "id, position_id, base_salary_cents, guaranteed_salary_cents, threshold_multiplier_bps";
+  const baseQuery = () =>
+    db
       .from("salary_schemes")
-      .select(
-        "id, position_id, base_salary_cents, guaranteed_salary_cents, threshold_multiplier_bps, commission_rate_bps",
-      )
-      .eq("profile_id", profileId)
+      .select(selectCols)
+      .eq("position_id", positionId)
       .eq("status", "active")
       .lte("effective_from", periodEnd)
       .order("effective_from", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (!scheme) continue; // 无方案不结算。
-    result.push({
-      profileId,
-      positionId: scheme.position_id as number,
-      schemeId: scheme.id as string,
-      scheme: {
-        baseSalaryInCents: scheme.base_salary_cents as number,
-        guaranteedSalaryInCents: scheme.guaranteed_salary_cents as number,
-        thresholdMultiplierBps: scheme.threshold_multiplier_bps as number,
-        commissionRateBps: scheme.commission_rate_bps as number,
-      },
-      commissionRateBps: scheme.commission_rate_bps as number,
-      hireDate,
-    });
-  }
-  return result;
+      .limit(1);
+
+  const { data: personal } = await baseQuery()
+    .eq("profile_id", profileId)
+    .maybeSingle();
+  if (personal) return personal as Record<string, unknown> & { id: string };
+
+  const { data: template } = await baseQuery().is("profile_id", null).maybeSingle();
+  return (template as Record<string, unknown> & { id: string }) ?? null;
 }
 
 /** 聚合周期内 approved 流水（按成员）。 */
@@ -147,30 +180,163 @@ async function loadRevenue(
   return map;
 }
 
-/** 对单个团队结算刚结束的上一周期。返回生成/更新的记录数。 */
-async function settleTeam(db: Db, team: TeamRow, asOf: string): Promise<number> {
-  const period = getPreviousPeriodRange(
-    team.settlement_type,
-    team.settlement_start_day,
-    asOf,
-  );
-  // 幂等：该周期已结算则跳过（RPC 内亦会在行锁下二次校验）。
-  if (team.last_settled_period_end === period.end) return 0;
+/**
+ * 查询「上月」各成员各岗位是否达标，用于决定本月保底基准（初始/降级）。
+ * 上月的判定：该团队、该成员、该岗位、period_end 落在 period.start 之前的最近一条
+ * salary_records.is_qualified。无上月记录时视为达标（沿用初始保底，保底优先，不误伤）。
+ */
+async function loadLastMonthQualified(
+  db: Db,
+  teamId: string,
+  periodStart: string,
+): Promise<Map<string, boolean>> {
+  const map = new Map<string, boolean>();
+  const { data, error } = await db
+    .from("salary_records")
+    .select("profile_id, position_id, is_qualified, period_end")
+    .eq("team_id", teamId)
+    .lt("period_end", periodStart)
+    .order("period_end", { ascending: false });
+  if (error) throw new Error(`加载上月达标状态失败：${error.message}`);
 
+  const seen = new Set<string>();
+  for (const r of (data ?? []) as { profile_id: string; position_id: number; is_qualified: boolean }[]) {
+    const key = `${r.profile_id}:${r.position_id}`;
+    // 按 period_end 降序，首见即最近一条上月记录。
+    if (seen.has(key)) continue;
+    seen.add(key);
+    map.set(key, r.is_qualified);
+  }
+  return map;
+}
+
+/** 某成员结算上下文（含在组区间过滤后的成员）重用于单周期结算。 */
+interface PeriodSettlement {
+  period: { start: string; end: string };
+  /** 是否为已结算周期的重算（force=true 绕过 RPC 防倒退短路）。 */
+  force: boolean;
+}
+
+/**
+ * 枚举团队所有「需要结算/重算」的周期，按时间正序返回。
+ *
+ * 范围起点：上次结算游标之后（last_settled_period_end 的次日），或团队最早一笔已批准流水日期（兜底）；
+ * 范围终点：asOf 当日所在周期（含）。
+ *
+ * 每周期是否需结算的判定：
+ *  - 该团队+周期内无任何 salary_record → 需结算（force=false，新建）；
+ *  - 存在 salary_record 但均为「未锁定」状态(pending_review/pending_confirm)，
+ *    且周期内业绩的最新 updated_at 晚于工资记录的最新 updated_at（业绩补提/修正）→ 需重算（force=true）；
+ *  - 存在已确认/已完成(confirmed/completed)的记录 → 锁定，跳过。
+ */
+async function listPeriodsToSettle(
+  db: Db,
+  team: TeamRow,
+  asOf: string,
+): Promise<PeriodSettlement[]> {
+  const periodRanges: { start: string; end: string }[] = [];
+
+  // 起点：优先从游标次日开始；否则取团队最早一笔 approved 流水日期（兜底避免全历史扫描）。
+  let seed: string | null = team.last_settled_period_end
+    ? nextDay(team.last_settled_period_end)
+    : null;
+  if (!seed) {
+    const { data: earliest } = await db
+      .from("team_performance_records")
+      .select("perf_date")
+      .eq("team_id", team.id)
+      .eq("status", "approved")
+      .order("perf_date", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    seed = earliest?.perf_date ?? asOf;
+  }
+
+  // 从 seed 所在周期起，逐周期推进，但只结算「已完全结束」的周期（period.end < asOf）。
+  // 当前进行中的周期（period.end >= asOf）尚未收尾，不得结算，也不得推进游标到未来。
+  let cursor = seed;
+  for (let i = 0; i < 1200; i += 1) {
+    const range = getPeriodRange(team.settlement_type, team.settlement_start_day, cursor);
+    if (range.end >= asOf) break;
+    periodRanges.push({ start: range.start, end: range.end });
+    cursor = nextDay(range.end);
+  }
+
+  const result: PeriodSettlement[] = [];
+  for (const period of periodRanges) {
+    // 1. 该周期内工资记录概览（是否锁定）。
+    const { data: records, error: recErr } = await db
+      .from("salary_records")
+      .select("status, updated_at")
+      .eq("team_id", team.id)
+      .gte("period_start", period.start)
+      .lte("period_end", period.end);
+    if (recErr) throw new Error(`读取团队 ${team.id} 周期工资记录失败：${recErr.message}`);
+
+    const rows = (records ?? []) as { status: string; updated_at: string | null }[];
+    if (rows.length === 0) {
+      result.push({ period, force: false });
+      continue;
+    }
+
+    // 存在终态（confirmed/completed）→ 锁定，不在手动 recheck 中重算。
+    if (rows.some((r) => r.status === "confirmed" || r.status === "completed")) {
+      continue;
+    }
+
+    // 2. 业绩变更检测：周期内业绩最新 updated_at > 工资记录最新 updated_at。
+    const { data: perfLatest } = await db
+      .from("team_performance_records")
+      .select("updated_at")
+      .eq("team_id", team.id)
+      .eq("status", "approved")
+      .gte("perf_date", period.start)
+      .lte("perf_date", period.end)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const salaryLatestMs = Math.max(
+      ...rows.map((r) => (r.updated_at ? new Date(r.updated_at).getTime() : 0)),
+      0,
+    );
+    const perfLatestMs = perfLatest?.updated_at
+      ? new Date(perfLatest.updated_at).getTime()
+      : 0;
+
+    if (perfLatestMs > salaryLatestMs) {
+      result.push({ period, force: true });
+    }
+  }
+
+  return result;
+}
+
+/** 对单个团队单个周期结算（新建或 force 重算）。返回生成/更新的记录数。 */
+async function settlePeriod(
+  db: Db,
+  team: TeamRow,
+  period: { start: string; end: string },
+  force: boolean,
+): Promise<number> {
   const members = await loadMembers(db, team.id, period.start, period.end);
   const revenueMap = members.length
     ? await loadRevenue(db, team.id, period.start, period.end)
     : new Map<string, number>();
+  const lastMonthMap = members.length
+    ? await loadLastMonthQualified(db, team.id, period.start)
+    : new Map<string, boolean>();
 
   // 库外计算（与 TS 领域口径一致），组装每个成员的结果，交由 RPC 在单事务内落库。
-  // 无成员时传空数组：RPC 仍在团队行锁 + 幂等/防倒退校验下推进游标，不再绕过事务锁。
   const payloadMembers = members.map((member) => {
     const revenueCents = revenueMap.get(member.profileId) ?? 0;
     const tenureMonth = calcTenureMonth(member.hireDate, period.end);
+    const lastMonthQualified = lastMonthMap.get(`${member.profileId}:${member.positionId}`) ?? true;
     const p = computePayroll({
       scheme: member.scheme,
       monthlyRevenueInCents: revenueCents,
       tenureMonth,
+      lastMonthQualified,
     });
     return {
       profileId: member.profileId,
@@ -178,7 +344,10 @@ async function settleTeam(db: Db, team: TeamRow, asOf: string): Promise<number> 
       schemeId: member.schemeId,
       revenueCents,
       tenureMonth,
+      baseGuaranteeCents: p.baseGuaranteeInCents,
       thresholdCents: p.thresholdInCents,
+      commissionStartCents: p.commissionStartInCents,
+      commissionRateBps: p.commissionRateBps,
       isQualified: p.isQualified,
       isGracePeriod: p.isGracefulPeriod,
       guaranteedComponentCents: p.guaranteedComponentInCents,
@@ -186,20 +355,21 @@ async function settleTeam(db: Db, team: TeamRow, asOf: string): Promise<number> 
       grossCents: p.grossSalaryInCents,
       serviceFeeCents: p.serviceFeeInCents,
       netCents: p.netSalaryInCents,
-      commissionRateBps: member.commissionRateBps,
     };
   });
 
   // 事务原子性 + 并发行锁：批量 upsert（业务唯一键）、新建记录写日志、推进游标，
   // 全部在 settle_team_period 单事务内完成；失败整体回滚，游标不推进，下次重试。
+  // force=true 时允许对已结算周期重算（金额覆盖），游标仅向前推进不回退。
   const { data: count, error: rpcErr } = await db.rpc("settle_team_period", {
     p_team_id: team.id,
     p_period_start: period.start,
     p_period_end: period.end,
     p_members: payloadMembers,
+    p_force: force,
   });
   if (rpcErr) {
-    throw new Error(`团队 ${team.id} 结算落库失败：${rpcErr.message}`);
+    throw new Error(`团队 ${team.id} 周期 ${period.start}~${period.end} 结算落库失败：${rpcErr.message}`);
   }
   return (count as number) ?? 0;
 }
@@ -214,11 +384,11 @@ async function authorize(
   req: Request,
   supabaseUrl: string,
   anonKey: string,
-): Promise<{ ok: true; isCron: boolean } | { ok: false; status: number; message: string }> {
+): Promise<{ ok: true; isCron: boolean; isAdmin: boolean } | { ok: false; status: number; message: string }> {
   const cronSecret = Deno.env.get("SETTLE_CRON_SECRET");
   const providedCron = req.headers.get("x-cron-secret");
   if (cronSecret && providedCron && providedCron === cronSecret) {
-    return { ok: true, isCron: true };
+    return { ok: true, isCron: true, isAdmin: true };
   }
 
   const authHeader = req.headers.get("Authorization") ?? "";
@@ -244,7 +414,7 @@ async function authorize(
   if (profileErr || (profile as { system_role?: string } | null)?.system_role !== "admin") {
     return { ok: false, status: 403, message: "仅管理员可触发结算" };
   }
-  return { ok: true, isCron: false };
+  return { ok: true, isCron: false, isAdmin: true };
 }
 
 Deno.serve(async (req: Request) => {
@@ -276,10 +446,6 @@ Deno.serve(async (req: Request) => {
     // 无 body 视为 cron 全量扫描。
   }
 
-  // 全量扫描属高权限操作，仅允许 cron secret 触发；管理员 JWT 只能针对指定 teamId 结算。
-  if (!teamId && !auth.isCron) {
-    return json({ code: "FORBIDDEN", message: "管理员触发必须指定 teamId" }, 403);
-  }
   const asOf = asOfDate ?? todayISO();
 
   const query = db
@@ -296,14 +462,18 @@ Deno.serve(async (req: Request) => {
   let settledRecords = 0;
   const failedTeams: { teamId: string; error: string }[] = [];
   for (const t of (teams ?? []) as TeamRow[]) {
-    // 手动指定 teamId 时不强制当日为周期第一天；cron 全量扫描时仅处理周期第一天的团队。
-    if (!teamId && !isPeriodFirstDay(t.settlement_type, t.settlement_start_day, asOf)) {
+    // cron 全量扫描：仅在「当日 = 该团队周期第一天」时处理（随自然结算节奏推进）。
+    // 管理员手动全量核算（带或不带 teamId）：不受周期第一天限制，recheck 所有未结算/需重算周期。
+    if (auth.isCron && !teamId && !isPeriodFirstDay(t.settlement_type, t.settlement_start_day, asOf)) {
       continue;
     }
     try {
-      const n = await settleTeam(db, t, asOf);
-      if (n > 0) settledTeams += 1;
-      settledRecords += n;
+      const periods = await listPeriodsToSettle(db, t, asOf);
+      for (const p of periods) {
+        const n = await settlePeriod(db, t, p.period, p.force);
+        if (n > 0) settledTeams += 1;
+        settledRecords += n;
+      }
     } catch (e) {
       // 单团队失败不阻断其余团队；该团队未推进周期，下次触发会重试。
       failedTeams.push({ teamId: t.id, error: e instanceof Error ? e.message : String(e) });
@@ -312,7 +482,7 @@ Deno.serve(async (req: Request) => {
 
   return json({
     code: failedTeams.length > 0 ? "PARTIAL" : "OK",
-    message: failedTeams.length > 0 ? "结算部分完成，存在失败团队" : "结算完成",
+    message: failedTeams.length > 0 ? "核算部分完成，存在失败团队" : "核算完成",
     asOf,
     settledTeams,
     settledRecords,

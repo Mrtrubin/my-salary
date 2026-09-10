@@ -14,7 +14,7 @@ import {
   useSubmitProfileChanges,
 } from "@/lib/api/hooks";
 import { EDITABLE_PROFILE_FIELDS, type ChangeableField } from "@/lib/api/data";
-import { formatBpsAsPercent, formatCentsToYuan } from "@/lib/format";
+import { formatCentsToYuan } from "@/lib/format";
 
 export default function UserProfilePage() {
   const profile = useCurrentProfile();
@@ -196,7 +196,7 @@ export default function UserProfilePage() {
             <Row label="方案" value={`${scheme.name} v${scheme.version}`} />
             <Row label="基本工资" value={formatCentsToYuan(scheme.base_salary_cents)} />
             <Row label="保底工资" value={formatCentsToYuan(scheme.guaranteed_salary_cents)} />
-            <Row label="绩效费率" value={formatBpsAsPercent(scheme.commission_rate_bps)} />
+            <Row label="提成" value="固定阶梯 20%~25%" />
           </dl>
         ) : (
           <QueryMessage loading={schemes.isLoading} error={schemes.error} empty />

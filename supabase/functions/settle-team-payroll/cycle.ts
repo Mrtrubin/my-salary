@@ -41,6 +41,15 @@ function prevDay(date: string): string {
   return toDate(py, pm, daysInMonth(py, pm));
 }
 
+/** 后一天（跨月/跨年安全）。 */
+export function nextDay(date: string): string {
+  const [y, m, d] = parts(date);
+  const max = daysInMonth(y, m);
+  if (d < max) return toDate(y, m, d + 1);
+  const [ny, nm] = addMonths(y, m, 1);
+  return toDate(ny, nm, 1);
+}
+
 function normalizeStartDay(type: SettlementType, startDay: number): number {
   if (type === "monthly") return 1;
   if (!Number.isInteger(startDay) || startDay < 1 || startDay > 28) {

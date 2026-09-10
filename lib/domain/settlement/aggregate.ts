@@ -25,7 +25,8 @@ export interface SettlementMemberContext {
   positionId: number;
   schemeId: string | null;
   scheme: AnchorSalaryScheme;
-  commissionRateBps: number;
+  /** 上月是否达标（决定第4月起本月保底基准），可选，默认 true。 */
+  lastMonthQualified?: boolean;
   /** 入职日期 `YYYY-MM-DD`，用于计算在职月序。 */
   hireDate: string;
 }
@@ -41,7 +42,10 @@ export interface SettlementDraft {
   periodEnd: string;
   revenueCents: number;
   tenureMonth: number;
+  baseGuaranteeCents: number;
   thresholdCents: number;
+  commissionStartCents: number;
+  commissionRateBps: number;
   isQualified: boolean;
   isGracePeriod: boolean;
   guaranteedComponentCents: number;
@@ -49,7 +53,6 @@ export interface SettlementDraft {
   grossCents: number;
   serviceFeeCents: number;
   netCents: number;
-  commissionRateBps: number;
 }
 
 function parts(date: string): [number, number, number] {
@@ -107,6 +110,7 @@ export function aggregateSettlement(
       scheme: member.scheme,
       monthlyRevenueInCents: revenueCents,
       tenureMonth,
+      lastMonthQualified: member.lastMonthQualified,
       serviceFeeRateBps,
     });
     return {
@@ -118,7 +122,10 @@ export function aggregateSettlement(
       periodEnd: period.end,
       revenueCents,
       tenureMonth,
+      baseGuaranteeCents: result.baseGuaranteeInCents,
       thresholdCents: result.thresholdInCents,
+      commissionStartCents: result.commissionStartInCents,
+      commissionRateBps: result.commissionRateBps,
       isQualified: result.isQualified,
       isGracePeriod: result.isGracefulPeriod,
       guaranteedComponentCents: result.guaranteedComponentInCents,
@@ -126,7 +133,6 @@ export function aggregateSettlement(
       grossCents: result.grossSalaryInCents,
       serviceFeeCents: result.serviceFeeInCents,
       netCents: result.netSalaryInCents,
-      commissionRateBps: member.commissionRateBps,
     };
   });
 }

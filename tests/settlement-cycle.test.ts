@@ -5,6 +5,8 @@ import {
   getPreviousPeriodRange,
   isDateInPeriod,
   daysInMonth,
+  listPeriodRangesFrom,
+  nextDay,
 } from "@/lib/domain/settlement/cycle";
 import {
   aggregateSettlement,
@@ -109,6 +111,45 @@ describe("cycle.getPreviousPeriodRange", () => {
   });
 });
 
+describe("cycle.nextDay", () => {
+  it("普通日 +1", () => {
+    expect(nextDay("2026-01-15")).toBe("2026-01-16");
+  });
+  it("月末跨月", () => {
+    expect(nextDay("2026-01-31")).toBe("2026-02-01");
+  });
+  it("年末跨年", () => {
+    expect(nextDay("2026-12-31")).toBe("2027-01-01");
+  });
+  it("闰年 2 月末", () => {
+    expect(nextDay("2028-02-29")).toBe("2028-03-01");
+  });
+});
+
+describe("cycle.listPeriodRangesFrom", () => {
+  it("monthly：从月中补齐到月末", () => {
+    expect(listPeriodRangesFrom("monthly", 1, "2026-08-15", "2026-08-31")).toEqual([
+      { start: "2026-08-01", end: "2026-08-31" },
+    ]);
+  });
+  it("monthly：跨两个月连续枚举", () => {
+    expect(listPeriodRangesFrom("monthly", 1, "2026-08-15", "2026-09-10")).toEqual([
+      { start: "2026-08-01", end: "2026-08-31" },
+      { start: "2026-09-01", end: "2026-09-30" },
+    ]);
+  });
+  it("custom startDay=21：相邻周期间无空隙无重叠", () => {
+    const ranges = listPeriodRangesFrom("custom", 21, "2026-08-21", "2026-09-21");
+    expect(ranges).toEqual([
+      { start: "2026-08-21", end: "2026-09-20" },
+      { start: "2026-09-21", end: "2026-10-20" },
+    ]);
+  });
+  it("seed 晚于 asOf 时返回空数组", () => {
+    expect(listPeriodRangesFrom("monthly", 1, "2026-09-15", "2026-09-10")).toEqual([]);
+  });
+});
+
 describe("cycle.isDateInPeriod / daysInMonth", () => {
   const period = { start: "2026-01-21", end: "2026-02-20" };
   it("端点含边界", () => {
@@ -145,7 +186,6 @@ describe("aggregate.aggregateSettlement", () => {
     baseSalaryInCents: 800000,
     guaranteedSalaryInCents: 500000,
     thresholdMultiplierBps: 26500,
-    commissionRateBps: 1000,
   };
   const members: SettlementMemberContext[] = [
     {
@@ -153,7 +193,6 @@ describe("aggregate.aggregateSettlement", () => {
       positionId: 1,
       schemeId: "s1",
       scheme,
-      commissionRateBps: 1000,
       hireDate: "2026-01-05",
     },
   ];

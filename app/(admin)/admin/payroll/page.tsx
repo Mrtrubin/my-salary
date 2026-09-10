@@ -14,6 +14,7 @@ import {
   useSalaryRecords,
   useSalaryStatusLogs,
   useSchemes,
+  useSettleTeamPayroll,
   useTransitionSalaryStatus,
 } from "@/lib/api/hooks";
 import type { SalaryRecord } from "@/lib/api/data";
@@ -61,6 +62,7 @@ export default function PayrollPage() {
   const me = useCurrentProfile();
   const transition = useTransitionSalaryStatus();
   const reject = useRejectAndRecompute();
+  const settle = useSettleTeamPayroll();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [memberId, setMemberId] = useState("");
   const [revenue, setRevenue] = useState(0);
@@ -82,7 +84,7 @@ export default function PayrollPage() {
   const member = members.data?.find((item) => item.id === memberId) ?? members.data?.[0];
   const scheme = schemes.data?.find((item) => item.profile_id === member?.id && item.status === "active");
   const tenure = member ? Math.max(1, (new Date().getFullYear() - Number(member.hire_date.slice(0, 4))) * 12 + new Date().getMonth() - Number(member.hire_date.slice(5, 7)) + 2) : 1;
-  const preview = useMemo(() => scheme ? calculateAnchorPayroll({ scheme: { baseSalaryInCents: scheme.base_salary_cents, guaranteedSalaryInCents: scheme.guaranteed_salary_cents, thresholdMultiplierBps: scheme.threshold_multiplier_bps, commissionRateBps: scheme.commission_rate_bps }, monthlyRevenueInCents: Math.round(revenue * 100), tenureMonth: tenure }) : null, [scheme, revenue, tenure]);
+  const preview = useMemo(() => scheme ? calculateAnchorPayroll({ scheme: { baseSalaryInCents: scheme.base_salary_cents, guaranteedSalaryInCents: scheme.guaranteed_salary_cents, thresholdMultiplierBps: scheme.threshold_multiplier_bps }, monthlyRevenueInCents: Math.round(revenue * 100), tenureMonth: tenure }) : null, [scheme, revenue, tenure]);
 
   return (
     <>
@@ -144,6 +146,24 @@ export default function PayrollPage() {
                 ))}
               </TBody>
             </Table>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader title="手动核算" description="重新核算所有成员的未结算及业绩有变更的待审周期" />
+          <CardContent className="space-y-3">
+            <Button
+              disabled={settle.isPending}
+              onClick={() => settle.mutate({})}
+            >
+              {settle.isPending ? "核算中…" : "重新核算全部"}
+            </Button>
+            {settle.isSuccess ? (
+              <p className="text-sm text-emerald-600">
+                核算完成：生成/更新 {settle.data?.settledRecords ?? 0} 条工资记录
+                {settle.data?.failedTeams?.length ? `（${settle.data.failedTeams.length} 个团队失败）` : ""}
+              </p>
+            ) : null}
+            {settle.isError ? <p className="text-sm text-red-600">核算失败，请重试</p> : null}
           </CardContent>
         </Card>
         <Card>
