@@ -21,16 +21,16 @@ export default function UserPerformancePage() {
   );
 
   // 按「团队 + 日期」聚合团队绩效记录，倒序排列成每日卡片。
-  // 同一成员同一绩效点同一天可能有多条记录，仅保留最新一条（不同绩效点各自保留）。
+  // 同一成员同一天可能有多条记录（不同绩效点），仅保留最新一条。
   const dailyGroups = useMemo<DailyGroup[]>(() => {
     const rows = teamQuery.data ?? [];
     const map = new Map<string, DailyGroup>();
     const seen = new Set<string>();
     rows.forEach((r) => {
-      // 成员 + 绩效点 + 日期 维度去重：查询已按 created_at 倒序，首次遇到即最新。
-      const memberPointKey = `${r.profile_id}__${r.point_id ?? "none"}__${r.perf_date}`;
-      if (seen.has(memberPointKey)) return;
-      seen.add(memberPointKey);
+      // 成员 + 日期 维度去重：查询已按 created_at 倒序，首次遇到即最新。
+      const memberKey = `${r.profile_id}__${r.perf_date}`;
+      if (seen.has(memberKey)) return;
+      seen.add(memberKey);
 
       const key = `${r.team_id}__${r.perf_date}`;
       const g =
