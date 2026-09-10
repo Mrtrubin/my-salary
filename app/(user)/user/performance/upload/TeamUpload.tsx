@@ -319,13 +319,14 @@ export function TeamUpload({
         ) : (
           <Card>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              {/* 列宽按内容自适应（table-auto + w-auto），单列上限 50vw（见各单元格 max-w-[50vw]） */}
+              <table className="w-auto min-w-full table-auto text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 text-left text-xs font-medium text-slate-500">
-                    <th className="px-3 py-2.5 text-center font-medium">停播</th>
-                    <th className="px-3 py-2.5 font-medium">成员</th>
-                    <th className="px-3 py-2.5 font-medium">种类</th>
-                    <th className="px-3 py-2.5 font-medium">业绩</th>
+                    <th className="whitespace-nowrap px-3 py-2.5 text-center font-medium">停播</th>
+                    <th className="whitespace-nowrap px-3 py-2.5 font-medium">成员</th>
+                    <th className="whitespace-nowrap px-3 py-2.5 font-medium">种类</th>
+                    <th className="whitespace-nowrap px-3 py-2.5 font-medium">业绩</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -341,7 +342,7 @@ export function TeamUpload({
                         />
                       </td>
                       <td className="px-3 py-2.5">
-                        <span className="whitespace-nowrap font-medium text-slate-900">{m.name}</span>
+                        <span className="block max-w-[50vw] break-words font-medium text-slate-900">{m.name}</span>
                       </td>
                       {m.noPerf ? (
                         <td className="px-3 py-2.5" colSpan={2}>

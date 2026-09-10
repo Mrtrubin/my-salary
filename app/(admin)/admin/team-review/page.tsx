@@ -17,7 +17,12 @@ function toHours(minutes: number): string {
 }
 
 export default function TeamReviewPage() {
-  const query = useTeamPerformance();
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const query = useTeamPerformance({
+    start: startDate || undefined,
+    end: endDate || undefined,
+  });
   const [keyword, setKeyword] = useState("");
 
   const filtered = useMemo(() => {
@@ -36,15 +41,40 @@ export default function TeamReviewPage() {
       <Card>
         <CardHeader title="团队绩效记录" />
         <CardContent className="p-0">
-          <div className="flex flex-wrap gap-3 p-4">
+          <div className="flex flex-wrap items-end gap-3 p-4">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">开始日期</span>
+              <Input
+                className="max-w-xs"
+                type="date"
+                value={startDate}
+                onChange={(event) => setStartDate(event.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">结束日期</span>
+              <Input
+                className="max-w-xs"
+                type="date"
+                value={endDate}
+                onChange={(event) => setEndDate(event.target.value)}
+              />
+            </div>
             <Input
               className="max-w-xs"
               placeholder="搜索成员 / 团队名称"
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
             />
-            {keyword ? (
-              <Button variant="ghost" onClick={() => setKeyword("")}>
+            {keyword || startDate || endDate ? (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setKeyword("");
+                  setStartDate("");
+                  setEndDate("");
+                }}
+              >
                 重置
               </Button>
             ) : null}

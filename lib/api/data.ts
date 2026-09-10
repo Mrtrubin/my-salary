@@ -240,14 +240,17 @@ export interface TeamPerformanceRow {
  * 查询团队每日绩效记录。RLS 已限制：主持人只读本团队、成员只读自己、管理员读全量。
  * 按日期倒序返回，页面再按「团队 + 日期」聚合成卡片。
  */
-export async function listTeamPerformance(): Promise<TeamPerformanceRow[]> {
-  const { data, error } = await getBrowserSupabase()
+export async function listTeamPerformance(range?: { start?: string; end?: string }): Promise<TeamPerformanceRow[]> {
+  let query = getBrowserSupabase()
     .from("anchor_revenue_records")
     .select(
       "*, team:teams(name), point:performance_points(name), profile:profiles!anchor_revenue_records_profile_id_fkey(name)",
     )
     .order("perf_date", { ascending: false })
     .order("created_at", { ascending: false });
+  if (range?.start) query = query.gte("perf_date", range.start);
+  if (range?.end) query = query.lte("perf_date", range.end);
+  const { data, error } = await query;
   if (error) fail(error);
   return data as unknown as TeamPerformanceRow[];
 }

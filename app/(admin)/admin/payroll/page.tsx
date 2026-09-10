@@ -67,6 +67,22 @@ export default function PayrollPage() {
   const transition = useTransitionSalaryStatus();
   const reject = useRejectAndRecompute();
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // 驳回重算的行内反馈：记录正在处理的行 id，以及每行最近一次操作结果提示。
+  const [recomputingId, setRecomputingId] = useState<string | null>(null);
+  const [recomputeFeedback, setRecomputeFeedback] = useState<{ id: string; ok: boolean; message: string } | null>(null);
+
+  function handleReject(id: string) {
+    setRecomputeFeedback(null);
+    setRecomputingId(id);
+    reject.mutate(
+      { id, operatorProfileId },
+      {
+        onSuccess: () => setRecomputeFeedback({ id, ok: true, message: "驳回重算成功，已按当前流水重新计算" }),
+        onError: (err) => setRecomputeFeedback({ id, ok: false, message: err instanceof Error ? err.message : "驳回重算失败" }),
+        onSettled: () => setRecomputingId(null),
+      },
+    );
+  }
 
   // 筛选状态
   const [teamId, setTeamId] = useState("");
@@ -197,13 +213,18 @@ export default function PayrollPage() {
                               {item.status === "pending_review" ? (
                                 <>
                                   <Button variant="secondary" size="sm" onClick={() => transition.mutate({ id: item.id, status: "pending_confirm", operatorProfileId, note: "管理员审核通过" })}>通过</Button>
-                                  <Button variant="ghost" size="sm" onClick={() => reject.mutate({ id: item.id, operatorProfileId })}>驳回重算</Button>
+                                  <Button variant="ghost" size="sm" disabled={recomputingId === item.id} onClick={() => handleReject(item.id)}>{recomputingId === item.id ? "重算中…" : "驳回重算"}</Button>
                                 </>
                               ) : null}
                               {item.status === "confirmed" ? (
                                 <Button variant="secondary" size="sm" onClick={() => transition.mutate({ id: item.id, status: "completed", operatorProfileId, note: "管理员确认到账" })}>确认到账</Button>
                               ) : null}
                             </span>
+                            {recomputeFeedback?.id === item.id ? (
+                              <p className={`mt-1 text-right text-xs ${recomputeFeedback.ok ? "text-emerald-600" : "text-red-600"}`}>
+                                {recomputeFeedback.message}
+                              </p>
+                            ) : null}
                           </TD>
                         </TR>
                         {expandedId === item.id ? (

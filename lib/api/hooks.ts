@@ -94,7 +94,12 @@ export function useUpdatePosition() {
   const client = useQueryClient();
   return useMutation({ mutationFn: ({ id, ...input }: { id: number; code?: string; name?: string }) => updatePosition(id, input), onSuccess: () => client.invalidateQueries({ queryKey: keys.positions }) });
 }
-export function useTeamPerformance() { return useQuery({ queryKey: keys.teamPerformance, queryFn: listTeamPerformance }); }
+export function useTeamPerformance(range?: { start?: string; end?: string }) {
+  return useQuery({
+    queryKey: [...keys.teamPerformance, range?.start ?? "", range?.end ?? ""],
+    queryFn: () => listTeamPerformance(range),
+  });
+}
 export function useSchemes() { return useQuery({ queryKey: keys.schemes, queryFn: listSchemes }); }
 export function useSalaryRecords() { return useQuery({ queryKey: keys.salary, queryFn: listSalaryRecords }); }
 export function useTeams() { return useQuery({ queryKey: keys.teams, queryFn: listTeams }); }
@@ -138,14 +143,21 @@ export function useTransitionSalaryStatus() {
   return useMutation({
     mutationFn: ({ id, status, operatorProfileId, note }: { id: string; status: import("./data").SalaryRecordStatus; operatorProfileId?: string; note?: string }) =>
       transitionSalaryStatus(id, status, { operatorProfileId, note }),
-    onSuccess: () => client.invalidateQueries({ queryKey: keys.salary }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: keys.salary });
+      client.invalidateQueries({ queryKey: ["salaryStatusLogs"] });
+    },
   });
 }
 export function useRejectAndRecompute() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ id, operatorProfileId }: { id: string; operatorProfileId?: string }) => rejectAndRecompute(id, { operatorProfileId }),
-    onSuccess: () => client.invalidateQueries({ queryKey: keys.salary }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: keys.salary });
+      // 展开的状态时间轴用独立 query key，需一并失效才能刷新（前缀匹配所有记录）。
+      client.invalidateQueries({ queryKey: ["salaryStatusLogs"] });
+    },
   });
 }
 export function useSalaryStatusLogs(salaryRecordId: string | null) {

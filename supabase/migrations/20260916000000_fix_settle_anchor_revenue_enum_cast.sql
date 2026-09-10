@@ -1,29 +1,14 @@
--- 主播流水手动结算 + 调整项（PLAN-001 阶段1/2）
+-- 修复 settle_anchor_revenue 枚举类型转换报错
 --
--- 背景：既有 settle_team_period 是「团队维度、cron 自动结算」通道，按团队游标
---       last_settled_period_end 幂等推进，不支持管理员在主播流水页「手动勾选
---       部分主播 + 携带不固定调整项」结算。本迁移新增独立通道：
---   1. salary_records 增加 adjustments JSONB（结算时落库的调整项明细数组）；
---   2. 新增 settle_anchor_revenue RPC：只结算入参指定的主播，写入含调整项的
---      工资快照，状态置 pending_review 进入四态审核流；不触碰团队自动结算游标，
---      与自动结算互不干扰。
+-- 背景：settle_anchor_revenue 在写入 salary_record_status_logs 时，from_status/to_status
+--       列类型为枚举 public.salary_record_status，而 SQL 字面量 'pending_review' 被推断为
+--       text，触发 "column from_status is of type public.salary_record_status but expression
+--       is of type text"。同理 salary_records.status 写入也需显式转型。
+--
+-- 说明：20260912000000 已用 create or replace 定义过该函数，但因该 migration 早已被标记为
+--       已应用，db push 不会重新执行它。此处以新的 timestamp 补丁 migration 重新定义函数，
+--       为所有枚举字面量补上 ::public.salary_record_status 显式转型（含 CASE 的 null 分支）。
 
--- ---------- 1. salary_records 新增调整项字段 ----------
--- 数组元素结构：{ "name": "迟到", "amountCents": -10000 }
-alter table public.salary_records
-  add column if not exists adjustments jsonb not null default '[]'::jsonb;
-
--- ---------- 2. 主播流水手动结算 RPC ----------
--- p_members 元素结构（与领域层 AdjustedPayrollResult / data 层对应）：
---   { profileId, positionId, schemeId, revenueCents, tenureMonth, baseGuaranteeCents,
---     thresholdCents, commissionStartCents, commissionRateBps, isQualified, isGracePeriod,
---     guaranteedComponentCents, performanceComponentCents, grossCents, serviceFeeCents,
---     netCents, adjustments }
--- 说明：
---   - 只结算入参列出的主播（手动勾选），不遍历团队全员；
---   - 不推进 teams.last_settled_period_end（避免与自动结算游标相互覆盖）；
---   - upsert：同一 (team_id, profile_id, position_id, period_start, period_end) 已存在则覆盖
---     金额快照与调整项，并重置为 pending_review（允许管理员改调整项后再次结算）。
 create or replace function public.settle_anchor_revenue(
   p_team_id uuid,
   p_period_start date,
