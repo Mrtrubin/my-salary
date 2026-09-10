@@ -1,17 +1,25 @@
 /**
  * 认证业务域 API。
  * 统一封装 Supabase Auth 的登录 / 注册 / 登出 / 会话读取，页面与组件不直接引用 supabase 客户端。
- * 用户名账号统一映射到内部合成邮箱（{username}@users.noreply.mysalary.app），
- * 真实邮箱（选填）保存在 profiles.email 作为联系方式。
+ * 登录经 auth-login Edge Function：用户名 → profiles → auth 邮箱 → 验证密码 → 返回 session token。
+ * 注册经 auth-register Edge Function 创建 Auth 用户与成员资料。
  */
 import { getBrowserSupabase } from "@/lib/supabase/client";
 import { getPublicSupabaseEnv } from "@/lib/supabase/env";
 import { ApiError, ApiErrorCode } from "@/lib/api/contracts/errors";
 
-/** 用户名映射的内部合成邮箱域名（非真实邮箱，仅作 Auth 标识）。 */
-const SYNTHETIC_EMAIL_DOMAIN = "users.noreply.mysalary.app";
-
+/**
+ * 注册用用户名规则：3-32 位小写字母/数字/下划线/连字符。
+ * 注册时用户名直接拼接为合成邮箱本地部分，需符合邮箱字符集限制。
+ */
 export const USERNAME_PATTERN = /^[a-z0-9_-]{3,32}$/;
+
+/**
+ * 登录用用户名规则：1-32 位任意非空白字符（含中文）。
+ * 管理员创建成员时允许 UTF-8 用户名（见迁移 relax_username_utf8.sql），
+ * 登录校验需与后端 admin-create-member / admin-update-member 的 1-32 字符约束一致。
+ */
+export const LOGIN_USERNAME_PATTERN = /^[^\s]{1,32}$/;
 
 export interface SignInInput {
   username: string;
@@ -32,34 +40,68 @@ export interface AuthUser {
   email: string | null;
 }
 
-/** 用户名（或用户名/邮箱混合输入）归一化为 Auth 邮箱。 */
-function usernameToAuthEmail(username: string): string {
-  return `${username.trim().toLowerCase()}@${SYNTHETIC_EMAIL_DOMAIN}`;
-}
-
 /** 用户名 + 密码登录，成功返回登录用户信息。 */
 export async function signInWithPassword({
   username,
   password,
 }: SignInInput): Promise<AuthUser> {
-  const supabase = getBrowserSupabase();
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: usernameToAuthEmail(username),
-    password,
+  const { url, anonKey } = getPublicSupabaseEnv();
+
+  const response = await fetch(`${url}/functions/v1/auth-login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: anonKey,
+      Authorization: `Bearer ${anonKey}`,
+    },
+    body: JSON.stringify({
+      username: username.trim(),
+      password,
+    }),
   });
 
-  if (error) {
-    // Supabase 对无效凭证统一返回 400 invalid_login_credentials，
-    // 归一化为 UNAUTHENTICATED，避免向用户区分「账号不存在」与「密码错误」。
-    throw new ApiError(ApiErrorCode.UNAUTHENTICATED, error.message, error);
+  let body: {
+    code?: string;
+    message?: string;
+    access_token?: string;
+    refresh_token?: string;
+    expires_at?: number;
+    user?: { id: string; email: string | null };
+  };
+  try {
+    body = await response.json();
+  } catch {
+    throw new ApiError(ApiErrorCode.UNKNOWN, "登录服务响应异常", response.status);
   }
 
-  const user = data.user;
-  if (!user) {
-    throw new ApiError(ApiErrorCode.UNKNOWN, "登录未返回用户信息", data);
+  if (!response.ok) {
+    if (body.code === "UNAUTHENTICATED") {
+      throw new ApiError(ApiErrorCode.UNAUTHENTICATED, "用户名或密码错误", body);
+    }
+    if (body.code === "FORBIDDEN") {
+      throw new ApiError(ApiErrorCode.FORBIDDEN, body.message ?? "账号已停用", body);
+    }
+    if (body.code === "INVALID_INPUT") {
+      throw new ApiError(ApiErrorCode.INVALID_INPUT, body.message ?? "输入不合法", body);
+    }
+    throw new ApiError(ApiErrorCode.UNKNOWN, body.message ?? "登录失败，请稍后再试", body);
   }
 
-  return { id: user.id, email: user.email ?? null };
+  // 用返回的 token 建立本地会话
+  if (!body.access_token || !body.refresh_token) {
+    throw new ApiError(ApiErrorCode.UNKNOWN, "登录未返回有效凭证", body);
+  }
+
+  const supabase = getBrowserSupabase();
+  const { error: sessionError } = await supabase.auth.setSession({
+    access_token: body.access_token,
+    refresh_token: body.refresh_token,
+  });
+  if (sessionError) {
+    throw new ApiError(ApiErrorCode.UNKNOWN, "建立登录会话失败", sessionError);
+  }
+
+  return body.user ?? { id: "", email: null };
 }
 
 /**

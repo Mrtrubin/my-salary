@@ -2,7 +2,7 @@
 
 /**
  * 登录 / 注册页：React Hook Form + Zod 校验。
- * 登录：用户名 + 密码（内部映射为 Supabase Auth 合成邮箱）。
+ * 登录：用户名 + 密码，经 auth-login Edge Function 验证（支持中文等 UTF-8 用户名）。
  * 注册：用户名 + 密码 + 选填邮箱 / 姓名，经 auth-register Edge Function 创建账号。
  * 认证逻辑统一经 lib/api/auth.ts，页面不直接引用 supabase 客户端。
  */
@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FormField, Input } from "@/components/ui/input";
 import { Logo } from "@/components/logo";
-import { USERNAME_PATTERN, signInWithPassword, signUpWithUsername, signOut } from "@/lib/api/auth";
+import { USERNAME_PATTERN, LOGIN_USERNAME_PATTERN, signInWithPassword, signUpWithUsername, signOut } from "@/lib/api/auth";
 import { getCurrentProfile } from "@/lib/api/data";
 import { keys } from "@/lib/api/hooks";
 import { writeCachedProfile } from "@/lib/api/profile-cache";
@@ -26,7 +26,8 @@ const loginSchema = z.object({
   username: z
     .string()
     .min(1, "请输入用户名")
-    .regex(USERNAME_PATTERN, "用户名需 3-32 位小写字母/数字/下划线/连字符"),
+    .max(32, "用户名最多 32 位")
+    .regex(LOGIN_USERNAME_PATTERN, "用户名为 1-32 位非空白字符"),
   password: z.string().min(1, "请输入密码"),
 });
 
@@ -81,6 +82,10 @@ export default function LoginPage() {
     } catch (error) {
       if (error instanceof ApiError && error.code === ApiErrorCode.UNAUTHENTICATED) {
         setSubmitError("用户名或密码错误，请重试");
+      } else if (error instanceof ApiError && error.code === ApiErrorCode.FORBIDDEN) {
+        setSubmitError(error.message || "账号已停用，请联系管理员");
+      } else if (error instanceof ApiError && error.code === ApiErrorCode.INVALID_INPUT) {
+        setSubmitError(error.message || "输入不合法");
       } else {
         setSubmitError("登录失败，请稍后再试");
       }
