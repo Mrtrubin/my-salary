@@ -19,7 +19,7 @@ import { computePayroll, type PayrollScheme } from "./payroll.ts";
  *
  * 结算动作（每团队）：
  *  - 取上一周期 [start,end]
- *  - 聚合周期内 approved 的 team_performance_records.revenue_cents（按成员）
+ *  - 聚合周期内 anchor_revenue_records.revenue_cents（按成员）
  *  - 对当前团队成员逐一 computePayroll → upsert salary_records
  *  - 写 salary_record_status_logs(to=pending_review)
  *  - 更新 teams.last_settled_period_end = 周期末日（幂等去重）
@@ -161,21 +161,28 @@ async function loadRevenue(
   end: string,
 ): Promise<Map<string, number>> {
   const { data, error } = await db
-    .from("team_performance_records")
-    .select("profile_id, revenue_cents")
+    .from("anchor_revenue_records")
+    .select("profile_id, perf_date, revenue_cents, created_at")
     .eq("team_id", teamId)
-    .eq("status", "approved")
     .gte("perf_date", start)
     .lte("perf_date", end);
   if (error) throw new Error(`加载团队流水失败：${error.message}`);
-  const map = new Map<string, number>();
+  // 唯一约束 (team_id, perf_date, profile_id) 保证同日单条；此处按 created_at 取最新做历史数据兜底，
+  // 避免约束生效前的历史重复记录被重复计入导致金额翻倍。
+  const latest = new Map<string, { profileId: string; revenueCents: number; createdAt: string }>();
   for (const r of data ?? []) {
     // deno-lint-ignore no-explicit-any
     const row = r as any;
-    map.set(
-      row.profile_id,
-      (map.get(row.profile_id) ?? 0) + (row.revenue_cents ?? 0),
-    );
+    const key = `${row.profile_id}__${row.perf_date}`;
+    const createdAt = (row.created_at ?? "") as string;
+    const prev = latest.get(key);
+    if (!prev || createdAt > prev.createdAt) {
+      latest.set(key, { profileId: row.profile_id, revenueCents: row.revenue_cents ?? 0, createdAt });
+    }
+  }
+  const map = new Map<string, number>();
+  for (const row of latest.values()) {
+    map.set(row.profileId, (map.get(row.profileId) ?? 0) + row.revenueCents);
   }
   return map;
 }
@@ -242,10 +249,9 @@ async function listPeriodsToSettle(
     : null;
   if (!seed) {
     const { data: earliest } = await db
-      .from("team_performance_records")
+      .from("anchor_revenue_records")
       .select("perf_date")
       .eq("team_id", team.id)
-      .eq("status", "approved")
       .order("perf_date", { ascending: true })
       .limit(1)
       .maybeSingle();
@@ -286,10 +292,9 @@ async function listPeriodsToSettle(
 
     // 2. 业绩变更检测：周期内业绩最新 updated_at > 工资记录最新 updated_at。
     const { data: perfLatest } = await db
-      .from("team_performance_records")
+      .from("anchor_revenue_records")
       .select("updated_at")
       .eq("team_id", team.id)
-      .eq("status", "approved")
       .gte("perf_date", period.start)
       .lte("perf_date", period.end)
       .order("updated_at", { ascending: false })

@@ -41,73 +41,6 @@ export type Database = {
         }
         Relationships: []
       }
-      performance_records: {
-        Row: {
-          created_at: string
-          host_profile_id: string | null
-          id: string
-          month: string
-          profile_id: string
-          reject_reason: string | null
-          revenue_cents: number
-          reviewed_at: string | null
-          reviewed_by: string | null
-          status: Database["public"]["Enums"]["performance_status"]
-          submitted_at: string | null
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          host_profile_id?: string | null
-          id?: string
-          month: string
-          profile_id: string
-          reject_reason?: string | null
-          revenue_cents: number
-          reviewed_at?: string | null
-          reviewed_by?: string | null
-          status?: Database["public"]["Enums"]["performance_status"]
-          submitted_at?: string | null
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          host_profile_id?: string | null
-          id?: string
-          month?: string
-          profile_id?: string
-          reject_reason?: string | null
-          revenue_cents?: number
-          reviewed_at?: string | null
-          reviewed_by?: string | null
-          status?: Database["public"]["Enums"]["performance_status"]
-          submitted_at?: string | null
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "performance_records_host_profile_id_fkey"
-            columns: ["host_profile_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "performance_records_profile_id_fkey"
-            columns: ["profile_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "performance_records_reviewed_by_fkey"
-            columns: ["reviewed_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       positions: {
         Row: {
           code: string
@@ -242,6 +175,7 @@ export type Database = {
       }
       salary_records: {
         Row: {
+          adjustments: Json
           base_guarantee_cents: number
           commission_rate_bps: number
           commission_start_cents: number
@@ -275,6 +209,7 @@ export type Database = {
           completed_by: string | null
         }
         Insert: {
+          adjustments?: Json
           base_guarantee_cents?: number
           commission_rate_bps: number
           commission_start_cents?: number
@@ -308,6 +243,7 @@ export type Database = {
           completed_by?: string | null
         }
         Update: {
+          adjustments?: Json
           base_guarantee_cents?: number
           commission_rate_bps?: number
           commission_start_cents?: number
@@ -496,11 +432,10 @@ export type Database = {
           },
         ]
       }
-      team_performance_records: {
+      anchor_revenue_records: {
         Row: {
           broadcast_minutes: number
           created_at: string
-          host_profile_id: string
           id: string
           no_perf: boolean
           no_perf_note: string | null
@@ -508,19 +443,13 @@ export type Database = {
           point_id: string | null
           points_amount: number
           profile_id: string
-          reject_reason: string | null
           revenue_cents: number
-          reviewed_at: string | null
-          reviewed_by: string | null
-          status: Database["public"]["Enums"]["performance_status"]
-          submitted_at: string | null
           team_id: string
           updated_at: string
         }
         Insert: {
           broadcast_minutes?: number
           created_at?: string
-          host_profile_id: string
           id?: string
           no_perf?: boolean
           no_perf_note?: string | null
@@ -528,19 +457,13 @@ export type Database = {
           point_id?: string | null
           points_amount?: number
           profile_id: string
-          reject_reason?: string | null
           revenue_cents?: number
-          reviewed_at?: string | null
-          reviewed_by?: string | null
-          status?: Database["public"]["Enums"]["performance_status"]
-          submitted_at?: string | null
           team_id: string
           updated_at?: string
         }
         Update: {
           broadcast_minutes?: number
           created_at?: string
-          host_profile_id?: string
           id?: string
           no_perf?: boolean
           no_perf_note?: string | null
@@ -548,46 +471,27 @@ export type Database = {
           point_id?: string | null
           points_amount?: number
           profile_id?: string
-          reject_reason?: string | null
           revenue_cents?: number
-          reviewed_at?: string | null
-          reviewed_by?: string | null
-          status?: Database["public"]["Enums"]["performance_status"]
-          submitted_at?: string | null
           team_id?: string
           updated_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: "team_performance_records_host_profile_id_fkey"
-            columns: ["host_profile_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "team_performance_records_point_id_fkey"
+            foreignKeyName: "anchor_revenue_records_point_id_fkey"
             columns: ["point_id"]
             isOneToOne: false
             referencedRelation: "performance_points"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "team_performance_records_profile_id_fkey"
+            foreignKeyName: "anchor_revenue_records_profile_id_fkey"
             columns: ["profile_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "team_performance_records_reviewed_by_fkey"
-            columns: ["reviewed_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "team_performance_records_team_id_fkey"
+            foreignKeyName: "anchor_revenue_records_team_id_fkey"
             columns: ["team_id"]
             isOneToOne: false
             referencedRelation: "teams"
@@ -767,6 +671,15 @@ export type Database = {
         }
         Returns: number
       }
+      settle_anchor_revenue: {
+        Args: {
+          p_team_id: string
+          p_period_start: string
+          p_period_end: string
+          p_members: Json
+        }
+        Returns: number
+      }
       recompute_salary_record: {
         Args: {
           p_id: string
@@ -791,7 +704,6 @@ export type Database = {
     Enums: {
       change_request_status: "pending" | "approved" | "rejected" | "superseded"
       employment_status: "active" | "disabled"
-      performance_status: "draft" | "pending" | "approved" | "rejected" | "voided"
       salary_record_status: "pending_review" | "pending_confirm" | "confirmed" | "completed"
       scheme_status: "active" | "archived"
       system_role: "admin" | "user"
@@ -925,7 +837,6 @@ export const Constants = {
     Enums: {
       change_request_status: ["pending", "approved", "rejected", "superseded"],
       employment_status: ["active", "disabled"],
-      performance_status: ["draft", "pending", "approved", "rejected", "voided"],
       salary_record_status: ["pending_review", "pending_confirm", "confirmed", "completed"],
       scheme_status: ["active", "archived"],
       system_role: ["admin", "user"],

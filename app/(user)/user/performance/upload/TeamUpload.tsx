@@ -192,11 +192,15 @@ export function TeamUpload({
     return rate > 0 ? amount / rate : 0;
   };
   const teamValidMembers = teamMembers.filter((m) => m.noPerf || Number(m.pointsAmount) > 0);
+  // 开播时长必须在 (0, 24] 区间内。
+  const broadcastHoursValue = Number(broadcastHours);
+  const broadcastHoursValid = broadcastHours !== "" && broadcastHoursValue > 0 && broadcastHoursValue <= 24;
   const canSubmitTeam =
-    !!hostProfileId && !!selectedTeamId && !!teamDate && teamValidMembers.length > 0 && !(createTeam.isPending || replaceTeam.isPending);
+    !!hostProfileId && !!selectedTeamId && !!teamDate && broadcastHoursValid && teamValidMembers.length > 0 && !(createTeam.isPending || replaceTeam.isPending);
 
   const handleSubmitTeam = () => {
     if (!hostProfileId || !selectedTeamId) return;
+    if (!broadcastHoursValid) return;
     const items = teamValidMembers.map((m) => {
       const pointId = m.pointId || teamDefaultPointId;
       return {
@@ -281,12 +285,16 @@ export function TeamUpload({
                 <FieldLabel>开播时长（小时）</FieldLabel>
                 <Input
                   type="number"
-                  min={0}
+                  min={0.1}
+                  max={24}
                   step="0.5"
-                  placeholder="如 2"
+                  placeholder="0~24"
                   value={broadcastHours}
                   onChange={(e) => setBroadcastHours(e.target.value)}
                 />
+                {broadcastHours !== "" && !broadcastHoursValid ? (
+                  <span className="mt-1 block text-xs text-danger">开播时长需大于 0 且不超过 24 小时</span>
+                ) : null}
               </label>
             </div>
           </CardContent>
@@ -385,7 +393,7 @@ export function TeamUpload({
       ) : null}
 
       <Button className="w-full" disabled={!canSubmitTeam} onClick={handleSubmitTeam}>
-        {createTeam.isPending || replaceTeam.isPending ? "提交中…" : `${isEditMode ? "重新提交" : "提交团队业绩"}${teamValidMembers.length ? `（${teamValidMembers.length} 人）` : ""}`}
+        {createTeam.isPending || replaceTeam.isPending ? "提交中…" : `${isEditMode ? "重新提交" : "提交主播流水"}${teamValidMembers.length ? `（${teamValidMembers.length} 人）` : ""}`}
       </Button>
     </div>
   );

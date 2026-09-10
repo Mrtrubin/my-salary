@@ -17,6 +17,8 @@ export interface SettlementPerfRow {
   profileId: string;
   perfDate: string;
   revenueCents: number;
+  /** 录入时间（ISO），可选。当前聚合不再依赖它去重（DB 已保证每日唯一）。 */
+  createdAt?: string;
 }
 
 /** 成员结算上下文：工资方案 + 岗位 + 入职日期。 */
@@ -24,7 +26,11 @@ export interface SettlementMemberContext {
   profileId: string;
   positionId: number;
   schemeId: string | null;
-  scheme: AnchorSalaryScheme;
+  /**
+   * 工资方案。为 null 表示该成员尚未配置生效方案：
+   * 此时仅聚合其周期内流水用于展示，不参与工资计算（工资相关字段置 0）。
+   */
+  scheme: AnchorSalaryScheme | null;
   /** 上月是否达标（决定第4月起本月保底基准），可选，默认 true。 */
   lastMonthQualified?: boolean;
   /** 入职日期 `YYYY-MM-DD`，用于计算在职月序。 */
@@ -36,6 +42,8 @@ export interface SettlementDraft {
   profileId: string;
   positionId: number;
   schemeId: string | null;
+  /** 是否已配置生效工资方案。false 时工资相关字段均为 0，仅 revenueCents 有效。 */
+  hasScheme: boolean;
   /** 归属月（周期起始日所在自然月的 1 号），满足 salary_records.month 约束。 */
   month: string;
   periodStart: string;
@@ -91,7 +99,8 @@ export function aggregateSettlement(
   perfRows: SettlementPerfRow[],
   serviceFeeRateBps?: number,
 ): SettlementDraft[] {
-  // 先按成员汇总周期内流水。
+  // 按成员汇总周期内流水。
+  // DB 唯一约束 (team_id, perf_date, profile_id) 保证每日每主播仅一条，故直接累加。
   const revenueByProfile = new Map<string, number>();
   for (const row of perfRows) {
     if (row.perfDate < period.start || row.perfDate > period.end) continue;
@@ -106,6 +115,31 @@ export function aggregateSettlement(
   return members.map((member) => {
     const revenueCents = revenueByProfile.get(member.profileId) ?? 0;
     const tenureMonth = calcTenureMonth(member.hireDate, period.end);
+    // 无生效方案：仅保留流水用于展示，工资相关字段全部置 0，不参与结算。
+    if (!member.scheme) {
+      return {
+        profileId: member.profileId,
+        positionId: member.positionId,
+        schemeId: member.schemeId,
+        hasScheme: false,
+        month,
+        periodStart: period.start,
+        periodEnd: period.end,
+        revenueCents,
+        tenureMonth,
+        baseGuaranteeCents: 0,
+        thresholdCents: 0,
+        commissionStartCents: 0,
+        commissionRateBps: 0,
+        isQualified: false,
+        isGracePeriod: false,
+        guaranteedComponentCents: 0,
+        performanceComponentCents: 0,
+        grossCents: 0,
+        serviceFeeCents: 0,
+        netCents: 0,
+      };
+    }
     const result = calculateAnchorPayroll({
       scheme: member.scheme,
       monthlyRevenueInCents: revenueCents,
@@ -117,6 +151,7 @@ export function aggregateSettlement(
       profileId: member.profileId,
       positionId: member.positionId,
       schemeId: member.schemeId,
+      hasScheme: true,
       month,
       periodStart: period.start,
       periodEnd: period.end,

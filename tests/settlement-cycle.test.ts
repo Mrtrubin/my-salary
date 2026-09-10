@@ -220,4 +220,14 @@ describe("aggregate.aggregateSettlement", () => {
     expect(draft.revenueCents).toBe(0);
     expect(draft.isQualified).toBe(false);
   });
+
+  it("多日流水按日累加（DB 唯一约束保证每日每主播仅一条）", () => {
+    const perf: SettlementPerfRow[] = [
+      { profileId: "p1", perfDate: "2026-01-10", revenueCents: 3500000, createdAt: "2026-01-10T12:00:00Z" },
+      { profileId: "p1", perfDate: "2026-01-20", revenueCents: 500000, createdAt: "2026-01-20T10:00:00Z" },
+    ];
+    const [draft] = aggregateSettlement(period, members, perf);
+    // 01-10 的 3500000 + 01-20 的 500000 = 4000000。
+    expect(draft.revenueCents).toBe(4000000);
+  });
 });

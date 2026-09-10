@@ -86,7 +86,6 @@ export function TeamPerformanceCard({
 }) {
   const [copied, setCopied] = useState(false);
   const { points, singleUnit } = analyze(group.rows);
-  const rejected = group.rows.filter((r) => r.status === "rejected");
 
   const handleCopy = async () => {
     const text = buildCopyText(group);
@@ -110,11 +109,6 @@ export function TeamPerformanceCard({
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-2 text-sm font-semibold text-slate-900">
           {shortDate(group.perfDate)} {group.teamName}
-          {rejected.length ? (
-            <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-600">
-              有驳回
-            </span>
-          ) : null}
         </span>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="secondary" onClick={handleCopy}>
@@ -165,17 +159,6 @@ export function TeamPerformanceCard({
           ))
         )}
       </div>
-
-      {rejected.length ? (
-        <div className="mt-3 space-y-1 rounded-md bg-red-50 p-3 text-sm">
-          <div className="text-xs font-medium text-red-600">管理员驳回</div>
-          {rejected.map((r) => (
-            <div key={r.id} className="text-red-700">
-              {r.profile?.name ?? "—"}：{r.reject_reason || "已驳回"}
-            </div>
-          ))}
-        </div>
-      ) : null}
     </Card>
   );
 }

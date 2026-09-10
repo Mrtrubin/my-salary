@@ -8,7 +8,6 @@ import {
   createMember,
   createPerformancePoint,
   createPosition,
-  createPerformanceRecords,
   createScheme,
   createTeam,
   createTeamPerformanceRecords,
@@ -18,7 +17,6 @@ import {
   listMembers,
   listMyChangeRequests,
   listPendingChangeRequests,
-  listPerformance,
   listPerformancePoints,
   listTeamPerformance,
   listPositions,
@@ -42,30 +40,33 @@ import {
   markAllNotificationsRead,
   updateMember,
   updatePerformancePoint,
-  updatePerformanceStatus,
   updatePosition,
-  updateTeamPerformanceStatus,
   updateTeam,
-} from "./data";
-import type { Member } from "./data";
+  listAnchorRevenuePerf,
+  getAnchorSettlementContexts,
+  getTeamEarliestPerfDate,
+  settleAnchorRevenue,
+} from "./data";import type { Member, AnchorSettleMember } from "./data";
+import type { PeriodRange } from "@/lib/domain/settlement/cycle";
 import { readCachedProfile, writeCachedProfile } from "./profile-cache";
 
 export const keys = {
   profile: ["profile"] as const,
   members: ["members"] as const,
   positions: ["positions"] as const,
-  performance: ["performance"] as const,
   teamPerformance: ["teamPerformance"] as const,
   schemes: ["schemes"] as const,
   salary: ["salary"] as const,
   teams: ["teams"] as const,
   changeRequests: ["changeRequests"] as const,
   notifications: ["notifications"] as const,
-};
-export function useCurrentProfile() {
+  anchorRevenuePerf: ["anchorRevenuePerf"] as const,
+  anchorSettlementContexts: ["anchorSettlementContexts"] as const,
+};export function useCurrentProfile() {
   // hydration 安全：首次渲染（含 SSR）不读 localStorage，避免 server/client 不一致
   const [cached, setCached] = useState<Member | null>(null);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydration 安全：挂载后再读 localStorage，避免 SSR/client 首帧不一致
     setCached(readCachedProfile());
   }, []);
   return useQuery({
@@ -93,7 +94,6 @@ export function useUpdatePosition() {
   const client = useQueryClient();
   return useMutation({ mutationFn: ({ id, ...input }: { id: number; code?: string; name?: string }) => updatePosition(id, input), onSuccess: () => client.invalidateQueries({ queryKey: keys.positions }) });
 }
-export function usePerformance() { return useQuery({ queryKey: keys.performance, queryFn: listPerformance }); }
 export function useTeamPerformance() { return useQuery({ queryKey: keys.teamPerformance, queryFn: listTeamPerformance }); }
 export function useSchemes() { return useQuery({ queryKey: keys.schemes, queryFn: listSchemes }); }
 export function useSalaryRecords() { return useQuery({ queryKey: keys.salary, queryFn: listSalaryRecords }); }
@@ -111,27 +111,11 @@ export function useUpdateMember() {
   const client = useQueryClient();
   return useMutation({ mutationFn: updateMember, onSuccess: () => client.invalidateQueries({ queryKey: keys.members }) });
 }
-export function useUpdatePerformanceStatus() {
-  const client = useQueryClient();
-  return useMutation({ mutationFn: ({ id, status, reason }: { id: string; status: "approved" | "rejected"; reason?: string }) => updatePerformanceStatus(id, status, reason), onSuccess: () => client.invalidateQueries({ queryKey: keys.performance }) });
-}
-export function useUpdateTeamPerformanceStatus() {
-  const client = useQueryClient();
-  return useMutation({ mutationFn: ({ id, status, reason }: { id: string; status: "approved" | "rejected"; reason?: string }) => updateTeamPerformanceStatus(id, status, reason), onSuccess: () => client.invalidateQueries({ queryKey: keys.teamPerformance }) });
-}
-export function useCreatePerformanceRecords() {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: ({ hostProfileId, items }: { hostProfileId: string; items: import("./data").PerformanceUploadItem[] }) => createPerformanceRecords(hostProfileId, items),
-    onSuccess: () => client.invalidateQueries({ queryKey: keys.performance }),
-  });
-}
 export function useCreateTeamPerformanceRecords() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (input: Parameters<typeof createTeamPerformanceRecords>[0]) => createTeamPerformanceRecords(input),
     onSuccess: () => {
-      client.invalidateQueries({ queryKey: keys.performance });
       client.invalidateQueries({ queryKey: keys.teamPerformance });
     },
   });
@@ -141,7 +125,6 @@ export function useReplaceTeamPerformanceRecords() {
   return useMutation({
     mutationFn: (input: Parameters<typeof replaceTeamPerformanceRecords>[0]) => replaceTeamPerformanceRecords(input),
     onSuccess: () => {
-      client.invalidateQueries({ queryKey: keys.performance });
       client.invalidateQueries({ queryKey: keys.teamPerformance });
     },
   });
@@ -270,4 +253,46 @@ export function useReviewProfileChanges() {
 export function useSubmitPasswordChange() {
   const client = useQueryClient();
   return useMutation({ mutationFn: submitPasswordChange, onSuccess: () => { client.invalidateQueries({ queryKey: keys.changeRequests }); } });
+}
+
+// ==================== 主播流水结算（/admin/anchor-revenue）====================
+
+/** 查询某团队某周期内 approved 流水明细。teamId/period 为空时不请求。 */
+export function useAnchorRevenuePerf(teamId: string | null, period: PeriodRange | null) {
+  return useQuery({
+    queryKey: [...keys.anchorRevenuePerf, teamId, period?.start, period?.end],
+    queryFn: () => listAnchorRevenuePerf(teamId!, period!.start, period!.end),
+    enabled: Boolean(teamId && period),
+  });
+}
+
+/** 组装某团队某周期成员结算上下文（工资方案 + 入职 + 上月达标），供实时试算。 */
+export function useAnchorSettlementContexts(teamId: string | null, period: PeriodRange | null) {
+  return useQuery({
+    queryKey: [...keys.anchorSettlementContexts, teamId, period?.start, period?.end],
+    queryFn: () => getAnchorSettlementContexts(teamId!, period!),
+    enabled: Boolean(teamId && period),
+  });
+}
+
+/** 查询某团队最早一条 approved 流水日期，用作页面周期下拉的下界。 */
+export function useTeamEarliestPerfDate(teamId: string | null) {
+  return useQuery({
+    queryKey: ["teamEarliestPerfDate", teamId] as const,
+    queryFn: () => getTeamEarliestPerfDate(teamId!),
+    enabled: Boolean(teamId),
+  });
+}
+
+
+/** 手动结算主播流水（勾选主播 + 调整项 → 落库进四态审核流）。 */
+export function useSettleAnchorRevenue() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { teamId: string; period: PeriodRange; members: AnchorSettleMember[] }) => settleAnchorRevenue(input),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: keys.salary });
+      client.invalidateQueries({ queryKey: keys.anchorRevenuePerf });
+    },
+  });
 }

@@ -1,6 +1,6 @@
 import { Chip } from "@heroui/react";
 import type { ReactNode } from "react";
-import type { ChangeRequestStatus, PerformanceStatus, SalaryRecordStatus } from "@/lib/api/data";
+import type { ChangeRequestStatus, SalaryRecordStatus } from "@/lib/api/data";
 
 type Tone = "slate" | "indigo" | "green" | "amber" | "red";
 
@@ -25,19 +25,6 @@ export function Badge({
       {children}
     </Chip>
   );
-}
-
-/** 业绩状态徽章（draft → pending → approved / rejected / voided 作废）。 */
-export function PerformanceStatusBadge({ status }: { status: PerformanceStatus }) {
-  const map: Record<PerformanceStatus, { tone: Tone; label: string }> = {
-    draft: { tone: "slate", label: "草稿" },
-    pending: { tone: "amber", label: "待审核" },
-    approved: { tone: "green", label: "已通过" },
-    rejected: { tone: "red", label: "已驳回" },
-    voided: { tone: "slate", label: "已作废" },
-  };
-  const { tone, label } = map[status];
-  return <Badge tone={tone}>{label}</Badge>;
 }
 
 /** 资料修改申请状态徽章（字段级独立审核）。 */

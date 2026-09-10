@@ -1,18 +1,15 @@
 "use client";
 
-import { Card } from "@/components/ui/card";
 import { QueryMessage } from "@/components/query-message";
-import { useCurrentProfile, usePerformance, useSalaryRecords } from "@/lib/api/hooks";
-import { formatCentsToYuan, formatDate, formatMonth } from "@/lib/format";
+import { useCurrentProfile, useSalaryRecords } from "@/lib/api/hooks";
+import { formatCentsToYuan, formatMonth } from "@/lib/format";
 
 export default function UserDashboardPage() {
   const profile = useCurrentProfile();
-  const performance = usePerformance();
   const salary = useSalaryRecords();
-  const latestPerformance = performance.data?.[0];
   const latestSalary = salary.data?.[0];
-  const loading = profile.isLoading || performance.isLoading || salary.isLoading;
-  const error = profile.error || performance.error || salary.error;
+  const loading = profile.isLoading || salary.isLoading;
+  const error = profile.error || salary.error;
 
   return (
     <div className="space-y-5">
@@ -27,20 +24,6 @@ export default function UserDashboardPage() {
           <p className="mt-2 text-3xl font-semibold tabular-nums tracking-tight">{formatCentsToYuan(latestSalary.net_cents)}</p>
         </div>
       ) : null}
-
-      <Card className="px-5 py-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium">最近业绩</h2>
-          {latestPerformance ? (
-            <span className="text-xs text-muted">{formatDate(latestPerformance.month)}</span>
-          ) : null}
-        </div>
-        {latestPerformance ? (
-          <p className="mt-2 text-xl font-semibold tabular-nums">{formatCentsToYuan(latestPerformance.revenue_cents)}</p>
-        ) : (
-          <p className="mt-2 text-sm text-muted">暂无业绩</p>
-        )}
-      </Card>
     </div>
   );
 }

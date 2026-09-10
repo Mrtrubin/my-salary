@@ -172,7 +172,7 @@ export default function PayrollPage() {
                   <Fragment key={`${group.team}-${group.period}`}>
                     <TR>
                       <TD className="bg-slate-100 text-xs font-semibold text-slate-600" colSpan={11}>
-                        {group.team} · {group.period}
+                        {`${group.team} · ${group.period}`}
                       </TD>
                     </TR>
                     {group.records.map((item) => (
