@@ -52,10 +52,10 @@ export function ChangeRequestStatusBadge({ status }: { status: ChangeRequestStat
 }
 export function SalaryRecordStatusBadge({ status }: { status: SalaryRecordStatus }) {
   const map: Record<SalaryRecordStatus, { tone: Tone; label: string }> = {
-    draft: { tone: "slate", label: "草稿" },
+    pending_review: { tone: "slate", label: "待审核" },
+    pending_confirm: { tone: "amber", label: "待确认" },
     confirmed: { tone: "indigo", label: "已确认" },
-    published: { tone: "green", label: "已发布" },
-    voided: { tone: "red", label: "已冲正" },
+    completed: { tone: "green", label: "已完成" },
   };
   const { tone, label } = map[status];
   return <Badge tone={tone}>{label}</Badge>;

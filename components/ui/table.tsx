@@ -58,9 +58,11 @@ export function TH({
 export function TD({
   className,
   children,
+  colSpan,
 }: {
   className?: string;
   children?: ReactNode;
+  colSpan?: number;
 }) {
-  return <TableCell className={className}>{children}</TableCell>;
+  return <TableCell className={className} colSpan={colSpan}>{children}</TableCell>;
 }

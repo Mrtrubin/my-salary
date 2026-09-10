@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   addTeamMembers,
@@ -30,13 +31,20 @@ import {
   setMemberStatus,
   submitProfileChanges,
   submitPasswordChange,
+  transitionSalaryStatus,
+  rejectAndRecompute,
+  listSalaryStatusLogs,
+  confirmSalaryRecord,
+  listNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
   updateMember,
   updatePerformancePoint,
   updatePerformanceStatus,
-  updateSalaryStatus,
   updateTeamPerformanceStatus,
   updateTeam,
 } from "./data";
+import type { Member } from "./data";
 import { readCachedProfile, writeCachedProfile } from "./profile-cache";
 
 export const keys = {
@@ -49,9 +57,14 @@ export const keys = {
   salary: ["salary"] as const,
   teams: ["teams"] as const,
   changeRequests: ["changeRequests"] as const,
+  notifications: ["notifications"] as const,
 };
 export function useCurrentProfile() {
-  const cached = typeof window !== "undefined" ? readCachedProfile() : null;
+  // hydration 安全：首次渲染（含 SSR）不读 localStorage，避免 server/client 不一致
+  const [cached, setCached] = useState<Member | null>(null);
+  useEffect(() => {
+    setCached(readCachedProfile());
+  }, []);
   return useQuery({
     queryKey: keys.profile,
     queryFn: async () => {
@@ -126,9 +139,55 @@ export function useCreateScheme() {
   const client = useQueryClient();
   return useMutation({ mutationFn: createScheme, onSuccess: () => client.invalidateQueries({ queryKey: keys.schemes }) });
 }
-export function useUpdateSalaryStatus() {
+export function useTransitionSalaryStatus() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: ({ id, status }: { id: string; status: "confirmed" | "published" | "voided" }) => updateSalaryStatus(id, status), onSuccess: () => client.invalidateQueries({ queryKey: keys.salary }) });
+  return useMutation({
+    mutationFn: ({ id, status, operatorProfileId, note }: { id: string; status: import("./data").SalaryRecordStatus; operatorProfileId?: string; note?: string }) =>
+      transitionSalaryStatus(id, status, { operatorProfileId, note }),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.salary }),
+  });
+}
+export function useRejectAndRecompute() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, operatorProfileId }: { id: string; operatorProfileId?: string }) => rejectAndRecompute(id, { operatorProfileId }),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.salary }),
+  });
+}
+export function useSalaryStatusLogs(salaryRecordId: string | null) {
+  return useQuery({
+    queryKey: ["salaryStatusLogs", salaryRecordId],
+    queryFn: () => listSalaryStatusLogs(salaryRecordId as string),
+    enabled: !!salaryRecordId,
+  });
+}
+export function useConfirmSalaryRecord() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, profileId }: { id: string; profileId: string }) => confirmSalaryRecord(id, profileId),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.salary }),
+  });
+}
+export function useNotifications(profileId: string | null) {
+  return useQuery({
+    queryKey: [...keys.notifications, profileId],
+    queryFn: () => listNotifications(profileId as string),
+    enabled: !!profileId,
+  });
+}
+export function useMarkNotificationRead() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => markNotificationRead(id),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.notifications }),
+  });
+}
+export function useMarkAllNotificationsRead() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (profileId: string) => markAllNotificationsRead(profileId),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.notifications }),
+  });
 }
 export function useCreateTeam() {
   const client = useQueryClient();
@@ -136,7 +195,7 @@ export function useCreateTeam() {
 }
 export function useUpdateTeam() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: ({ id, ...input }: { id: string; name?: string; hostProfileId?: string; status?: "active" | "disabled" }) => updateTeam(id, input), onSuccess: () => client.invalidateQueries({ queryKey: keys.teams }) });
+  return useMutation({ mutationFn: ({ id, ...input }: { id: string; name?: string; hostProfileId?: string; status?: "active" | "disabled"; settlementType?: "monthly" | "custom"; settlementStartDay?: number }) => updateTeam(id, input), onSuccess: () => client.invalidateQueries({ queryKey: keys.teams }) });
 }
 export function useDeleteTeam() {
   const client = useQueryClient();

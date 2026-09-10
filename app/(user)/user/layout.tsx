@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { AuthGuard } from "@/components/auth-guard";
+import { NotificationBell } from "@/components/notification-bell";
 
 type Tab = { href: string; label: string; icon: ReactNode };
 
@@ -31,6 +32,9 @@ export default function UserLayout({ children }: { children: ReactNode }) {
               showTabBar ? "pb-[calc(72px+env(safe-area-inset-bottom))]" : "pb-[calc(20px+env(safe-area-inset-bottom))]"
             }`}
           >
+            <div className="mb-2 flex items-center justify-end">
+              <NotificationBell />
+            </div>
             {children}
           </main>
 

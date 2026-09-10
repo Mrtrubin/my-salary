@@ -261,6 +261,16 @@ export type Database = {
           tenure_month: number
           threshold_cents: number
           updated_at: string
+          team_id: string | null
+          period_start: string | null
+          period_end: string | null
+          review_pending_at: string | null
+          confirm_pending_at: string | null
+          confirmed_at: string | null
+          completed_at: string | null
+          reviewed_by: string | null
+          confirmed_by: string | null
+          completed_by: string | null
         }
         Insert: {
           commission_rate_bps: number
@@ -282,6 +292,16 @@ export type Database = {
           tenure_month: number
           threshold_cents: number
           updated_at?: string
+          team_id?: string | null
+          period_start?: string | null
+          period_end?: string | null
+          review_pending_at?: string | null
+          confirm_pending_at?: string | null
+          confirmed_at?: string | null
+          completed_at?: string | null
+          reviewed_by?: string | null
+          confirmed_by?: string | null
+          completed_by?: string | null
         }
         Update: {
           commission_rate_bps?: number
@@ -303,6 +323,16 @@ export type Database = {
           tenure_month?: number
           threshold_cents?: number
           updated_at?: string
+          team_id?: string | null
+          period_start?: string | null
+          period_end?: string | null
+          review_pending_at?: string | null
+          confirm_pending_at?: string | null
+          confirmed_at?: string | null
+          completed_at?: string | null
+          reviewed_by?: string | null
+          confirmed_by?: string | null
+          completed_by?: string | null
         }
         Relationships: [
           {
@@ -391,16 +421,25 @@ export type Database = {
       team_members: {
         Row: {
           created_at: string
+          id: string
+          joined_at: string
+          left_at: string | null
           profile_id: string
           team_id: string
         }
         Insert: {
           created_at?: string
+          id?: string
+          joined_at?: string
+          left_at?: string | null
           profile_id: string
           team_id: string
         }
         Update: {
           created_at?: string
+          id?: string
+          joined_at?: string
+          left_at?: string | null
           profile_id?: string
           team_id?: string
         }
@@ -408,7 +447,7 @@ export type Database = {
           {
             foreignKeyName: "team_members_profile_id_fkey"
             columns: ["profile_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
@@ -553,6 +592,75 @@ export type Database = {
           },
         ]
       }
+      notifications: {
+        Row: {
+          body: string
+          created_at: string
+          id: string
+          profile_id: string
+          read_at: string | null
+          ref_id: string | null
+          title: string
+          type: string
+        }
+        Insert: {
+          body?: string
+          created_at?: string
+          id?: string
+          profile_id: string
+          read_at?: string | null
+          ref_id?: string | null
+          title: string
+          type: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          id?: string
+          profile_id?: string
+          read_at?: string | null
+          ref_id?: string | null
+          title?: string
+          type?: string
+        }
+        Relationships: []
+      }
+      salary_record_status_logs: {
+        Row: {
+          created_at: string
+          from_status:
+            | Database["public"]["Enums"]["salary_record_status"]
+            | null
+          id: string
+          note: string | null
+          operator_profile_id: string | null
+          salary_record_id: string
+          to_status: Database["public"]["Enums"]["salary_record_status"]
+        }
+        Insert: {
+          created_at?: string
+          from_status?:
+            | Database["public"]["Enums"]["salary_record_status"]
+            | null
+          id?: string
+          note?: string | null
+          operator_profile_id?: string | null
+          salary_record_id: string
+          to_status: Database["public"]["Enums"]["salary_record_status"]
+        }
+        Update: {
+          created_at?: string
+          from_status?:
+            | Database["public"]["Enums"]["salary_record_status"]
+            | null
+          id?: string
+          note?: string | null
+          operator_profile_id?: string | null
+          salary_record_id?: string
+          to_status?: Database["public"]["Enums"]["salary_record_status"]
+        }
+        Relationships: []
+      }
       teams: {
         Row: {
           created_at: string
@@ -561,6 +669,9 @@ export type Database = {
           name: string
           status: Database["public"]["Enums"]["employment_status"]
           updated_at: string
+          settlement_type: Database["public"]["Enums"]["settlement_type"]
+          settlement_start_day: number
+          last_settled_period_end: string | null
         }
         Insert: {
           created_at?: string
@@ -569,6 +680,9 @@ export type Database = {
           name: string
           status?: Database["public"]["Enums"]["employment_status"]
           updated_at?: string
+      settlement_type?: Database["public"]["Enums"]["settlement_type"]
+          settlement_start_day?: number
+          last_settled_period_end?: string | null
         }
         Update: {
           created_at?: string
@@ -577,6 +691,9 @@ export type Database = {
           name?: string
           status?: Database["public"]["Enums"]["employment_status"]
           updated_at?: string
+          settlement_type?: Database["public"]["Enums"]["settlement_type"]
+          settlement_start_day?: number
+          last_settled_period_end?: string | null
         }
         Relationships: [
           {
@@ -628,14 +745,51 @@ export type Database = {
     Functions: {
       current_profile_id: { Args: never; Returns: string }
       is_admin: { Args: never; Returns: boolean }
+      transition_salary_status: {
+        Args: {
+          p_id: string
+          p_to_status: "pending_review" | "pending_confirm" | "confirmed" | "completed"
+          p_operator_profile_id?: string | null
+          p_note?: string | null
+        }
+        Returns: undefined
+      }
+      settle_team_period: {
+        Args: {
+          p_team_id: string
+          p_period_start: string
+          p_period_end: string
+          p_members: Json
+        }
+        Returns: number
+      }
+      recompute_salary_record: {
+        Args: {
+          p_id: string
+          p_revenue_cents: number
+          p_tenure_month: number
+          p_threshold_cents: number
+          p_is_qualified: boolean
+          p_is_grace_period: boolean
+          p_guaranteed_component_cents: number
+          p_performance_component_cents: number
+          p_gross_cents: number
+          p_service_fee_cents: number
+          p_net_cents: number
+          p_commission_rate_bps: number
+          p_note?: string | null
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       change_request_status: "pending" | "approved" | "rejected" | "superseded"
       employment_status: "active" | "disabled"
       performance_status: "draft" | "pending" | "approved" | "rejected"
-      salary_record_status: "draft" | "confirmed" | "published" | "voided"
+      salary_record_status: "pending_review" | "pending_confirm" | "confirmed" | "completed"
       scheme_status: "active" | "archived"
       system_role: "admin" | "user"
+      settlement_type: "monthly" | "custom"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -766,9 +920,10 @@ export const Constants = {
       change_request_status: ["pending", "approved", "rejected", "superseded"],
       employment_status: ["active", "disabled"],
       performance_status: ["draft", "pending", "approved", "rejected"],
-      salary_record_status: ["draft", "confirmed", "published", "voided"],
+      salary_record_status: ["pending_review", "pending_confirm", "confirmed", "completed"],
       scheme_status: ["active", "archived"],
       system_role: ["admin", "user"],
+      settlement_type: ["monthly", "custom"],
     },
   },
 } as const

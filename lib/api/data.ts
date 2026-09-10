@@ -2,6 +2,7 @@ import { ApiError, ApiErrorCode } from "@/lib/api/contracts/errors";
 import { getBrowserSupabase } from "@/lib/supabase/client";
 import { getPublicSupabaseEnv } from "@/lib/supabase/env";
 import type { Database } from "@/lib/supabase/database.types";
+import { aggregateSettlement } from "@/lib/domain/settlement/aggregate";
 
 export type PerformanceStatus = Database["public"]["Enums"]["performance_status"];
 export type SalaryRecordStatus = Database["public"]["Enums"]["salary_record_status"];
@@ -9,7 +10,8 @@ export type Profile = Database["public"]["Tables"]["profiles"]["Row"];
 export type Position = Database["public"]["Tables"]["positions"]["Row"];
 export type PerformanceRecord = Database["public"]["Tables"]["performance_records"]["Row"] & { profile: Pick<Profile, "name"> | null; host: Pick<Profile, "name"> | null };
 export type SalaryScheme = Database["public"]["Tables"]["salary_schemes"]["Row"] & { profile: Pick<Profile, "name"> | null; position: Pick<Position, "name"> | null };
-export type SalaryRecord = Database["public"]["Tables"]["salary_records"]["Row"] & { profile: Pick<Profile, "name"> | null; position: Pick<Position, "name"> | null };
+export type SalaryRecord = Database["public"]["Tables"]["salary_records"]["Row"] & { profile: Pick<Profile, "name"> | null; position: Pick<Position, "name"> | null; team: Pick<Team, "id" | "name" | "settlement_type" | "settlement_start_day"> | null };
+export type SalaryStatusLog = Database["public"]["Tables"]["salary_record_status_logs"]["Row"] & { operator: Pick<Profile, "name"> | null };
 export type Member = Profile & { user_positions: { position: Position | null }[] };
 
 function fail(error: { message: string; code?: string } | null): never {
@@ -352,13 +354,197 @@ export async function createScheme(input: Database["public"]["Tables"]["salary_s
 }
 
 export async function listSalaryRecords(): Promise<SalaryRecord[]> {
-  const { data, error } = await getBrowserSupabase().from("salary_records").select("*, profile:profiles(name), position:positions(name)").order("month", { ascending: false });
+  const { data, error } = await getBrowserSupabase().from("salary_records").select("*, profile:profiles!salary_records_profile_id_fkey(name), position:positions(name), team:teams(id, name, settlement_type, settlement_start_day)").order("month", { ascending: false });
   if (error) fail(error);
   return data as unknown as SalaryRecord[];
 }
 
-export async function updateSalaryStatus(id: string, status: SalaryRecordStatus) {
-  const { error } = await getBrowserSupabase().from("salary_records").update({ status, updated_at: new Date().toISOString() }).eq("id", id);
+/**
+ * 薪资状态流转（四态状态机）：校验合法转换 → 更新主表 status + 对应最新时间戳 + 操作人 →
+ * 写状态变更历史日志。审核通过（→pending_confirm）时给成员发「工资条待确认」站内通知。
+ * @param id 薪资记录 ID
+ * @param toStatus 目标状态
+ * @param options.operatorProfileId 操作人（管理员确认到账/审核用；成员确认可不传）
+ * @param options.note 日志备注
+ */
+export async function transitionSalaryStatus(
+  id: string,
+  toStatus: SalaryRecordStatus,
+  options?: { operatorProfileId?: string; note?: string },
+): Promise<void> {
+  const supabase = getBrowserSupabase();
+  // 事务原子性：主表更新 + 日志 + 通知在数据库端 RPC 单事务内完成，
+  // 并对目标记录加行锁（select for update）防并发流转互相覆盖。
+  // 合法转换/权限/乐观锁校验均下沉到 transition_salary_status，失败整体回滚。
+  const { error } = await supabase.rpc("transition_salary_status", {
+    p_id: id,
+    p_to_status: toStatus,
+    p_operator_profile_id: options?.operatorProfileId ?? null,
+    p_note: options?.note ?? null,
+  });
+  if (error) {
+    const msg = error.message ?? "";
+    // 将 RPC 抛出的领域错误映射为应用层错误码。
+    if (msg.includes("SALARY_RECORD_NOT_FOUND")) {
+      throw new ApiError(ApiErrorCode.NOT_FOUND, "薪资记录不存在");
+    }
+    if (msg.includes("FORBIDDEN_TRANSITION")) {
+      throw new ApiError(ApiErrorCode.FORBIDDEN, "无权执行该状态流转");
+    }
+    if (msg.includes("INVALID_TRANSITION")) {
+      throw new ApiError(ApiErrorCode.INVALID_INPUT, `不允许流转到「${toStatus}」`);
+    }
+    fail(error);
+  }
+}
+
+/**
+ * 驳回并重算：管理员驳回待审核工资条 → 按当前记录的团队 + 周期重新聚合流水、重算，
+ * 原地更新同一条记录并重置为 pending_review（无 reject_reason），插日志
+ * (from=pending_review, to=pending_review, note 记录驳回重算)。
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- 操作人现由 recompute_salary_record RPC 服务端权威推导（current_profile_id），入参保留仅为调用方兼容。
+export async function rejectAndRecompute(id: string, _options?: { operatorProfileId?: string }): Promise<void> {
+  const supabase = getBrowserSupabase();
+  const { data: record, error: readError } = await supabase
+    .from("salary_records")
+    .select("id, status, profile_id, position_id, scheme_id, team_id, period_start, period_end")
+    .eq("id", id)
+    .single();
+  if (readError) fail(readError);
+
+  if (record.status !== "pending_review") {
+    throw new ApiError(ApiErrorCode.INVALID_INPUT, "仅待审核工资条可驳回重算");
+  }
+  if (!record.team_id || !record.period_start || !record.period_end) {
+    throw new ApiError(ApiErrorCode.INVALID_INPUT, "该记录缺少团队或周期信息，无法重算");
+  }
+
+  // 读取成员生效方案 + 入职日期。
+  const { data: scheme, error: schemeError } = await supabase
+    .from("salary_schemes")
+    .select("*")
+    .eq("profile_id", record.profile_id)
+    .eq("position_id", record.position_id)
+    .eq("status", "active")
+    .order("effective_from", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (schemeError) fail(schemeError);
+  if (!scheme) throw new ApiError(ApiErrorCode.INVALID_INPUT, "该成员无生效工资方案，无法重算");
+
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("hire_date")
+    .eq("id", record.profile_id)
+    .single();
+  if (profileError) fail(profileError);
+
+  // 读取周期内 approved 流水。
+  const { data: perfRows, error: perfError } = await supabase
+    .from("team_performance_records")
+    .select("profile_id, perf_date, revenue_cents")
+    .eq("team_id", record.team_id)
+    .eq("profile_id", record.profile_id)
+    .eq("status", "approved")
+    .gte("perf_date", record.period_start)
+    .lte("perf_date", record.period_end);
+  if (perfError) fail(perfError);
+
+  const [draft] = aggregateSettlement(
+    { start: record.period_start, end: record.period_end },
+    [{
+      profileId: record.profile_id,
+      positionId: record.position_id,
+      schemeId: scheme.id,
+      scheme: {
+        baseSalaryInCents: scheme.base_salary_cents,
+        guaranteedSalaryInCents: scheme.guaranteed_salary_cents,
+        thresholdMultiplierBps: scheme.threshold_multiplier_bps,
+        commissionRateBps: scheme.commission_rate_bps,
+      },
+      commissionRateBps: scheme.commission_rate_bps,
+      hireDate: profile.hire_date,
+    }],
+    (perfRows ?? []).map((r) => ({ profileId: r.profile_id, perfDate: r.perf_date, revenueCents: r.revenue_cents })),
+  );
+
+  // 库外重算已完成，落库交给事务 RPC：单事务内 update 主表 + 写日志，杜绝半完成态。
+  const { error: rpcError } = await supabase.rpc("recompute_salary_record", {
+    p_id: id,
+    p_revenue_cents: draft.revenueCents,
+    p_tenure_month: draft.tenureMonth,
+    p_threshold_cents: draft.thresholdCents,
+    p_is_qualified: draft.isQualified,
+    p_is_grace_period: draft.isGracePeriod,
+    p_guaranteed_component_cents: draft.guaranteedComponentCents,
+    p_performance_component_cents: draft.performanceComponentCents,
+    p_gross_cents: draft.grossCents,
+    p_service_fee_cents: draft.serviceFeeCents,
+    p_net_cents: draft.netCents,
+    p_commission_rate_bps: draft.commissionRateBps,
+    p_note: "管理员驳回，已按当前流水重新计算",
+  });
+  if (rpcError) {
+    const msg = rpcError.message ?? "";
+    if (msg.includes("SALARY_RECORD_NOT_FOUND")) throw new ApiError(ApiErrorCode.NOT_FOUND, "工资记录不存在");
+    if (msg.includes("FORBIDDEN_TRANSITION")) throw new ApiError(ApiErrorCode.FORBIDDEN, "无权驳回重算");
+    if (msg.includes("INVALID_TRANSITION")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "仅待审核工资条可驳回重算");
+    fail(rpcError);
+  }
+}
+
+/** 查询某条薪资记录的完整状态变更轨迹（精确到秒，按时间正序）。 */
+export async function listSalaryStatusLogs(salaryRecordId: string): Promise<SalaryStatusLog[]> {
+  const { data, error } = await getBrowserSupabase()
+    .from("salary_record_status_logs")
+    .select("*, operator:profiles!salary_record_status_logs_operator_profile_id_fkey(name)")
+    .eq("salary_record_id", salaryRecordId)
+    .order("created_at", { ascending: true });
+  if (error) fail(error);
+  return data as unknown as SalaryStatusLog[];
+}
+
+/**
+ * 成员确认工资条：pending_confirm → confirmed。
+ * 复用 transitionSalaryStatus 完成校验、主表时间戳(confirmed_at)、操作人(confirmed_by)、日志写入。
+ * @param id 工资记录 id
+ * @param profileId 当前成员 profile id（作为操作人与 confirmed_by）
+ */
+export async function confirmSalaryRecord(id: string, profileId: string): Promise<void> {
+  await transitionSalaryStatus(id, "confirmed", { operatorProfileId: profileId, note: "成员确认收款" });
+}
+
+export type Notification = Database["public"]["Tables"]["notifications"]["Row"];
+
+/** 查询当前成员的站内通知，按创建时间倒序。 */
+export async function listNotifications(profileId: string): Promise<Notification[]> {
+  const { data, error } = await getBrowserSupabase()
+    .from("notifications")
+    .select("*")
+    .eq("profile_id", profileId)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error) fail(error);
+  return data as Notification[];
+}
+
+/** 标记单条通知为已读。 */
+export async function markNotificationRead(id: string): Promise<void> {
+  const { error } = await getBrowserSupabase()
+    .from("notifications")
+    .update({ read_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) fail(error);
+}
+
+/** 标记当前成员的全部未读通知为已读。 */
+export async function markAllNotificationsRead(profileId: string): Promise<void> {
+  const { error } = await getBrowserSupabase()
+    .from("notifications")
+    .update({ read_at: new Date().toISOString() })
+    .eq("profile_id", profileId)
+    .is("read_at", null);
   if (error) fail(error);
 }
 
@@ -384,10 +570,17 @@ export async function createTeam(input: { name: string; hostProfileId: string; a
   return data;
 }
 
-export async function updateTeam(id: string, input: { name?: string; hostProfileId?: string; status?: "active" | "disabled" }) {
+export async function updateTeam(id: string, input: { name?: string; hostProfileId?: string; status?: "active" | "disabled"; settlementType?: "monthly" | "custom"; settlementStartDay?: number }) {
   const { error } = await getBrowserSupabase()
     .from("teams")
-    .update({ name: input.name, host_profile_id: input.hostProfileId, status: input.status, updated_at: new Date().toISOString() })
+    .update({
+      name: input.name,
+      host_profile_id: input.hostProfileId,
+      status: input.status,
+      settlement_type: input.settlementType,
+      settlement_start_day: input.settlementStartDay,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", id);
   if (error) fail(error);
 }
@@ -404,7 +597,14 @@ export async function addTeamMembers(teamId: string, anchorProfileIds: string[])
 }
 
 export async function removeTeamMember(teamId: string, profileId: string) {
-  const { error } = await getBrowserSupabase().from("team_members").delete().eq("team_id", teamId).eq("profile_id", profileId);
+  // 软删除：写入 left_at 保留在组历史，成员可回溯并支持日后重新入组；
+  // 仅结束当前活跃区间（left_at is null）。
+  const { error } = await getBrowserSupabase()
+    .from("team_members")
+    .update({ left_at: new Date().toISOString().slice(0, 10) })
+    .eq("team_id", teamId)
+    .eq("profile_id", profileId)
+    .is("left_at", null);
   if (error) fail(error);
 }
 
