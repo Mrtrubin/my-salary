@@ -46,13 +46,13 @@ function TeamPointsInner() {
               <span className="text-xs text-muted">已关联 {team.points.length} 项</span>
             </div>
             <Table>
-              <THead><TH isRowHeader>绩效点名称</TH><TH>换算率</TH><TH className="text-right">操作</TH></THead>
+              <THead><TH isRowHeader>绩效点名称</TH><TH>换算率</TH><TH className="text-left">操作</TH></THead>
               <TBody>
                 {team.points.map(({ point }) => point ? (
                   <TR key={point.id}>
                     <TD>{point.name}</TD>
                     <TD>{point.points_per_yuan} 绩效点 = 1 元</TD>
-                    <TD className="text-right">
+                    <TD className="text-left">
                       <Button variant="ghost" onClick={() => removePoint.mutate({ teamId, pointId: point.id })}>移除</Button>
                     </TD>
                   </TR>

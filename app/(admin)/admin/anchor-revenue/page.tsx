@@ -278,13 +278,13 @@ export default function AnchorRevenuePage(){
                     />
                   </TH>
                   <TH>主播</TH>
-                  <TH className="text-right">总流水</TH>
-                  <TH className="text-right">提成</TH>
-             <TH className="text-right">保底</TH>
-                  <TH className="text-right">调整项</TH>
-                  <TH className="text-right">总工资</TH>
-                  <TH className="text-right">实发</TH>
-                  <TH className="text-right">明细</TH>
+                  <TH className="text-left">总流水</TH>
+                  <TH className="text-left">提成</TH>
+             <TH className="text-left">保底</TH>
+                  <TH className="text-left">调整项</TH>
+                  <TH className="text-left">总工资</TH>
+                  <TH className="text-left">实发</TH>
+                  <TH className="text-left">明细</TH>
                 </THead>
                 <TBody>
                   {filteredRows.map((row) => (
@@ -300,23 +300,23 @@ export default function AnchorRevenuePage(){
                           />
                         </TD>
                         <TD>{row.profileName}</TD>
-                        <TD className="text-right whitespace-nowrap">{formatCentsToYuan(row.revenueCents)}</TD>
+                        <TD className="text-left whitespace-nowrap">{formatCentsToYuan(row.revenueCents)}</TD>
                         {row.hasScheme ? (
                           <>
-                            <TD className="text-right whitespace-nowrap">{formatCentsToYuan(row.performanceComponentCents)}</TD>
-                            <TD className="text-right whitespace-nowrap">{formatCentsToYuan(row.guaranteedComponentCents)}</TD>
-                            <TD className={`text-right whitespace-nowrap${row.adjustmentTotalCents < 0 ? " text-red-600" : row.adjustmentTotalCents > 0 ? " text-emerald-600" : ""}`}>
+                            <TD className="text-left whitespace-nowrap">{formatCentsToYuan(row.performanceComponentCents)}</TD>
+                            <TD className="text-left whitespace-nowrap">{formatCentsToYuan(row.guaranteedComponentCents)}</TD>
+                            <TD className={`text-left whitespace-nowrap${row.adjustmentTotalCents < 0 ? " text-red-600" : row.adjustmentTotalCents > 0 ? " text-emerald-600" : ""}`}>
                               {row.adjustmentTotalCents ? formatCentsToYuan(row.adjustmentTotalCents) : "—"}
                             </TD>
-                            <TD className="text-right font-medium whitespace-nowrap">{formatCentsToYuan(row.grossCents)}</TD>
-                            <TD className={`text-right font-medium whitespace-nowrap${row.netCents < 0 ? " text-red-600" : ""}`}>{formatCentsToYuan(row.netCents)}</TD>
+                            <TD className="text-left font-medium whitespace-nowrap">{formatCentsToYuan(row.grossCents)}</TD>
+                            <TD className={`text-left font-medium whitespace-nowrap${row.netCents < 0 ? " text-red-600" : ""}`}>{formatCentsToYuan(row.netCents)}</TD>
                           </>
                         ) : (
                           <TD className="text-center text-sm text-amber-600" colSpan={5}>
                             未配置生效工资方案
                           </TD>
                         )}
-                        <TD className="text-right">
+                        <TD className="text-left">
                           <Button variant="ghost" onClick={() => setExpandedId(expandedId=== row.profileId ? null : row.profileId)}>
                             {expandedId === row.profileId ? "收起" : "查看"}
                           </Button>

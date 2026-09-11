@@ -26,7 +26,7 @@ describe("主播工资计算器 - 服务费费率", () => {
 });
 
 describe("主播工资计算器 - 高额流水阶梯提成", () => {
-  it("流水 30 万：25% 封顶计提", () => {
+  it("流水 30 万：阶梯加点封顶 5%，加基础 20% 后按 25% 计提", () => {
     const revenue = 30000000; // 300,000 元
     const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: revenue, tenureMonth: 8 });
     expect(r.commissionRateBps).toBe(2500);

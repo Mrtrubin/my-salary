@@ -14,7 +14,7 @@ export type SalaryRecordStatus = Database["public"]["Enums"]["salary_record_stat
 export type Profile = Database["public"]["Tables"]["profiles"]["Row"];
 export type Position = Database["public"]["Tables"]["positions"]["Row"];
 export type SalaryScheme = Database["public"]["Tables"]["salary_schemes"]["Row"] & { profile: Pick<Profile, "name"> | null; position: Pick<Position, "name"> | null };
-export type SalaryRecord = Database["public"]["Tables"]["salary_records"]["Row"] & { profile: Pick<Profile, "name"> | null; position: Pick<Position, "name"> | null; team: Pick<Team, "id" | "name" | "settlement_type" | "settlement_start_day"> | null };
+export type SalaryRecord = Database["public"]["Tables"]["salary_records"]["Row"] & { profile: Pick<Profile, "name"> | null; position: Pick<Position, "code" | "name"> | null; team: Pick<Team, "id" | "name" | "settlement_type" | "settlement_start_day"> | null };
 export type SalaryStatusLog = Database["public"]["Tables"]["salary_record_status_logs"]["Row"] & { operator: Pick<Profile, "name"> | null };
 export type Member = Profile & { user_positions: { position: Position | null }[] };
 
@@ -367,7 +367,7 @@ export async function createScheme(input: Database["public"]["Tables"]["salary_s
 }
 
 export async function listSalaryRecords(): Promise<SalaryRecord[]> {
-  const { data, error } = await getBrowserSupabase().from("salary_records").select("*, profile:profiles!salary_records_profile_id_fkey(name), position:positions(name), team:teams(id, name, settlement_type, settlement_start_day)").order("month", { ascending: false });
+  const { data, error } = await getBrowserSupabase().from("salary_records").select("*, profile:profiles!salary_records_profile_id_fkey(name), position:positions(code, name), team:teams(id, name, settlement_type, settlement_start_day)").order("month", { ascending: false });
   if (error) fail(error);
   return data as unknown as SalaryRecord[];
 }

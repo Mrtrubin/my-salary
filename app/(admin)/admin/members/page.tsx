@@ -297,7 +297,7 @@ export default function MembersPage() {
               <TH>入职日期</TH>
               <TH>系统角色</TH>
               <TH>状态</TH>
-              <TH className="text-right">操作</TH>
+              <TH className="text-left">操作</TH>
             </THead>
             <TBody>
               {filtered.map((item) => (
@@ -315,8 +315,8 @@ export default function MembersPage() {
                   <TD>{item.hire_date}</TD>
                   <TD>{item.system_role === "admin" ? "管理员" : "普通用户"}</TD>
                   <TD>{item.status === "active" ? "在职" : "已停用"}</TD>
-                  <TD className="text-right">
-                    <div className="flex justify-end gap-1">
+                  <TD className="text-left">
+                    <div className="flex justify-start gap-1">
                       <Button variant="ghost" onClick={() => setDetailing(item)}>详情</Button>
                       <Button variant="ghost" onClick={() => setEditing(item)}>编辑</Button>
                       <Button variant="ghost" onClick={() => setResetting(item)}>重置密码</Button>

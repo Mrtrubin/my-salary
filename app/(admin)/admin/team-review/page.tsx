@@ -86,8 +86,8 @@ export default function TeamReviewPage() {
               <TH>团队</TH>
               <TH>成员</TH>
               <TH>绩效点</TH>
-              <TH className="text-right">开播时长</TH>
-              <TH className="text-right">业绩</TH>
+              <TH className="text-left">开播时长</TH>
+              <TH className="text-left">业绩</TH>
             </THead>
             <TBody>
               {filtered.map((item) => (
@@ -96,8 +96,8 @@ export default function TeamReviewPage() {
                   <TD>{item.team?.name ?? "—"}</TD>
                   <TD>{item.profile?.name ?? "—"}</TD>
                   <TD>{item.no_perf ? (item.no_perf_note || "停播") : (item.point?.name ?? "—")}</TD>
-                  <TD className="text-right">{toHours(item.broadcast_minutes)}</TD>
-                  <TD className="text-right">{item.no_perf ? "—" : item.points_amount.toLocaleString()}</TD>
+                  <TD className="text-left">{toHours(item.broadcast_minutes)}</TD>
+                  <TD className="text-left">{item.no_perf ? "—" : item.points_amount.toLocaleString()}</TD>
                 </TR>
               ))}
             </TBody>

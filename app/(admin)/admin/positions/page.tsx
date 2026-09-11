@@ -123,7 +123,7 @@ export default function PositionsPage() {
               <TH isRowHeader>职位</TH>
               <TH>编码</TH>
               <TH>成员数</TH>
-              <TH className="text-right">操作</TH>
+              <TH className="text-left">操作</TH>
             </THead>
             <TBody>
               {positions.data?.map((position) => {
@@ -133,7 +133,7 @@ export default function PositionsPage() {
                     <TD><span className="font-medium">{position.name}</span></TD>
                     <TD><span className="text-muted">{position.code}</span></TD>
                     <TD>{count} 人</TD>
-                    <TD className="text-right">
+                    <TD className="text-left">
                       <Button size="sm" variant="ghost" onClick={() => setEditing(position)}>编辑</Button>
                     </TD>
                   </TR>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ApiError, ApiErrorCode } from "@/lib/api/contracts/errors";
+import { computePayroll } from "../supabase/functions/settle-team-payroll/payroll";
 import {
   applyRateCeil,
   applyRateFloor,
@@ -88,7 +89,7 @@ describe("主播工资计算器 - 第4月起保底基准动态取值", () => {
   });
 });
 
-describe("主播工资计算器 - 阶梯提成（全额累进，20%起 +1%/万，25%封顶）", () => {
+describe("主播工资计算器 - 阶梯提成（基础20%，超过门槛每满1万加1个百分点，阶梯加点封顶5%）", () => {
   it("流水 4 万：20% 提成", () => {
     const revenue = 4000000;
     const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: revenue, tenureMonth: 8 });
@@ -108,13 +109,13 @@ describe("主播工资计算器 - 阶梯提成（全额累进，20%起 +1%/万�
     expect(r.performanceComponentInCents).toBe(1320000);
   });
 
-  it("流水 9 万：25% 封顶", () => {
+  it("流水 9 万：阶梯加点达到 5%，与基础 20% 相加为 25%", () => {
     const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: 9000000, tenureMonth: 8 });
     expect(r.commissionRateBps).toBe(2500);
     expect(r.performanceComponentInCents).toBe(2250000);
   });
 
-  it("流水 12 万：仍 25% 封顶不再上涨", () => {
+  it("流水 12 万：阶梯加点保持 5%，当前无其他加点时合计 25%", () => {
     const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: 12000000, tenureMonth: 8 });
     expect(r.commissionRateBps).toBe(2500);
     expect(r.performanceComponentInCents).toBe(3000000);
@@ -124,6 +125,51 @@ describe("主播工资计算器 - 阶梯提成（全额累进，20%起 +1%/万�
     const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: COMMISSION_START - 1, tenureMonth: 8 });
     expect(r.commissionRateBps).toBe(0);
     expect(r.performanceComponentInCents).toBe(0);
+  });
+});
+
+describe("阶梯提点 - 按实际拿提点门槛分档，两端口径一致", () => {
+  const scenarios = [
+    { name: "初始保底8000", baseSalaryInCents: 800000, tenureMonth: 4, lastMonthQualified: true, start: 4000000 },
+    { name: "降级保底5000", baseSalaryInCents: 800000, tenureMonth: 4, lastMonthQualified: false, start: 2500000 },
+    { name: "初始保底10000", baseSalaryInCents: 1000000, tenureMonth: 4, lastMonthQualified: true, start: 5000000 },
+    { name: "非整万元门槛", baseSalaryInCents: 650001, tenureMonth: 4, lastMonthQualified: true, start: 3250005 },
+    { name: "无责期忽略降级", baseSalaryInCents: 800000, tenureMonth: 2, lastMonthQualified: false, start: 4000000 },
+  ];
+  const boundaries = [
+    { offset: -1, stepBps: 0 },
+    { offset: 0, stepBps: 0 },
+    { offset: 999999, stepBps: 0 },
+    { offset: 1000000, stepBps: 100 },
+    { offset: 1000001, stepBps: 100 },
+    { offset: 1999999, stepBps: 100 },
+    { offset: 2000000, stepBps: 200 },
+    { offset: 3000000, stepBps: 300 },
+    { offset: 4000000, stepBps: 400 },
+    { offset: 4999999, stepBps: 400 },
+    { offset: 5000000, stepBps: 500 },
+    { offset: 5000001, stepBps: 500 },
+    { offset: 9000000, stepBps: 500 },
+  ];
+
+  describe.each(scenarios)("$name", (scenario) => {
+    it.each(boundaries)("超出门槛 $offset 分时，阶梯加点 $stepBps bps", ({ offset, stepBps }) => {
+      const input = {
+        scheme: { ...scheme, baseSalaryInCents: scenario.baseSalaryInCents },
+        monthlyRevenueInCents: scenario.start + offset,
+        tenureMonth: scenario.tenureMonth,
+        lastMonthQualified: scenario.lastMonthQualified,
+      };
+      const result = calculateAnchorPayroll(input);
+      const expectedRate = offset < 0 ? 0 : 2000 + stepBps;
+      expect(result.commissionStartInCents).toBe(scenario.start);
+      expect(Math.max(result.commissionRateBps - 2000, 0)).toBe(stepBps);
+      expect(result.commissionRateBps).toBe(expectedRate);
+      expect(result.performanceComponentInCents).toBe(
+        Math.floor(input.monthlyRevenueInCents * expectedRate / 10000),
+      );
+      expect(computePayroll(input)).toEqual(result);
+    });
   });
 });
 

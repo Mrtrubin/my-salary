@@ -99,7 +99,7 @@ function TeamMembersInner() {
               <span className="text-xs text-muted">当前成员 {team.members.length} 人</span>
             </div>
             <Table>
-              <THead><TH isRowHeader>成员姓名</TH><TH>职位</TH><TH>初始保底</TH><TH className="text-right">操作</TH></THead>
+              <THead><TH isRowHeader>成员姓名</TH><TH>职位</TH><TH>初始保底</TH><TH className="text-left">操作</TH></THead>
               <TBody>
                 {team.members.map(({ profile }) => {
                   if (!profile) return null;
@@ -113,7 +113,7 @@ function TeamMembersInner() {
                         {effective ? formatCentsToYuan(effective.base_salary_cents) : "—"}
                         {personal ? "" : <span className="ml-1 text-xs text-muted">（岗位模板）</span>}
                       </TD>
-                      <TD className="text-right">
+                      <TD className="text-left">
                         <Button variant="ghost" onClick={() => openEditor(profile.id, profile.name)}>设置保底</Button>
                         <Button variant="ghost" onClick={() => removeMember.mutate({ teamId, profileId: profile.id })}>移除</Button>
                       </TD>

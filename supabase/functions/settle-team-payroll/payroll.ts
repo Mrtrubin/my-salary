@@ -5,7 +5,7 @@
  *  - 保底基准：无责期(前3月)或上月达标 → 初始保底；第4月起上月不达标 → 降级保底
  *  - 门槛 = ceil(保底基准 × thresholdMultiplierBps / 10000)
  *  - 保底工资 = 保底基准全额（无论达标与否）
- *  - 阶梯提成：流水 >= 保底基准 ÷ 0.2 才计提；20% 起步，每 +1万 +1%，25% 封顶
+ *  - 阶梯提成：流水 >= 保底基准 ÷ 0.2 才计提；20% 起步，超过拿提点门槛每满 1万 +1%，阶梯加点封顶 5%，最终提成率不封顶
  *  - 服务费 = ceil(总工资 × serviceFeeRateBps / 10000)，实发 = 总工资 − 服务费（允许为负）
  */
 const DEFAULT_SERVICE_FEE_RATE_BPS = 300;
@@ -15,7 +15,6 @@ const COMMISSION_STEP_IN_CENTS = 1000000;
 const COMMISSION_STEP_RATE_BPS = 100;
 const COMMISSION_MAX_STEPS = 5;
 const COMMISSION_BASE_RATE_BPS = 2000;
-const COMMISSION_CAP_RATE_BPS = 2500;
 
 export interface PayrollScheme {
   baseSalaryInCents: number;
@@ -53,14 +52,17 @@ function applyRateFloor(amount: number, rateBps: number): number {
   return Math.floor((amount * rateBps) / 10000);
 }
 
-function resolveCommissionRateBps(monthlyRevenueInCents: number): number {
+function resolveCommissionRateBps(
+  monthlyRevenueInCents: number,
+  commissionStartInCents: number,
+): number {
   const steps = Math.max(
     0,
-    Math.floor(monthlyRevenueInCents / COMMISSION_STEP_IN_CENTS) - 4,
+    Math.floor((monthlyRevenueInCents - commissionStartInCents) / COMMISSION_STEP_IN_CENTS),
   );
   const cappedSteps = Math.min(steps, COMMISSION_MAX_STEPS);
-  const rateBps = COMMISSION_BASE_RATE_BPS + cappedSteps * COMMISSION_STEP_RATE_BPS;
-  return Math.min(rateBps, COMMISSION_CAP_RATE_BPS);
+  const stepRateBps = cappedSteps * COMMISSION_STEP_RATE_BPS;
+  return COMMISSION_BASE_RATE_BPS + stepRateBps;
 }
 
 export function computePayroll(input: PayrollInput): PayrollResult {
@@ -86,7 +88,7 @@ export function computePayroll(input: PayrollInput): PayrollResult {
 
   const commissionRateBps =
     monthlyRevenueInCents >= commissionStartInCents
-      ? resolveCommissionRateBps(monthlyRevenueInCents)
+      ? resolveCommissionRateBps(monthlyRevenueInCents, commissionStartInCents)
       : 0;
   const performanceComponentInCents =
     commissionRateBps > 0

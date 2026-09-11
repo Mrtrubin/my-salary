@@ -6,7 +6,7 @@
  *  - 达标：monthlyRevenue >= 门槛
  *  - 保底工资：无论达标与否均发放保底工资全额。
  *  - 阶梯提成：流水 >= 提成起征(保底÷0.2)才计提；固定阶梯 20% 起步，
- *    每 +1万 提点 +1%，最高 +5 点 → 25% 封顶（全额累进：整段流水按该阶梯点计提）。
+ *    超过拿提点门槛的流水每满 1万 提点 +1%，最高 +5 个百分点；最终提成率不封顶（全额累进）。
  *  - 服务费 = ceil(总工资 × serviceFeeRateBps / 10000)
  *  - 实发 = 总工资 − 服务费，允许为负。
  */
@@ -17,7 +17,6 @@ import {
   COMMISSION_STEP_RATE_BPS,
   COMMISSION_MAX_STEPS,
   COMMISSION_BASE_RATE_BPS,
-  COMMISSION_CAP_RATE_BPS,
   DEFAULT_SERVICE_FEE_RATE_BPS,
   GRACE_PERIOD_MONTHS,
   type AnchorPayrollInput,
@@ -46,16 +45,20 @@ function validateInput(input: AnchorPayrollInput): void {
 
 /**
  * 计算阶梯提成费率（基点）——全额累进。
- * 流水每满 1 万元（自 4 万起算）提点 +1%，起始 20%，最高叠加 5 点 → 25% 封顶。
+ * 阶梯加点 = min(max(floor((流水 - 拿提点门槛) / 1万元), 0), 5) × 1%。
+ * 当前已接入的最终提成率 = 基础 20% + 阶梯加点；仅阶梯加点封顶 5%，总费率不封顶。
  */
-function resolveCommissionRateBps(monthlyRevenueInCents: number): number {
+function resolveCommissionRateBps(
+  monthlyRevenueInCents: number,
+  commissionStartInCents: number,
+): number {
   const steps = Math.max(
     0,
-    Math.floor(monthlyRevenueInCents / COMMISSION_STEP_IN_CENTS) - 4,
+    Math.floor((monthlyRevenueInCents - commissionStartInCents) / COMMISSION_STEP_IN_CENTS),
   );
   const cappedSteps = Math.min(steps, COMMISSION_MAX_STEPS);
-  const rateBps = COMMISSION_BASE_RATE_BPS + cappedSteps * COMMISSION_STEP_RATE_BPS;
-  return Math.min(rateBps, COMMISSION_CAP_RATE_BPS);
+  const stepRateBps = cappedSteps * COMMISSION_STEP_RATE_BPS;
+  return COMMISSION_BASE_RATE_BPS + stepRateBps;
 }
 
 /**
@@ -93,7 +96,7 @@ export function calculateAnchorPayroll(
   // 阶梯提成：仅当流水 >= 提成起征才计提，全额累进。
   const commissionRateBps =
     monthlyRevenueInCents >= commissionStartInCents
-      ? resolveCommissionRateBps(monthlyRevenueInCents)
+      ? resolveCommissionRateBps(monthlyRevenueInCents, commissionStartInCents)
       : 0;
   const performanceComponentInCents =
     commissionRateBps > 0

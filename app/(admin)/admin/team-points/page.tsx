@@ -33,11 +33,11 @@ export default function TeamPointsPage() {
       <CardHeader title="绩效点类型" description="换算率含义：N 绩效点 = 1 元。金额（分）= 点数 × 100 ÷ 换算率，向下取整。" />
       <CardContent>
         <QueryMessage loading={points.isLoading} error={points.error} empty={!points.data?.length} />
-        <Table><THead><TH isRowHeader>绩效点名称</TH><TH>换算率</TH><TH className="text-right">操作</TH></THead><TBody>
+        <Table><THead><TH isRowHeader>绩效点名称</TH><TH>换算率</TH><TH className="text-left">操作</TH></THead><TBody>
           {points.data?.map((p) => <TR key={p.id}>
             <TD>{p.name}</TD>
             <TD>{p.points_per_yuan} 绩效点 = 1 元</TD>
-            <TD className="text-right"><Button variant="ghost" onClick={() => remove.mutate(p.id)}>删除</Button></TD>
+            <TD className="text-left"><Button variant="ghost" onClick={() => remove.mutate(p.id)}>删除</Button></TD>
           </TR>)}
         </TBody></Table>
 

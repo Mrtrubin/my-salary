@@ -7,7 +7,7 @@
  *  - 规则1（保底达标门槛）：保底达标流水 = 保底 × 1.65 + 保底 = 保底 × 2.65；
  *    当月流水 >= 门槛 → 拿满保底；否则不保底（仍拿保底工资全额，无提成）。
  *  - 规则2（提成起征）：提成起始流水 = 保底 ÷ 0.2；低于此不提成。
- *  - 规则3（阶梯提成）：固定阶梯，20% 起步，流水每 +1万 提点 +1%，最高叠加 5 个点 → 25% 封顶。
+ *  - 规则3（阶梯提成）：20% 起步，超过拿提点门槛的流水每满 1万 提点 +1%，最高叠加 5 个百分点；最终提成率不封顶。
  *  - 规则4（服务费）：所有主播实际流水业绩统一扣除 3% 平台服务费。
  *
  * 保底基准的动态取值：
@@ -56,7 +56,7 @@ export interface AnchorPayrollResult {
   thresholdInCents: AmountInCents;
   /** 提成起征流水 = 保底基准 ÷ 0.2。 */
   commissionStartInCents: AmountInCents;
-  /** 本次实际采用的提成费率（基点，阶梯计算得出，封顶 2500 bps）。 */
+  /** 本次实际采用的最终提成费率（基点，不封顶；仅阶梯加点封顶 500 bps）。 */
   commissionRateBps: RateInBps;
   /** 是否达标（当月流水 >= 门槛）。 */
   isQualified: boolean;
@@ -80,8 +80,6 @@ export const DEFAULT_SERVICE_FEE_RATE_BPS: RateInBps = 300;
 /** 无责期月数上限（前3个月）。 */
 export const GRACE_PERIOD_MONTHS = 3;
 
-/** 阶梯提成起点流水（4 万元，单位分）。低于此不做提成。 */
-export const COMMISSION_FLOOR_IN_CENTS: AmountInCents = 4_000_000;
 /** 阶梯提成起步点：20% = 2000 bps。 */
 export const COMMISSION_BASE_RATE_BPS: RateInBps = 2000;
 /** 每档流水增量（1 万元，单位分），每满一档提点 +1%。 */
@@ -90,5 +88,3 @@ export const COMMISSION_STEP_IN_CENTS: AmountInCents = 1_000_000;
 export const COMMISSION_STEP_RATE_BPS: RateInBps = 100;
 /** 最多叠加档数：最高 +5 点。 */
 export const COMMISSION_MAX_STEPS = 5;
-/** 阶梯提成封顶：25% = 2500 bps。 */
-export const COMMISSION_CAP_RATE_BPS: RateInBps = 2500;

@@ -196,7 +196,7 @@ export default function UserProfilePage() {
             <Row label="方案" value={`${scheme.name} v${scheme.version}`} />
             <Row label="基本工资" value={formatCentsToYuan(scheme.base_salary_cents)} />
             <Row label="保底工资" value={formatCentsToYuan(scheme.guaranteed_salary_cents)} />
-            <Row label="提成" value="固定阶梯 20%~25%" />
+            <Row label="提成" value="基础 20% + 阶梯提点 0%~5%，最终提成率不封顶" />
           </dl>
         ) : (
           <QueryMessage loading={schemes.isLoading} error={schemes.error} empty />

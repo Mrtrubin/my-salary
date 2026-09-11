@@ -42,12 +42,12 @@ export default function TeamsPage() {
       <Button type="submit" disabled={create.isPending}>保存</Button>
     </form></CardContent></Card> : null}
     <Card><CardContent className="p-0"><QueryMessage loading={teams.isLoading} error={teams.error} empty={!teams.data?.length} />
-      <Table><THead><TH isRowHeader>团队</TH><TH>主持人</TH><TH>主播成员数</TH><TH>绩效点数</TH><TH className="text-right">操作</TH></THead><TBody>{teams.data?.map((t) => <TR key={t.id}>
+      <Table><THead><TH isRowHeader>团队</TH><TH>主持人</TH><TH>主播成员数</TH><TH>绩效点数</TH><TH className="text-left">操作</TH></THead><TBody>{teams.data?.map((t) => <TR key={t.id}>
         <TD><Link href={`/admin/teams/detail/members?teamId=${t.id}`} className="font-medium text-accent hover:underline">{t.name}</Link></TD>
         <TD>{t.host?.name ?? "-"}</TD>
         <TD>{t.members.length}</TD>
         <TD>{t.points.length}</TD>
-        <TD className="text-right"><div className="flex justify-end gap-2">
+        <TD className="text-left"><div className="flex justify-start gap-2">
           <Link href={`/admin/teams/detail/members?teamId=${t.id}`} className="rounded px-3 py-1.5 text-sm text-accent hover:bg-accent-soft">成员管理</Link>
           <Link href={`/admin/teams/detail/points?teamId=${t.id}`} className="rounded px-3 py-1.5 text-sm text-accent hover:bg-accent-soft">绩效管理</Link>
           <Button variant="ghost" onClick={() => remove.mutate(t.id)}>删除</Button>

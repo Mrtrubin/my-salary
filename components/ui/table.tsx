@@ -10,12 +10,12 @@ import {
 } from "@heroui/react";
 import type { ReactNode } from "react";
 
-/** HeroUI Table 复合结构封装：自带横向滚动容器。 */
-export function Table({ children }: { children: ReactNode }) {
+/** 通用表格：横向滚动、内容自适应列宽，表头和单元格默认左对齐。 */
+export function Table({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <TableRoot>
+    <TableRoot className="w-full min-w-0">
       <TableScrollContainer>
-        <TableContent aria-label="数据表格">{children}</TableContent>
+        <TableContent aria-label="数据表格" className={`w-max min-w-full table-auto ${className ?? ""}`}>{children}</TableContent>
       </TableScrollContainer>
     </TableRoot>
   );
@@ -49,7 +49,7 @@ export function TH({
   isRowHeader?: boolean;
 }) {
   return (
-    <TableColumn className={className} isRowHeader={isRowHeader}>
+    <TableColumn className={`whitespace-nowrap px-4 py-3 text-left ${className ?? ""}`} isRowHeader={isRowHeader}>
       {children}
     </TableColumn>
   );
@@ -64,5 +64,5 @@ export function TD({
   children?: ReactNode;
   colSpan?: number;
 }) {
-  return <TableCell className={className} colSpan={colSpan}>{children}</TableCell>;
+  return <TableCell className={`whitespace-nowrap px-4 py-3 text-left ${className ?? ""}`} colSpan={colSpan}>{children}</TableCell>;
 }
