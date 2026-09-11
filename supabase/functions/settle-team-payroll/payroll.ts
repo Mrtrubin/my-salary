@@ -14,7 +14,7 @@ const GRACE_PERIOD_MONTHS = 3;
 const COMMISSION_STEP_IN_CENTS = 1000000;
 const COMMISSION_STEP_RATE_BPS = 100;
 const COMMISSION_MAX_STEPS = 5;
-const COMMISSION_BASE_RATE_BPS = 2000;
+const DEFAULT_COMMISSION_BASE_RATE_BPS = 2000;
 
 export interface PayrollScheme {
   baseSalaryInCents: number;
@@ -27,6 +27,7 @@ export interface PayrollInput {
   monthlyRevenueInCents: number;
   tenureMonth: number;
   lastMonthQualified?: boolean;
+  baseCommissionRateBps?: number;
   serviceFeeRateBps?: number;
 }
 
@@ -55,6 +56,7 @@ function applyRateFloor(amount: number, rateBps: number): number {
 function resolveCommissionRateBps(
   monthlyRevenueInCents: number,
   commissionStartInCents: number,
+  baseCommissionRateBps: number,
 ): number {
   const steps = Math.max(
     0,
@@ -62,12 +64,16 @@ function resolveCommissionRateBps(
   );
   const cappedSteps = Math.min(steps, COMMISSION_MAX_STEPS);
   const stepRateBps = cappedSteps * COMMISSION_STEP_RATE_BPS;
-  return COMMISSION_BASE_RATE_BPS + stepRateBps;
+  return baseCommissionRateBps + stepRateBps;
 }
 
 export function computePayroll(input: PayrollInput): PayrollResult {
   const { scheme, monthlyRevenueInCents, tenureMonth } = input;
+  const baseCommissionRateBps = input.baseCommissionRateBps ?? DEFAULT_COMMISSION_BASE_RATE_BPS;
   const serviceFeeRateBps = input.serviceFeeRateBps ?? DEFAULT_SERVICE_FEE_RATE_BPS;
+  if (!Number.isInteger(baseCommissionRateBps) || baseCommissionRateBps < 1 || baseCommissionRateBps > 10000) {
+    throw new Error("基础提成率必须在 0.01%～100% 之间");
+  }
   const isGracefulPeriod = tenureMonth <= GRACE_PERIOD_MONTHS;
 
   const lastMonthQualified = input.lastMonthQualified ?? true;
@@ -88,7 +94,7 @@ export function computePayroll(input: PayrollInput): PayrollResult {
 
   const commissionRateBps =
     monthlyRevenueInCents >= commissionStartInCents
-      ? resolveCommissionRateBps(monthlyRevenueInCents, commissionStartInCents)
+      ? resolveCommissionRateBps(monthlyRevenueInCents, commissionStartInCents, baseCommissionRateBps)
       : 0;
   const performanceComponentInCents =
     commissionRateBps > 0

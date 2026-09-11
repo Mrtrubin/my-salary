@@ -172,6 +172,24 @@ describe("阶梯提点 - 按实际拿提点门槛分档，两端口径一致", (
       expect(computePayroll(input)).toEqual(result);
     });
   });
+
+  it("自定义基础提成率同时作用于前端与 Deno 算法", () => {
+    const input = {
+      scheme,
+      monthlyRevenueInCents: COMMISSION_START + 1000000,
+      tenureMonth: 4,
+      baseCommissionRateBps: 2350,
+    };
+    const expectedRate = 2450;
+    expect(calculateAnchorPayroll(input).commissionRateBps).toBe(expectedRate);
+    expect(computePayroll(input).commissionRateBps).toBe(expectedRate);
+  });
+
+  it.each([0, 10001, 1.5, NaN])("拒绝非法基础提成率：%s", (baseCommissionRateBps) => {
+    const input = { scheme, monthlyRevenueInCents: COMMISSION_START, tenureMonth: 4, baseCommissionRateBps };
+    expect(() => calculateAnchorPayroll(input)).toThrow();
+    expect(() => computePayroll(input)).toThrow();
+  });
 });
 
 describe("主播工资计算器 - 服务费与实发", () => {

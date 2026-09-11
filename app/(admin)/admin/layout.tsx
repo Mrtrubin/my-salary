@@ -13,6 +13,7 @@ import { Logo } from "@/components/logo";
 const NAV_ITEMS = [
   { href: "/admin", label: "控制台", icon: "M3 10 12 3l9 7M5 9v12h5v-7h4v7h5V9" },
   { href: "/admin/members", label: "成员管理", icon: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M16 3a4 4 0 0 1 0 8M22 21v-2a4 4 0 0 0-3-3.87M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0" },
+  { href: "/admin/anchors", label: "主播管理", icon: "M12 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8ZM5 21v-2a7 7 0 0 1 14 0v2M9 14h6" },
   { href: "/admin/teams", label: "团队管理", icon: "M9 3h6v6H9zM3 15h6v6H3zM15 15h6v6h-6zM12 9v3M6 15v-3h12v3" },
   { href: "/admin/team-points", label: "绩效点管理", icon: "m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z" },
   { href: "/admin/positions", label: "职位管理", icon: "M3 7h18v14H3zM8 7V3h8v4M3 12l9 3 9-3M12 12v5" },

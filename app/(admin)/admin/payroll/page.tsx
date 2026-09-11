@@ -6,7 +6,6 @@ import { SalaryRecordStatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { QueryMessage } from "@/components/query-message";
-import { COMMISSION_BASE_RATE_BPS } from "@/lib/domain/payroll/types";
 import { getAdjustmentPresets, type PayrollAdjustment } from "@/lib/domain/payroll/adjustment";
 import { Select } from "@/components/ui/input";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
@@ -208,7 +207,7 @@ export default function PayrollPage() {
                 <THead>
                   <TH isRowHeader>主播姓名</TH>
                   <TH>结算周期</TH>
-                  <TH>主播类型</TH>
+                  <TH>无责期状态</TH>
                   <TH className="text-left">保底金额</TH>
                   <TH className="text-left">总音浪</TH>
                   <TH className="text-left">总流水</TH>
@@ -238,9 +237,8 @@ export default function PayrollPage() {
                         const baseIncome = item.gross_cents - adjustmentTotal;
                         const attendanceBonusBps = item.attendance_bonus_bps ?? 0;
                         const dyTaskBonusBps = item.dy_task_bonus_bps ?? 0;
-                        const stepRate = item.commission_rate_bps === 0 ? 0 : Math.max(0,
-                          item.commission_rate_bps - COMMISSION_BASE_RATE_BPS - attendanceBonusBps - dyTaskBonusBps,
-                        );
+                        // 历史记录尚未保存基础提成率快照，不能可靠拆分基础与阶梯提点。
+                        const rateBreakdownUnavailable = item.commission_rate_bps > 0;
                         return (
                         <Fragment key={item.id}>
                           <TR>
@@ -250,7 +248,7 @@ export default function PayrollPage() {
                               </button>
                             </TD>
                             <TD><span className="whitespace-nowrap text-xs">{periodLabel(item)}</span></TD>
-                            <TD>{item.is_grace_period ? "新主播" : "老主播"}</TD>
+                            <TD>{item.is_grace_period ? "无责期" : "非无责期"}</TD>
                             <TD className="text-left tabular-nums">{formatCentsToYuan(item.base_guarantee_cents)}</TD>
                             <TD className="text-left tabular-nums">
                               <span title="按总流水 × 10 折算，非原始录入音浪">{(item.revenue_cents / 10).toLocaleString("zh-CN", { maximumFractionDigits: 1 })}</span>
@@ -259,8 +257,8 @@ export default function PayrollPage() {
                             <TD className="text-left tabular-nums">{formatCentsToYuan(item.commission_start_cents)}</TD>
                             <TD className="text-left tabular-nums">{formatCentsToYuan(item.threshold_cents)}</TD>
                             <TD>{item.is_qualified ? "达标" : "未达标"}</TD>
-                            <TD className="text-left tabular-nums">{formatBpsAsPercent(COMMISSION_BASE_RATE_BPS)}</TD>
-                            <TD className="text-left tabular-nums">{formatBpsAsPercent(stepRate)}</TD>
+                            <TD className="text-left tabular-nums"><span title={rateBreakdownUnavailable ? "历史记录未保存基础提成率快照，无法拆分" : undefined}>{rateBreakdownUnavailable ? "—" : formatBpsAsPercent(0)}</span></TD>
+                            <TD className="text-left tabular-nums"><span title={rateBreakdownUnavailable ? "历史记录未保存基础提成率快照，无法拆分" : undefined}>{rateBreakdownUnavailable ? "—" : formatBpsAsPercent(0)}</span></TD>
                             <TD className="text-left tabular-nums"><span title="结算保存的考勤加点，仅达到提成起征线后生效">{attendanceBonusBps / 100}</span></TD>
                             <TD className="text-left tabular-nums"><span title="结算保存的dy任务加点，仅达到提成起征线后生效">{dyTaskBonusBps / 100}</span></TD>
                             <TD className="text-left tabular-nums"><span title={item.commission_rate_bps === 0 ? "本次结算未计提成" : "本次结算实际采用的提成率"}>{formatBpsAsPercent(item.commission_rate_bps)}</span></TD>

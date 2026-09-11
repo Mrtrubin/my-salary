@@ -30,6 +30,10 @@ export interface SettlementMemberContext {
   lastMonthQualified?: boolean;
   /** 入职日期 `YYYY-MM-DD`，用于计算在职月序。 */
   hireDate: string;
+  /** 持久化主播类型，用于明确管理端配置语义。 */
+  anchorType: "new" | "experienced";
+  /** 主播基础提成率（基点）。 */
+  baseCommissionRateBps: number;
 }
 
 /** 聚合产出：可 upsert 进 salary_records 的一条草稿。 */
@@ -140,6 +144,7 @@ export function aggregateSettlement(
       monthlyRevenueInCents: revenueCents,
       tenureMonth,
       lastMonthQualified: member.lastMonthQualified,
+      baseCommissionRateBps: member.baseCommissionRateBps,
       serviceFeeRateBps,
     });
     return {

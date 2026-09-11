@@ -48,6 +48,8 @@ export interface AnchorPayrollInput {
   attendanceBonusBps?: RateInBps;
   /** dy 任务加点（基点），默认 0。 */
   dyTaskBonusBps?: RateInBps;
+  /** 主播基础提成率（基点），默认 2000 bps = 20%。 */
+  baseCommissionRateBps?: RateInBps;
   /** 服务费费率（基点），默认 300 bps = 3%。 */
   serviceFeeRateBps?: RateInBps;
 }

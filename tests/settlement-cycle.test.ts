@@ -194,6 +194,8 @@ describe("aggregate.aggregateSettlement", () => {
       schemeId: "s1",
       scheme,
       hireDate: "2026-01-05",
+      anchorType: "new",
+      baseCommissionRateBps: 2000,
     },
   ];
   const period = { start: "2026-01-01", end: "2026-01-31" };

@@ -152,6 +152,8 @@ export type Database = {
       }
       profiles: {
         Row: {
+          anchor_base_commission_bps: number
+         anchor_type: Database["public"]["Enums"]["anchor_type"]
           auth_user_id: string | null
           created_at: string
           email: string | null
@@ -166,6 +168,8 @@ export type Database = {
           username: string | null
         }
         Insert: {
+          anchor_base_commission_bps?: number
+          anchor_type?: Database["public"]["Enums"]["anchor_type"]
           auth_user_id?: string | null
           created_at?: string
           email?: string | null
@@ -180,6 +184,8 @@ export type Database = {
           username?: string | null
         }
         Update: {
+          anchor_base_commission_bps?: number
+          anchor_type?: Database["public"]["Enums"]["anchor_type"]
           auth_user_id?: string | null
           created_at?: string
           email?: string | null
@@ -720,6 +726,7 @@ export type Database = {
       }
     }
     Enums: {
+      anchor_type: "new" | "experienced"
       change_request_status: "pending" | "approved" | "rejected" | "superseded"
       employment_status: "active" | "disabled"
       salary_record_status: "pending_review" | "pending_confirm" | "confirmed" | "completed"
@@ -853,6 +860,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      anchor_type: ["new", "experienced"],
       change_request_status: ["pending", "approved", "rejected", "superseded"],
       employment_status: ["active", "disabled"],
       salary_record_status: ["pending_review", "pending_confirm", "confirmed", "completed"],

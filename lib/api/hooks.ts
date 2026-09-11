@@ -38,6 +38,7 @@ import {
   markNotificationRead,
   markAllNotificationsRead,
   updateMember,
+  updateAnchorSettings,
   updatePerformancePoint,
   updatePosition,
   updateTeam,
@@ -171,6 +172,16 @@ export function useReplaceTeamPerformanceRecords() {
     onSuccess: () => {
       return invalidateRelatedQueries(client, keys.teamPerformance);
     },
+  });
+}
+export function useUpdateAnchorSettings() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: updateAnchorSettings,
+    onSuccess: () => Promise.all([
+      invalidateRelatedQueries(client, keys.members),
+      invalidateSettlementQueries(client),
+    ]),
   });
 }
 export function useCreateScheme() {

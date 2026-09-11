@@ -209,6 +209,29 @@ export interface UpdateMemberInput {
  * 管理员编辑成员：经 admin-update-member Edge Function（service role）
  * 统一更新成员资料 + 职位关联 + 可选重置密码。未传字段保持不变。
  */
+export interface UpdateAnchorSettingsInput {
+  id: string;
+  anchorType: Database["public"]["Enums"]["anchor_type"];
+  baseCommissionRateBps: number;
+}
+
+/** 管理员更新主播资料级配置；保底方案由版本化 salary_schemes 单独保存。 */
+export async function updateAnchorSettings(input: UpdateAnchorSettingsInput): Promise<{ id: string }> {
+  if (!Number.isInteger(input.baseCommissionRateBps)
+    || input.baseCommissionRateBps < 1
+    || input.baseCommissionRateBps > 10000) {
+    throw new ApiError(ApiErrorCode.INVALID_INPUT, "基础提成率必须在 0.01%～100% 之间");
+  }
+  const { data, error } = await getBrowserSupabase().from("profiles").update({
+    anchor_type: input.anchorType,
+    anchor_base_commission_bps: input.baseCommissionRateBps,
+    updated_at: new Date().toISOString(),
+  }).eq("id", input.id).select("id").maybeSingle();
+  if (error) fail(error);
+  if (!data) throw new ApiError(ApiErrorCode.FORBIDDEN, "主播配置未更新，请检查管理员权限");
+  return data;
+}
+
 export async function updateMember(input: UpdateMemberInput): Promise<{ id: string }> {
   const { url, anonKey } = getPublicSupabaseEnv();
   const supabase = getBrowserSupabase();
@@ -507,7 +530,7 @@ export async function rejectAndRecompute(id: string, _options?: { operatorProfil
   // 历史工资始终使用保存周期和岗位，不依赖当前团队或系统周期配置。
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("hire_date")
+    .select("hire_date, anchor_type, anchor_base_commission_bps")
     .eq("id", record.profile_id)
     .single();
   if (profileError) fail(profileError);
@@ -516,6 +539,8 @@ export async function rejectAndRecompute(id: string, _options?: { operatorProfil
     profileId: record.profile_id,
     positionId: record.position_id,
     hireDate: profile.hire_date,
+    anchorType: profile.anchor_type,
+    baseCommissionRateBps: profile.anchor_base_commission_bps,
   }], period);
   if (!context.scheme) throw new ApiError(ApiErrorCode.INVALID_INPUT, "该成员岗位无周期内生效工资方案，无法重算");
   const perfRows = await readProfileRevenue([record.profile_id], period);
@@ -527,6 +552,7 @@ export async function rejectAndRecompute(id: string, _options?: { operatorProfil
     lastMonthQualified: context.lastMonthQualified,
     attendanceBonusBps: record.attendance_bonus_bps,
     dyTaskBonusBps: record.dy_task_bonus_bps,
+ baseCommissionRateBps: context.baseCommissionRateBps,
   }), adjustments);
 
   // 单事务更新快照和日志；现有 RPC 不修改方案关联、保存周期或调整项。
@@ -940,10 +966,16 @@ export async function getAnchorSettlementContexts(teamId: string | null, period:
   for (let i = 0; i < profileIds.length; i += 100) {
     const ids = profileIds.slice(i, i + 100);
     const profiles = await readSettlementRows((from, to) => supabase.from("profiles")
-      .select("id, name, hire_date").in("id", ids).order("id").range(from, to));
+      .select("id, name, hire_date, anchor_type, anchor_base_commission_bps").in("id", ids).order("id").range(from, to));
     const identities = profiles.map((p) => {
       profileNames[p.id] = p.name;
-      return { profileId: p.id, positionId: anchorPosition.id, hireDate: p.hire_date };
+      return {
+        profileId: p.id,
+        positionId: anchorPosition.id,
+        hireDate: p.hire_date,
+        anchorType: p.anchor_type,
+        baseCommissionRateBps: p.anchor_base_commission_bps,
+      };
     });
     members.push(...await loadSettlementContexts(identities, period));
   }
@@ -952,7 +984,7 @@ export async function getAnchorSettlementContexts(teamId: string | null, period:
 
 /** 试算、结算、重算共用：个人有效方案优先，其次同岗位模板；上期达标跨团。 */
 async function loadSettlementContexts(
-  identities: Pick<SettlementMemberContext, "profileId" | "positionId" | "hireDate">[],
+  identities: Pick<SettlementMemberContext, "profileId" | "positionId" | "hireDate" | "anchorType" | "baseCommissionRateBps">[],
   period: PeriodRange,
 ): Promise<SettlementMemberContext[]> {
   if (!identities.length) return [];
@@ -1055,6 +1087,7 @@ export async function settleAnchorRevenue(input: { teamId: string | null; period
       lastMonthQualified: context.lastMonthQualified,
       attendanceBonusBps,
       dyTaskBonusBps,
+      baseCommissionRateBps: context.baseCommissionRateBps,
     });
     const adjusted = applyAdjustments(base, adjustments);
     return {
