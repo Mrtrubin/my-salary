@@ -36,54 +36,58 @@ describe("金额工具函数", () => {
 });
 
 describe("主播工资计算器 - 保底基准与门槛边界", () => {
-  it("流水正好等于门槛：达标，保底基准为初始保底 8000", () => {
+  it("流水正好等于门槛：达标，基础收益为初始保底 8000", () => {
     const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: THRESHOLD, tenureMonth: 4 });
     expect(r.baseGuaranteeInCents).toBe(800000);
     expect(r.thresholdInCents).toBe(THRESHOLD);
     expect(r.isQualified).toBe(true);
+    expect(r.guaranteedComponentInCents).toBe(800000);
   });
 
-  it("流水低门槛 1 分：不达标，仍拿保底工资全额", () => {
+  it("流水低门槛 1 分：不达标，基础收益降级为降级保底 5000", () => {
     const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: THRESHOLD - 1, tenureMonth: 4 });
     expect(r.isQualified).toBe(false);
-    expect(r.guaranteedComponentInCents).toBe(800000);
+    expect(r.baseGuaranteeInCents).toBe(500000);
+    expect(r.guaranteedComponentInCents).toBe(500000);
     expect(r.performanceComponentInCents).toBe(0);
-    expect(r.grossSalaryInCents).toBe(800000);
+    expect(r.grossSalaryInCents).toBe(500000);
   });
 });
 
 describe("主播工资计算器 - 前3个月无责期", () => {
-  it("第1月不达标：按初始保底 8000 全额发放，无提成", () => {
+  it("第1月不达标：基础收益降级为降级保底 5000，无提成", () => {
     const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: 0, tenureMonth: 1 });
     expect(r.isGracefulPeriod).toBe(true);
-    expect(r.baseGuaranteeInCents).toBe(800000);
-    expect(r.guaranteedComponentInCents).toBe(800000);
+    expect(r.isQualified).toBe(false);
+    expect(r.baseGuaranteeInCents).toBe(500000);
+    expect(r.guaranteedComponentInCents).toBe(500000);
     expect(r.performanceComponentInCents).toBe(0);
-    expect(r.grossSalaryInCents).toBe(800000);
-    expect(r.serviceFeeInCents).toBe(24000);
-    expect(r.netSalaryInCents).toBe(776000);
+    expect(r.grossSalaryInCents).toBe(500000);
+    expect(r.serviceFeeInCents).toBe(15000);
+    expect(r.netSalaryInCents).toBe(485000);
   });
 
-  it("无责期忽略上月达标标记：即使上月不达标仍按初始保底", () => {
-    const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: 0, tenureMonth: 2, lastMonthQualified: false });
+  it("无责期当月达标：基础收益为初始保底 8000", () => {
+    const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: THRESHOLD, tenureMonth: 2 });
+    expect(r.isGracefulPeriod).toBe(true);
     expect(r.baseGuaranteeInCents).toBe(800000);
   });
 });
 
-describe("主播工资计算器 - 第4月起保底基准动态取值", () => {
-  it("上月达标 → 保底基准 8000，降级亦不触发", () => {
-    const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: THRESHOLD - 1, tenureMonth: 4, lastMonthQualified: true });
+describe("主播工资计算器 - 达标判定按当月流水动态取保底", () => {
+  it("当月达标 → 基础收益初始保底 8000", () => {
+    const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: THRESHOLD, tenureMonth: 4 });
     expect(r.isGracefulPeriod).toBe(false);
     expect(r.baseGuaranteeInCents).toBe(800000);
     expect(r.guaranteedComponentInCents).toBe(800000);
   });
 
-  it("上月不达标 → 保底基准降级为 5000", () => {
-    const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: 0, tenureMonth: 4, lastMonthQualified: false });
+  it("当月不达标 → 基础收益降级为 5000", () => {
+    const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: 0, tenureMonth: 4 });
     expect(r.baseGuaranteeInCents).toBe(500000);
     expect(r.guaranteedComponentInCents).toBe(500000);
-    // 门槛 = ceil(500000 × 2.65) = 1325000
-    expect(r.thresholdInCents).toBe(1325000);
+    // 门槛固定用初始保底：800000 × 2.65 = 2120000
+    expect(r.thresholdInCents).toBe(THRESHOLD);
     // 服务费 = ceil(500000 × 3%) = 15000
     expect(r.serviceFeeInCents).toBe(15000);
     expect(r.netSalaryInCents).toBe(485000);
@@ -129,13 +133,12 @@ describe("主播工资计算器 - 阶梯提成（基础20%，超过门槛每满1
   });
 });
 
-describe("阶梯提点 - 按实际拿提点门槛分档，两端口径一致", () => {
+describe("阶梯提点 - 拿提点门槛固定用初始保底×5，两端口径一致", () => {
   const scenarios = [
-    { name: "初始保底8000", baseSalaryInCents: 800000, tenureMonth: 4, lastMonthQualified: true, start: 4000000 },
-    { name: "降级保底5000", baseSalaryInCents: 800000, tenureMonth: 4, lastMonthQualified: false, start: 2500000 },
-    { name: "初始保底10000", baseSalaryInCents: 1000000, tenureMonth: 4, lastMonthQualified: true, start: 5000000 },
-    { name: "非整万元门槛", baseSalaryInCents: 650001, tenureMonth: 4, lastMonthQualified: true, start: 3250005 },
-    { name: "无责期忽略降级", baseSalaryInCents: 800000, tenureMonth: 2, lastMonthQualified: false, start: 4000000 },
+    { name: "初始保底8000", baseSalaryInCents: 800000, tenureMonth: 4, start: 4000000 },
+    { name: "初始保底10000", baseSalaryInCents: 1000000, tenureMonth: 4, start: 5000000 },
+    { name: "非整万元门槛", baseSalaryInCents: 650001, tenureMonth: 4, start: 3250005 },
+    { name: "无责期同样适用", baseSalaryInCents: 800000, tenureMonth: 2, start: 4000000 },
   ];
   const boundaries = [
     { offset: -1, stepBps: 0 },
@@ -159,7 +162,6 @@ describe("阶梯提点 - 按实际拿提点门槛分档，两端口径一致", (
         scheme: { ...scheme, baseSalaryInCents: scenario.baseSalaryInCents },
         monthlyRevenueInCents: scenario.start + offset,
         tenureMonth: scenario.tenureMonth,
-        lastMonthQualified: scenario.lastMonthQualified,
       };
       const result = calculateAnchorPayroll(input);
       const expectedRate = offset < 0 ? 0 : 2000 + stepBps;
@@ -193,12 +195,14 @@ describe("阶梯提点 - 按实际拿提点门槛分档，两端口径一致", (
 });
 
 describe("主播工资计算器 - 服务费与实发", () => {
-  it("4 万流水达标：总工资 = 保底 8000 + 提成 8000 = 16000", () => {
+  it("4 万流水达提成门槛：提成模式，总工资 = 4万 × 20% = 8000（不叠加保底）", () => {
     const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: 4000000, tenureMonth: 5 });
-    expect(r.grossSalaryInCents).toBe(1600000);
-    // 服务费 = ceil(1600000 × 3%) = 48000
-    expect(r.serviceFeeInCents).toBe(48000);
-    expect(r.netSalaryInCents).toBe(1552000);
+    expect(r.guaranteedComponentInCents).toBe(0);
+    expect(r.performanceComponentInCents).toBe(800000);
+    expect(r.grossSalaryInCents).toBe(800000);
+    // 服务费 = ceil(800000 × 3%) = 24000
+    expect(r.serviceFeeInCents).toBe(24000);
+    expect(r.netSalaryInCents).toBe(776000);
   });
 });
 
@@ -219,22 +223,33 @@ describe("主播考勤与 dy 任务加点", () => {
     const result = calculateAnchorPayroll({ ...input, monthlyRevenueInCents: revenue,
       attendanceBonusBps: 125, dyTaskBonusBps: 250 });
     expect(result.commissionRateBps).toBe(rate);
-    expect(result.performanceComponentInCents).toBe(Math.floor(revenue * rate / 10000));
-    expect(result.guaranteedComponentInCents).toBe(800000);
+    // 达提成门槛 → 提成模式，保底部分为 0；未达 → 保底模式，达标为初始保底
+    if (rate > 0) {
+      expect(result.performanceComponentInCents).toBe(Math.floor(revenue * rate / 10000));
+      expect(result.guaranteedComponentInCents).toBe(0);
+      expect(result.grossSalaryInCents).toBe(result.performanceComponentInCents);
+    } else {
+      expect(result.performanceComponentInCents).toBe(0);
+      expect(result.guaranteedComponentInCents).toBe(800000);
+      expect(result.grossSalaryInCents).toBe(800000);
+    }
     expect(result.commissionStartInCents).toBe(COMMISSION_START);
     expect(result.thresholdInCents).toBe(THRESHOLD);
     expect(result.serviceFeeInCents).toBe(Math.ceil(result.grossSalaryInCents * 300 / 10000));
     expect(result.netSalaryInCents).toBe(result.grossSalaryInCents - result.serviceFeeInCents);
   });
 
-  it("降级保底仍决定起征，两种加点可以单独使用", () => {
+  it("流水低于拿提点门槛：走保底模式，加点不生效（起征固定初始保底×5）", () => {
     for (const bonus of [{ attendanceBonusBps: 125 }, { dyTaskBonusBps: 125 }]) {
       const result = calculateAnchorPayroll({ ...input, ...bonus,
-        monthlyRevenueInCents: 2500000, lastMonthQualified: false });
-      expect(result.commissionStartInCents).toBe(2500000);
-      expect(result.guaranteedComponentInCents).toBe(500000);
-      expect(result.commissionRateBps).toBe(2125);
-      expect(result.performanceComponentInCents).toBe(531250);
+        monthlyRevenueInCents: 2500000 });
+      // 起征固定 = 800000 × 5 = 4000000，2500000 未达
+      expect(result.commissionStartInCents).toBe(COMMISSION_START);
+      expect(result.commissionRateBps).toBe(0);
+      expect(result.performanceComponentInCents).toBe(0);
+      // 2500000 >= 门槛 2120000 → 达标，基础收益为初始保底
+      expect(result.guaranteedComponentInCents).toBe(800000);
+      expect(result.grossSalaryInCents).toBe(800000);
     }
   });
 

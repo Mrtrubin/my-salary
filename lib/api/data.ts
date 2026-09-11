@@ -2,13 +2,10 @@ import { ApiError, ApiErrorCode } from "@/lib/api/contracts/errors";
 import { getBrowserSupabase } from "@/lib/supabase/client";
 import { getPublicSupabaseEnv } from "@/lib/supabase/env";
 import type { Database, Json } from "@/lib/supabase/database.types";
-import { aggregateSettlement } from "@/lib/domain/settlement/aggregate";
-import type { SettlementMemberContext, SettlementPerfRow } from "@/lib/domain/settlement/aggregate";
+import type { SettlementMemberContext } from "@/lib/domain/settlement/aggregate";
 import { getPeriodRange } from "@/lib/domain/settlement/cycle";
 import type { PeriodRange, SettlementType } from "@/lib/domain/settlement/cycle";
-import { applyAdjustments } from "@/lib/domain/payroll/adjustment";
 import type { PayrollAdjustment } from "@/lib/domain/payroll/adjustment";
-import { calculateAnchorPayroll } from "@/lib/domain/payroll/anchor";
 
 export type SalaryRecordStatus = Database["public"]["Enums"]["salary_record_status"];
 export type Profile = Database["public"]["Tables"]["profiles"]["Row"];
@@ -524,61 +521,19 @@ export async function rejectAndRecompute(id: string, _options?: { operatorProfil
   if (!record.period_start || !record.period_end) {
     throw new ApiError(ApiErrorCode.INVALID_INPUT, "该记录缺少周期信息，无法重算");
   }
-  const period = { start: record.period_start, end: record.period_end };
-  const adjustments = parseSalaryAdjustments(record.adjustments);
 
-  // 历史工资始终使用保存周期和岗位，不依赖当前团队或系统周期配置。
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("hire_date, anchor_type, anchor_base_commission_bps")
-    .eq("id", record.profile_id)
-    .single();
-  if (profileError) fail(profileError);
-
-  const [context] = await loadSettlementContexts([{
-    profileId: record.profile_id,
-    positionId: record.position_id,
-    hireDate: profile.hire_date,
-    anchorType: profile.anchor_type,
-    baseCommissionRateBps: profile.anchor_base_commission_bps,
-  }], period);
-  if (!context.scheme) throw new ApiError(ApiErrorCode.INVALID_INPUT, "该成员岗位无周期内生效工资方案，无法重算");
-  const perfRows = await readProfileRevenue([record.profile_id], period);
-  const [draft] = aggregateSettlement(period, [context], perfRows.filter((r) => !r.noPerf));
-  const adjusted = applyAdjustments(calculateAnchorPayroll({
-    scheme: context.scheme,
-    monthlyRevenueInCents: draft.revenueCents,
-    tenureMonth: draft.tenureMonth,
-    lastMonthQualified: context.lastMonthQualified,
-    attendanceBonusBps: record.attendance_bonus_bps,
-    dyTaskBonusBps: record.dy_task_bonus_bps,
- baseCommissionRateBps: context.baseCommissionRateBps,
-  }), adjustments);
-
-  // 单事务更新快照和日志；现有 RPC 不修改方案关联、保存周期或调整项。
+  // 方案 B：金额一律由数据库权威重算。前端不再读流水/入职日/方案，也不再算任何金额；
+  // 未传加点/调整项时，recompute_salary_record 会沿用记录原有的加点与调整项。
   const { error: rpcError } = await retrySettlement(() => supabase.rpc("recompute_salary_record", {
     p_id: id,
-    p_revenue_cents: draft.revenueCents,
-    p_tenure_month: draft.tenureMonth,
-    p_base_guarantee_cents: draft.baseGuaranteeCents,
-    p_threshold_cents: draft.thresholdCents,
-    p_commission_start_cents: draft.commissionStartCents,
-    p_commission_rate_bps: adjusted.commissionRateBps,
-    p_is_qualified: draft.isQualified,
-    p_is_grace_period: draft.isGracePeriod,
-    p_guaranteed_component_cents: draft.guaranteedComponentCents,
-    p_performance_component_cents: adjusted.performanceComponentInCents,
-    p_gross_cents: adjusted.grossSalaryInCents,
-    p_service_fee_cents: adjusted.serviceFeeInCents,
-    p_net_cents: adjusted.netSalaryInCents,
-    p_base_commission_rate_bps: context.baseCommissionRateBps,
-    p_note: `管理员驳回，按保存周期跨团重算并保留调整项；计算方案 ${context.schemeId}（原方案关联 ${record.scheme_id ?? "无"} 保持不变）`,
+    p_note: "管理员驳回，已按保存周期跨团流水由数据库权威重算并保留原加点与调整项",
   }));
   if (rpcError) {
     const msg = rpcError.message ?? "";
     if (msg.includes("SALARY_RECORD_NOT_FOUND")) throw new ApiError(ApiErrorCode.NOT_FOUND, "工资记录不存在");
     if (msg.includes("FORBIDDEN_TRANSITION")) throw new ApiError(ApiErrorCode.FORBIDDEN, "无权驳回重算");
     if (msg.includes("INVALID_TRANSITION")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "仅待审核工资条可驳回重算");
+    if (msg.includes("SALARY_SCHEME_MISSING")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "该成员岗位无周期内生效工资方案，无法重算");
     fail(rpcError);
   }
 }
@@ -1067,51 +1022,19 @@ export async function settleAnchorRevenue(input: { teamId: string | null; period
     throw new ApiError(ApiErrorCode.INVALID_INPUT, "部分主播不在当前名单、岗位不匹配或缺少生效工资方案，无法结算");
   }
 
-  // 仅读取已选人员的跨团流水，避免再次发现全量名单。
-  const perfRows = await readProfileRevenue(contexts.map((c) => c.profileId), input.period);
-  const settlementPerf: SettlementPerfRow[] = perfRows
-    .filter((r) => !r.noPerf)
-    .map((r) => ({ profileId: r.profileId, perfDate: r.perfDate, revenueCents: r.revenueCents, createdAt: r.createdAt }));
-
-  const drafts = aggregateSettlement(input.period, contexts, settlementPerf);
+  // 仅校验已选人员在名单且有生效方案；金额一律由数据库权威重算，前端不再传任何计算结果。
   const membersByKey = new Map(input.members.map((m) => [settlementMemberKey(m), m]));
 
-  // 按唯一人岗位叠加调整项，组装 RPC p_members。
-  const payload = drafts.map((draft) => {
-    const key = settlementMemberKey(draft);
-    const context = contextsByKey.get(key)!;
+  // 组装 RPC p_members：仅身份 + 加点 + 调整项，数据库自行读流水/入职日/方案完整重算。
+  const payload = contexts.map((context) => {
+    const key = settlementMemberKey(context);
     const { attendanceBonusBps = 0, dyTaskBonusBps = 0, adjustments = [] } = membersByKey.get(key)!;
-    const base = calculateAnchorPayroll({
-      scheme: context.scheme!,
-      monthlyRevenueInCents: draft.revenueCents,
-      tenureMonth: draft.tenureMonth,
-      lastMonthQualified: context.lastMonthQualified,
-      attendanceBonusBps,
-      dyTaskBonusBps,
-      baseCommissionRateBps: context.baseCommissionRateBps,
-    });
-    const adjusted = applyAdjustments(base, adjustments);
     return {
-      profileId: draft.profileId,
-      positionId: draft.positionId,
-      schemeId: draft.schemeId,
-      revenueCents: draft.revenueCents,
-      tenureMonth: draft.tenureMonth,
-      baseGuaranteeCents: draft.baseGuaranteeCents,
-      thresholdCents: draft.thresholdCents,
-      commissionStartCents: draft.commissionStartCents,
-      commissionRateBps: base.commissionRateBps,
-      baseCommissionRateBps: base.baseCommissionRateBps,
+      profileId: context.profileId,
+      positionId: context.positionId,
       attendanceBonusBps,
       dyTaskBonusBps,
-      isQualified: draft.isQualified,
-      isGracePeriod: draft.isGracePeriod,
-      guaranteedComponentCents: draft.guaranteedComponentCents,
-      performanceComponentCents: base.performanceComponentInCents,
-      grossCents: adjusted.grossSalaryInCents,
-      serviceFeeCents: adjusted.serviceFeeInCents,
-      netCents: adjusted.netSalaryInCents,
-      adjustments: adjusted.adjustments.map((a) => ({ name: a.name, amountCents: a.amountCents })),
+      adjustments: adjustments.map((a) => ({ name: a.name, amountCents: a.amountCents })),
     };
   });
 
@@ -1123,8 +1046,9 @@ export async function settleAnchorRevenue(input: { teamId: string | null; period
   }));
   if (error) {
     const msg = error.message ?? "";
-    if (msg.includes("FORBIDDEN_TRANSITION")) throw new ApiError(ApiErrorCode.FORBIDDEN, "无权手动结算");
+    if (msg.includes("ADMIN_REQUIRED") || msg.includes("FORBIDDEN_TRANSITION")) throw new ApiError(ApiErrorCode.FORBIDDEN, "无权手动结算");
     if (msg.includes("TEAM_NOT_FOUND")) throw new ApiError(ApiErrorCode.NOT_FOUND, "团队不存在");
+    if (msg.includes("SALARY_SCHEME_MISSING")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "部分主播缺少生效工资方案，无法结算");
     fail(error);
   }
   return { settledRecords: (data as number) ?? 0 };

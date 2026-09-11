@@ -1,12 +1,12 @@
 /**
  * 主播工资计算器（阶段5 核心，纯函数、可信端执行）。
- * 落地「保底优先模式」规则：
- *  - 保底基准：无责期(前3月)或上月达标 → 初始保底；第4月起上月不达标 → 降级保底。
- *  - 门槛：thresholdInCents = ceil(保底基准 × thresholdMultiplierBps / 10000)
- *  - 达标：monthlyRevenue >= 门槛
- *  - 保底工资：无论达标与否均发放保底工资全额。
- *  - 阶梯提成：流水 >= 提成起征(保底÷0.2)才计提；固定阶梯 20% 起步，
- *    超过拿提点门槛的流水每满 1万 提点 +1%，最高 +5 个百分点；最终提成率不封顶（全额累进）。
+ * 落地「保底/提成互斥模式」规则：
+ *  - 门槛：thresholdInCents = ceil(初始保底 × thresholdMultiplierBps / 10000)（固定用初始保底）。
+ *  - 达标：按当月流水，monthlyRevenue >= 门槛（无责期与非无责期一致）。
+ *  - 基础收益（保底工资）：当月达标 → 初始保底；不达标 → 降级保底。
+ *  - 拿提点门槛（提成起征）= 初始保底 × 5（固定用初始保底），无责期同样适用。
+ *  - 提成互斥：流水 >= 拿提点门槛 → 总工资 = 总流水 × 最终提成率（不叠加保底工资）；否则总工资 = 保底工资全额（无提成）。
+ *  - 阶梯提成：20% 起步，超过拿提点门槛每满 1万 提点 +1%，最高 +5 个百分点；最终提成率不封顶。
  *  - 服务费 = ceil(总工资 × serviceFeeRateBps / 10000)
  *  - 实发 = 总工资 − 服务费，允许为负。
  */
@@ -107,27 +107,23 @@ export function calculateAnchorPayroll(
   const serviceFeeRateBps = input.serviceFeeRateBps ?? DEFAULT_SERVICE_FEE_RATE_BPS;
   const isGracefulPeriod = isWithinGracePeriod(tenureMonth, GRACE_PERIOD_MONTHS);
 
-  // 保底基准：无责期或有上月达标 → 初始保底；否则降级保底。
-  const lastMonthQualified = input.lastMonthQualified ?? true;
-  const baseGuaranteeInCents =
-    isGracefulPeriod || lastMonthQualified
-      ? scheme.baseSalaryInCents
-      : scheme.guaranteedSalaryInCents;
-
-  // 达标门槛：保底基准 × 系数（向上取整到分）。
+  // 达标门槛固定用「初始保底 × 系数」计算（向上取整到分），不随保底基准变动。
   const thresholdInCents = applyRateCeil(
-    baseGuaranteeInCents,
+    scheme.baseSalaryInCents,
     scheme.thresholdMultiplierBps,
   );
+  // 达标判定统一按「当月流水」：>= 门槛即达标（无责期与非无责期一致）。
   const isQualified = monthlyRevenueInCents >= thresholdInCents;
 
-  // 提成起征流水 = 保底基准 ÷ 0.2（= 保底 × 5），向上取整到分。
-  const commissionStartInCents = baseGuaranteeInCents * 5;
+  // 保底基准（基础收益）：当月达标 → 初始保底；不达标 → 降级保底。
+  const baseGuaranteeInCents = isQualified
+    ? scheme.baseSalaryInCents
+    : scheme.guaranteedSalaryInCents;
 
-  // 保障性部分：保底工资全额（无论达标与否）。
-  const guaranteedComponentInCents = baseGuaranteeInCents;
+  // 拿提点门槛（提成起征）= 初始保底 × 5（固定用初始保底），无责期同样适用。
+  const commissionStartInCents = scheme.baseSalaryInCents * 5;
 
-  // 阶梯提成：仅当流水 >= 提成起征才计提，全额累进。
+  // 阶梯提成：仅当流水 >= 拿提点门槛才计提，全额累进。
   const commissionRateBps =
     monthlyRevenueInCents >= commissionStartInCents
       ? resolveCommissionRateBps(
@@ -136,13 +132,18 @@ export function calculateAnchorPayroll(
           baseCommissionRateBps,
         ) + attendanceBonusBps + dyTaskBonusBps
       : 0;
-  if (!Number.isInteger(commissionRateBps) || commissionRateBps > POSTGRES_INT_MAX) {
+  if(!Number.isInteger(commissionRateBps) || commissionRateBps > POSTGRES_INT_MAX) {
     throw new ApiError(ApiErrorCode.INVALID_INPUT, "最终提成费率超过 PostgreSQL int 存储范围");
   }
-  const performanceComponentInCents =
-    commissionRateBps > 0
-      ? applyRateFloor(monthlyRevenueInCents, commissionRateBps)
-      : 0;
+
+  // 提成互斥规则：
+  //  - 流水 >= 拿提点门槛 → 走提成模式，总工资 = 总流水 × 最终提成率（不叠加保底工资）。
+  //  - 否则 → 走保底模式，总工资 = 保底工资全额（无提成）。
+  const isCommissionMode = commissionRateBps > 0;
+  const performanceComponentInCents = isCommissionMode
+    ? applyRateFloor(monthlyRevenueInCents, commissionRateBps)
+    : 0;
+  const guaranteedComponentInCents = isCommissionMode ? 0 : baseGuaranteeInCents;
 
   const grossSalaryInCents =
     guaranteedComponentInCents + performanceComponentInCents;

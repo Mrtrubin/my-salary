@@ -13,9 +13,9 @@ const THRESHOLD = 2120000; // 800000 × 2.65
 describe("主播工资计算器 - 服务费费率", () => {
   it("自定义服务费费率 5%：对总工资按 500 bps 计提", () => {
     const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: 0, tenureMonth: 1, serviceFeeRateBps: 500 });
-    // 总工资 800000，服务费 = ceil(800000 × 5%) = 40000
-    expect(r.serviceFeeInCents).toBe(40000);
-    expect(r.netSalaryInCents).toBe(760000);
+    // 流水 0 不达标 → 基础收益 = 降级保底 500000，服务费 = ceil(500000 × 5%) = 25000
+    expect(r.serviceFeeInCents).toBe(25000);
+    expect(r.netSalaryInCents).toBe(475000);
   });
 
   it("零服务费：实发等于总工资", () => {
@@ -25,17 +25,19 @@ describe("主播工资计算器 - 服务费费率", () => {
   });
 });
 
-describe("主播工资计算器 - 高额流水阶梯提成", () => {
-  it("流水 30 万：阶梯加点封顶 5%，加基础 20% 后按 25% 计提", () => {
+describe("主播工资计算器 - 高额流水阶梯提成（提成模式，不叠加保底）", () => {
+  it("流水 30 万：阶梯加点封顶 5%，加基础 20% 后按 25% 计提，总工资=总流水×提成率", () => {
     const revenue = 30000000; // 300,000 元
     const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: revenue, tenureMonth: 8 });
     expect(r.commissionRateBps).toBe(2500);
     const perf = 7500000; // floor(30000000 × 25%)
     expect(r.performanceComponentInCents).toBe(perf);
-    expect(r.grossSalaryInCents).toBe(800000 + perf);
-    // 服务费 = ceil(8300000 × 3%) = 249000
-    expect(r.serviceFeeInCents).toBe(249000);
-    expect(r.netSalaryInCents).toBe(8300000 - 249000);
+    // 提成模式：保障性部分为 0，总工资 = 提成
+    expect(r.guaranteedComponentInCents).toBe(0);
+    expect(r.grossSalaryInCents).toBe(perf);
+    // 服务费 = ceil(7500000 × 3%) = 225000
+    expect(r.serviceFeeInCents).toBe(225000);
+    expect(r.netSalaryInCents).toBe(perf - 225000);
   });
 
   it("非整除流水向下取整：8123456 分 → 24% 提成取整", () => {

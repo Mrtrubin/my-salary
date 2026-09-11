@@ -710,20 +710,9 @@ export type Database = {
       recompute_salary_record: {
         Args: {
           p_id: string
-          p_revenue_cents: number
-          p_tenure_month: number
-          p_base_guarantee_cents: number
-          p_threshold_cents: number
-          p_commission_start_cents: number
-          p_commission_rate_bps: number
-          p_is_qualified: boolean
-          p_is_grace_period: boolean
-          p_guaranteed_component_cents: number
-          p_performance_component_cents: number
-          p_gross_cents: number
-          p_service_fee_cents: number
-          p_net_cents: number
-          p_base_commission_rate_bps?: number
+          p_attendance_bonus_bps?: Json
+          p_dy_task_bonus_bps?: Json
+          p_adjustments?: Json
           p_note?: string | null
         }
         Returns: undefined

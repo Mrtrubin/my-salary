@@ -216,8 +216,8 @@ export default function PayrollPage() {
                   <TH>是否达标</TH>
                   <TH className="text-left">基础提成率</TH>
                   <TH className="text-left">阶梯提点</TH>
-                  <TH className="text-left">考勤加点（百分点）</TH>
-                  <TH className="text-left">dy任务加点（百分点）</TH>
+                  <TH className="text-left">考勤加点</TH>
+                  <TH className="text-left">dy任务加点</TH>
                   <TH className="text-left">最终提成率</TH>
                   <TH className="text-left">基础收益</TH>
                   {adjustmentColumns.map((name) => <TH key={name} className="text-left">{name}</TH>)}

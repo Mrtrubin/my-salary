@@ -2,17 +2,16 @@
  * 主播工资引擎领域类型（阶段5）。
  * 金额一律以「分」为单位的整数存储；比例以「基点」(bps) 表示（10000 bps = 100%）。
  *
- * 薪资模式：保底优先模式
- *  - 保底工资 = 基本工资 + 超额阶梯提成
- *  - 规则1（保底达标门槛）：保底达标流水 = 保底 × 1.65 + 保底 = 保底 × 2.65；
- *    当月流水 >= 门槛 → 拿满保底；否则不保底（仍拿保底工资全额，无提成）。
- *  - 规则2（提成起征）：提成起始流水 = 保底 ÷ 0.2；低于此不提成。
- *  - 规则3（阶梯提成）：20% 起步，超过拿提点门槛的流水每满 1万 提点 +1%，最高叠加 5 个百分点；最终提成率不封顶。
- *  - 规则4（服务费）：所有主播实际流水业绩统一扣除 3% 平台服务费。
+ * 薪资模式：保底/提成互斥模式
+ *  - 门槛（保底达标门槛）= 初始保底 × thresholdMultiplierBps（固定用初始保底），达标判定按当月流水。
+ *  - 基础收益（保底工资）：当月达标 → 初始保底；不达标 → 降级保底。
+ *  - 拿提点门槛（提成起征）= 初始保底 × 5（固定用初始保底），无责期同样适用。
+ *  - 提成互斥：当月流水 >= 拿提点门槛 → 总工资 = 总流水 × 最终提成率（不叠加保底工资）；
+ *    否则 → 总工资 = 保底工资全额（无提成）。
+ *  - 阶梯提成：20% 起步，超过拿提点门槛的流水每满 1万 提点 +1%，最高叠加 5 个百分点；最终提成率不封顶。
+ *  - 服务费：所有主播实际流水业绩统一扣除 3% 平台服务费。
  *
- * 保底基准的动态取值：
- *  - 入职前 3 个月（无责期）：按初始保底 = baseSalaryInCents 计。
- *  - 第 4 个月起：上月达标 → 继续按初始保底；上月不达标 → 按 guaranteedSalaryInCents 计。
+ * 说明：达标判定与保底基准均以「当月流水」为准，不再依赖上月达标标记。
  */
 import type { AmountInCents, RateInBps } from "@/lib/api/contracts/common";
 
@@ -56,11 +55,11 @@ export interface AnchorPayrollInput {
 
 /** 工资计算的明细结果（全部为分）。 */
 export interface AnchorPayrollResult {
-  /** 本月保底基准（初始保底或降级保底，取决于月序与上月达标）。 */
+  /** 本月保底基准（基础收益）：当月达标为初始保底，否则为降级保底。 */
   baseGuaranteeInCents: AmountInCents;
-  /** 保底达标门槛 = 保底基准 × 系数。 */
+  /** 保底达标门槛 = 初始保底 × 系数（固定用初始保底）。 */
   thresholdInCents: AmountInCents;
-  /** 提成起征流水 = 保底基准 ÷ 0.2。 */
+  /** 拿提点门槛（提成起征）= 初始保底 × 5（固定）。 */
   commissionStartInCents: AmountInCents;
   /** 本次实际采用的最终提成费率（基点，不封顶；仅阶梯加点封顶 500 bps）。 */
   commissionRateBps: RateInBps;
@@ -73,11 +72,11 @@ export interface AnchorPayrollResult {
   isQualified: boolean;
   /** 是否处于无责期（前3个月）。 */
   isGracefulPeriod: boolean;
-  /** 保障性工资部分（保底工资全额，无论是否达标均发放）。 */
+  /** 保障性工资部分：保底模式下为保底工资全额，提成模式下为 0。 */
   guaranteedComponentInCents: AmountInCents;
-  /** 绩效工资（阶梯提成，流水低于提成起征时为 0）。 */
+  /** 绩效工资（提成模式下 = 总流水 × 最终提成率；保底模式下为 0）。 */
   performanceComponentInCents: AmountInCents;
-  /** 总工资 = 保底工资 + 阶梯提成。 */
+  /** 总工资：提成模式 = 绩效工资；保底模式 = 保底工资。 */
   grossSalaryInCents: AmountInCents;
   /** 服务费 = ceil(总工资 × 费率)。 */
   serviceFeeInCents: AmountInCents;

@@ -193,74 +193,64 @@ describe("方案与人岗位上下文", () => {
   });
 });
 
-describe("手动结算", () => {
-  it("两加点随成员岗位保存，含调整结算与保存快照重算一致", async () => {
-    const adjustments = [{ name: "奖金", amountCents: 10001 }, { name: "扣款", amountCents: -5000 }];
+describe("手动结算（方案 B：前端只透传身份+加点+调整项，金额由数据库权威重算）", () => {
+  it("两加点随成员岗位透传，调整项原样传入交由数据库规整；前端不携带任何计算金额", async () => {
+    const adjustments = [{ name: " 奖金 ", amountCents: 10001 }, { name: "扣款", amountCents: -5000 }];
     await settleAnchorRevenue({ ...input(), members: [{ profileId: "p1", positionId: 7,
       attendanceBonusBps: 125, dyTaskBonusBps: 250, adjustments }] });
     const saved = client.rpc.mock.calls[0][1].p_members[0];
-    expect(saved).toMatchObject({ attendanceBonusBps: 125, dyTaskBonusBps: 250,
-      commissionRateBps: 2475, performanceComponentCents: 1237500,
-      grossCents: 2042501, serviceFeeCents: 61276, netCents: 1981225, adjustments });
-    tables.salary_records = [{ id: "roundtrip", status: "pending_review", profile_id: saved.profileId,
-      position_id: saved.positionId, scheme_id: saved.schemeId, period_start: period.start,
-      period_end: period.end, attendance_bonus_bps: saved.attendanceBonusBps,
-      dy_task_bonus_bps: saved.dyTaskBonusBps, adjustments: saved.adjustments }];
-    client.rpc.mockClear();
-    queries = [];
-    await rejectAndRecompute("roundtrip");
-    const args = client.rpc.mock.calls[0][1];
-    expect(args).toMatchObject({ p_commission_rate_bps: saved.commissionRateBps,
-      p_performance_component_cents: saved.performanceComponentCents,
-      p_gross_cents: saved.grossCents, p_service_fee_cents: saved.serviceFeeCents, p_net_cents: saved.netCents });
-    expect(args).not.toHaveProperty("p_attendance_bonus_bps");
-    expect(args).not.toHaveProperty("p_dy_task_bonus_bps");
-    expect(queried("salary_records", "select")[0][0]).toContain("attendance_bonus_bps, dy_task_bonus_bps");
+    expect(saved).toEqual({ profileId: "p1", positionId: 7, attendanceBonusBps: 125, dyTaskBonusBps: 250,
+      adjustments: [{ name: " 奖金 ", amountCents: 10001 }, { name: "扣款", amountCents: -5000 }] });
+    for (const key of ["schemeId", "revenueCents", "commissionRateBps", "performanceComponentCents",
+      "guaranteedComponentCents", "grossCents", "serviceFeeCents", "netCents", "tenureMonth", "isQualified"]) {
+      expect(saved).not.toHaveProperty(key);
+    }
   });
 
-  it("反向勾选多成员不会串用加点，未起征仍保存输入快照", async () => {
+  it("反向勾选多成员不会串用加点，缺省加点补零；均不携带金额", async () => {
     tables.team_members.push(membership("p2"));
     tables.profiles.push(profile("p2"));
-    tables.anchor_revenue_records.push(revenue("p2-income", { profile_id: "p2", revenue_cents: 3999999 }));
     await settleAnchorRevenue({ ...input(), members: [
       { profileId: "p2", positionId: 7, attendanceBonusBps: 300, dyTaskBonusBps: 400 },
       { profileId: "p1", positionId: 7, attendanceBonusBps: 125 },
     ] });
     expect(client.rpc.mock.calls[0][1].p_members).toEqual(expect.arrayContaining([
-      expect.objectContaining({ profileId: "p1", positionId: 7, attendanceBonusBps: 125, dyTaskBonusBps: 0,
-        commissionRateBps: 2225, performanceComponentCents: 1112500 }),
-      expect.objectContaining({ profileId: "p2", positionId: 7, attendanceBonusBps: 300, dyTaskBonusBps: 400,
-        commissionRateBps: 0, performanceComponentCents: 0, grossCents: 800000 }),
+      { profileId: "p1", positionId: 7, attendanceBonusBps: 125, dyTaskBonusBps: 0, adjustments: [] },
+      { profileId: "p2", positionId: 7, attendanceBonusBps: 300, dyTaskBonusBps: 400, adjustments: [] },
     ]));
   });
 
-  it.each([
-    { attendanceBonusBps: -1 }, { dyTaskBonusBps: 0.5 }, { attendanceBonusBps: NaN },
-    { dyTaskBonusBps: Infinity }, { attendanceBonusBps: 2147483648 },
-    { attendanceBonusBps: 2147481547, dyTaskBonusBps: 1 },
-  ])("非法加点或最终费率溢出不得调用 RPC：%j", async (bonuses) => {
-    await expect(settleAnchorRevenue({ ...input(), members: [
-      { profileId: "p1", positionId: 7, ...bonuses },
-    ] })).rejects.toThrow();
-    expect(client.rpc).not.toHaveBeenCalled();
+  it("加点合法性由数据库权威校验：前端原样透传，不再本地拦截", async () => {
+    await settleAnchorRevenue({ ...input(), members: [
+      { profileId: "p1", positionId: 7, attendanceBonusBps: 125, dyTaskBonusBps: 250 },
+    ] });
+    // 前端不再计算或校验加点边界，因此非法加点应被透传给 SQL 由其校验并回滚。
+    expect(client.rpc).toHaveBeenCalledTimes(1);
+    expect(client.rpc.mock.calls[0][1].p_members[0]).toMatchObject({ attendanceBonusBps: 125, dyTaskBonusBps: 250 });
   });
-  it("空团队结算本人跨团收入，排除无绩效并写入调整后的工资金额", async () => {
-    tables.anchor_revenue_records.push(revenue("no-perf", { no_perf: true, revenue_cents: 9000000 }));
+
+  it("加点校验错误由数据库返回时前端映射并抛出", async () => {
+    client.rpc.mockResolvedValue({ data: null, error: { code: "22023", message: "INVALID_COMMISSION_BPS" } });
+    await expect(settleAnchorRevenue({ ...input(), members: [
+      { profileId: "p1", positionId: 7, attendanceBonusBps: -1 },
+    ] })).rejects.toThrow();
+    expect(client.rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it("空团队结算：仅透传身份+加点+调整项，不再前置读结算设置", async () => {
     const result = await settleAnchorRevenue({ ...input(), members: [{ profileId: "p1", positionId: 7,
       adjustments: [{ name: " 奖金 ", amountCents: 10001 }, { name: "扣款", amountCents: -5000 }] }] });
     expect(result).toEqual({ settledRecords: 1 });
     expect(client.rpc).toHaveBeenCalledExactlyOnceWith("settle_anchor_revenue", {
       p_team_id: null, p_period_start: period.start, p_period_end: period.end,
-      p_members: [expect.objectContaining({ profileId: "p1", positionId: 7, schemeId: "template",
-        attendanceBonusBps: 0, dyTaskBonusBps: 0, commissionRateBps: 2100, performanceComponentCents: 1050000,
-        revenueCents: 5000000, grossCents: 1855001, serviceFeeCents: 55651, netCents: 1799350,
-        adjustments: [{ name: "奖金", amountCents: 10001 }, { name: "扣款", amountCents: -5000 }] })],
+      p_members: [{ profileId: "p1", positionId: 7, attendanceBonusBps: 0, dyTaskBonusBps: 0,
+        adjustments: [{ name: " 奖金 ", amountCents: 10001 }, { name: "扣款", amountCents: -5000 }] }],
     });
     expect(queries.some((q) => q.table === "system_settlement_settings")).toBe(false);
   });
 });
 
-describe("保存周期重算", () => {
+describe("保存周期重算（方案 B：前端只校验状态与周期，重算落库全由数据库权威完成）", () => {
   beforeEach(() => {
     tables.salary_records = [{ id: "saved", status: "pending_review", profile_id: "p1", position_id: 9,
       scheme_id: "original", period_start: "2026-03-21", period_end: "2026-04-20",
@@ -274,49 +264,42 @@ describe("保存周期重算", () => {
     );
   });
 
-  it("使用保存岗位、周期和原调整项；跨团上期未达标影响第四月保底", async () => {
+  it("仅透传记录 id 与驳回说明；不携带金额、周期、方案或加点，且不再前置读库", async () => {
     await rejectAndRecompute("saved");
-    expect(client.rpc).toHaveBeenCalledExactlyOnceWith("recompute_salary_record", expect.objectContaining({
-      p_id: "saved", p_revenue_cents: 5000000, p_tenure_month: 4, p_base_guarantee_cents: 500000,
-      p_gross_cents: 1605001, p_service_fee_cents: 48151, p_net_cents: 1556850,
-      p_note: expect.stringContaining("saved-position（原方案关联 original 保持不变）"),
-    }));
     const args = client.rpc.mock.calls[0][1];
-    for (const key of ["p_team_id", "p_scheme_id", "p_period_start", "p_period_end", "p_adjustments"]) {
+    expect(client.rpc).toHaveBeenCalledExactlyOnceWith("recompute_salary_record", { p_id: "saved", p_note: args.p_note });
+    expect(args.p_note).toEqual(expect.any(String));
+    for (const key of ["p_team_id", "p_scheme_id", "p_period_start", "p_period_end", "p_adjustments",
+      "p_attendance_bonus_bps", "p_dy_task_bonus_bps", "p_revenue_cents", "p_tenure_month",
+      "p_base_guarantee_cents", "p_commission_rate_bps", "p_gross_cents", "p_service_fee_cents", "p_net_cents"]) {
       expect(args).not.toHaveProperty(key);
     }
-    expect(queried("salary_schemes", "in")).toContainEqual(["position_id", [9]]);
-    expect(queried("anchor_revenue_records", "gte")).toContainEqual(["perf_date", "2026-03-21"]);
-    expect(queried("anchor_revenue_records", "lte")).toContainEqual(["perf_date", "2026-04-20"]);
-    expect(queries.some((q) => ["system_settlement_settings", "team_members", "user_positions", "positions"].includes(q.table))).toBe(false);
+    // 前端只读取待重算记录本身用于状态/周期校验，绝不再读方案、流水或结算名单相关表。
+    expect(queries.map((q) => q.table)).toEqual(["salary_records"]);
+    expect(queries.some((q) => ["salary_schemes", "anchor_revenue_records", "system_settlement_settings",
+      "team_members", "user_positions", "positions"].includes(q.table))).toBe(false);
   });
 
-  it("保存加点参与降级保底重算，费率与绩效均取新结果", async () => {
-    Object.assign(tables.salary_records[0], { attendance_bonus_bps: 125, dy_task_bonus_bps: 250 });
-    await rejectAndRecompute("saved");
-    expect(client.rpc).toHaveBeenCalledExactlyOnceWith("recompute_salary_record", expect.objectContaining({
-      p_base_guarantee_cents: 500000, p_commission_start_cents: 2500000,
-      p_commission_rate_bps: 2575, p_performance_component_cents: 1287500,
-      p_gross_cents: 1792501, p_service_fee_cents: 53776, p_net_cents: 1738725,
-    }));
-    expect(client.rpc.mock.calls[0][1]).not.toHaveProperty("p_attendance_bonus_bps");
-    expect(client.rpc.mock.calls[0][1]).not.toHaveProperty("p_dy_task_bonus_bps");
+  it("数据库权威校验加点/费率/调整项：错误由 SQL 返回并被前端抛出", async () => {
+    client.rpc.mockResolvedValue({ data: null, error: { code: "22023", message: "INVALID_COMMISSION_BPS" } });
+    await expect(rejectAndRecompute("saved")).rejects.toThrow();
+    expect(client.rpc).toHaveBeenCalledTimes(1);
   });
 
   it.each([
-    [{ attendance_bonus_bps: -1 }, "提成加点"],
-    [{ dy_task_bonus_bps: 0.5 }, "提成加点"],
-    [{ attendance_bonus_bps: null }, "提成加点"],
-    [{ attendance_bonus_bps: 2147481447, dy_task_bonus_bps: 1 }, "最终提成费率"],
     [{ status: "confirmed" }, "仅待审核"],
     [{ period_start: null }, "缺少周期"],
-    [{ adjustments: {} }, "调整项格式错误"],
-    [{ adjustments: [{ name: "奖金", amountCents: 0.5 }] }, "调整项格式错误"],
-    [{ adjustments: [{ name: " ", amountCents: 100 }] }, "名称不能为空"],
-  ])("无效保存数据不得写入：%j", async (change, message) => {
+    [{ period_end: null }, "缺少周期"],
+  ])("前端保留的状态与周期校验不得写入：%j", async (change, message) => {
     Object.assign(tables.salary_records[0], change);
     await expect(rejectAndRecompute("saved")).rejects.toThrow(message);
     expect(client.rpc).not.toHaveBeenCalled();
+  });
+
+  it("数据库返回业务错误码时前端正确映射", async () => {
+    client.rpc.mockResolvedValue({ data: null, error: { code: "P0001", message: "SALARY_SCHEME_MISSING" } });
+    await expect(rejectAndRecompute("saved")).rejects.toThrow("无周期内生效工资方案");
+    expect(client.rpc).toHaveBeenCalledTimes(1);
   });
 
   it.each([null, {}, [{ name: "奖金", amountCents: Number.MAX_SAFE_INTEGER + 1 }],
