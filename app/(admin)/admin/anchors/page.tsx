@@ -113,19 +113,19 @@ export default function AnchorsPage() {
         <QueryMessage loading={members.isLoading || schemes.isLoading} error={members.error ?? schemes.error} empty={!members.isLoading && anchors.length === 0} />
         {anchors.length ? (
           <Table>
-            <THead><TH isRowHeader>主播</TH><TH>主播类型</TH><TH>基础提成率</TH><TH>初始保底</TH><TH>降级保底</TH><TH>操作</TH></THead>
+            <THead><TH isRowHeader sticky="left">主播</TH><TH>主播类型</TH><TH>基础提成率</TH><TH>初始保底</TH><TH>降级保底</TH><TH sticky="right">操作</TH></THead>
             <TBody>
               {anchors.map((anchor) => {
                 const personal = latestPersonalScheme(schemes.data, anchor.id);
                 const effective = personal ?? template;
                 return (
                   <TR key={anchor.id}>
-                    <TD>{anchor.name}</TD>
+                    <TD sticky="left">{anchor.name}</TD>
                     <TD>{anchor.anchor_type === "new" ? "新主播" : "老主播"}</TD>
                     <TD>{anchor.anchor_base_commission_bps / 100}%</TD>
                     <TD>{effective ? formatCentsToYuan(effective.base_salary_cents) : "—"}</TD>
                     <TD>{effective ? formatCentsToYuan(effective.guaranteed_salary_cents) : "—"}</TD>
-<TD><Button variant="ghost" onClick={() => openEditor(anchor)}>编辑</Button></TD>
+<TD sticky="right"><Button variant="ghost" onClick={() => openEditor(anchor)}>编辑</Button></TD>
                   </TR>
                 );
               })}

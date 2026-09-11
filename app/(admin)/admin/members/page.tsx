@@ -288,7 +288,7 @@ export default function MembersPage() {
           />
           <Table>
             <THead>
-              <TH isRowHeader>姓名</TH>
+              <TH isRowHeader sticky="left">姓名</TH>
               <TH>用户名</TH>
               <TH>手机号</TH>
               <TH>邮箱</TH>
@@ -297,12 +297,12 @@ export default function MembersPage() {
               <TH>入职日期</TH>
               <TH>系统角色</TH>
               <TH>状态</TH>
-              <TH className="text-left">操作</TH>
+              <TH className="text-left" sticky="right">操作</TH>
             </THead>
             <TBody>
               {filtered.map((item) => (
                 <TR key={item.id}>
-                  <TD>{item.name}</TD>
+                  <TD sticky="left">{item.name}</TD>
                   <TD>{item.username ?? "-"}</TD>
                   <TD>{item.phone || "-"}</TD>
                   <TD>{item.email || "-"}</TD>
@@ -315,7 +315,7 @@ export default function MembersPage() {
                   <TD>{item.hire_date}</TD>
                   <TD>{item.system_role === "admin" ? "管理员" : "普通用户"}</TD>
                   <TD>{item.status === "active" ? "在职" : "已停用"}</TD>
-                  <TD className="text-left">
+                  <TD className="text-left" sticky="right">
                     <div className="flex justify-start gap-1">
                       <Button variant="ghost" onClick={() => setDetailing(item)}>详情</Button>
                       <Button variant="ghost" onClick={() => setEditing(item)}>编辑</Button>

@@ -11,3 +11,56 @@ body {
   color: #0f172a; /* slate-900 */
   font-family: var(--font-geist-sans), "PingFang SC", "Microsoft YaHei", sans-serif;
 }
+
+/* ==========================================================================
+   通用表格增强（components/ui/table.tsx）
+   1) 斑马纹：奇偶行底色不同
+   2) 列吸附：指定列固定在横向滚动容器的左/右边缘
+   放在文件末尾且不写进 @layer，确保覆盖 HeroUI 的 .table__cell 默认底色。
+   ========================================================================== */
+
+/* --- 列吸附 --- */
+/* 滚动容器 .table__scroll-container 自带 overflow-x-auto，即 sticky 的滚动上下文 */
+.hui-table .hui-sticky {
+  position: sticky;
+  z-index: 2;
+  /* 吸附单元格必须不透明，否则滚动时下层列会透出来 */
+  background-color: var(--color-surface, #ffffff);
+}
+
+/* 表头吸附列层级最高：既压住数据列，也压住普通表头 */
+.hui-table thead .hui-sticky {
+  z-index: 4;
+  background-color: #e2e8f0; /* slate-200，与加深后的表头一致 */
+}
+
+.hui-table thead th:not(.hui-sticky) {
+  z-index: 1;
+}
+
+/* --- 斑马纹 --- */
+/* 选择器特异性高于 .hui-sticky，因此吸附列会跟随所在行的斑马色，不会露白 */
+.hui-table--striped tbody tr:nth-child(odd) > td {
+  background-color: #ffffff;
+}
+
+.hui-table--striped tbody tr:nth-child(even) > td {
+  background-color: #eee; /* slate-200 */
+}
+
+/* 悬停整行高亮，优先级最高，保证吸附列与普通列同色 */
+@media (hover: hover) {
+  .hui-table--striped tbody tr:hover > td,
+  .hui-table--striped tbody tr[data-hovered="true"] > td {
+    background-color: #c7d2fe; /* indigo-200 */
+  }
+}
+
+/* 吸附边缘的分隔阴影，提示此处存在被遮挡内容 */
+.hui-table .hui-sticky--left {
+  box-shadow: 2px 0 0 0 rgb(148 163 184 / 1); /* slate-400 */
+}
+
+.hui-table .hui-sticky--right {
+  box-shadow: -2px 0 0 0 rgb(148 163 184 / 1);
+}

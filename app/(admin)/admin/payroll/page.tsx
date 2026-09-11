@@ -205,7 +205,7 @@ export default function PayrollPage() {
           <QueryMessage loading={salary.isLoading} error={salary.error} empty={!filtered.length} />
           <Table>
                 <THead>
-                  <TH isRowHeader>主播姓名</TH>
+                  <TH isRowHeader sticky="left">主播姓名</TH>
                   <TH>结算周期</TH>
                   <TH>无责期状态</TH>
                   <TH className="text-left">保底金额</TH>
@@ -227,7 +227,7 @@ export default function PayrollPage() {
                   <TH className="text-left">到手工资</TH>
                   <TH>备注</TH>
                   <TH>状态</TH>
-                  <TH className="text-left">操作</TH>
+                  <TH className="text-left" sticky="right">操作</TH>
                 </THead>
                 <TBody>
                   {filtered.map((item) => {
@@ -245,7 +245,7 @@ export default function PayrollPage() {
                         return (
                         <Fragment key={item.id}>
                           <TR>
-                            <TD>
+                            <TD sticky="left">
                               <button className="text-indigo-600 hover:underline" onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}>
                                 {item.profile?.name ?? "未关联"}
                               </button>
@@ -283,7 +283,7 @@ export default function PayrollPage() {
                             <TD className="text-left font-semibold tabular-nums">{formatCentsToYuan(item.net_cents)}</TD>
                             <TD><span title="当前工资记录暂无备注字段">—</span></TD>
                             <TD><SalaryRecordStatusBadge status={item.status} /></TD>
-                            <TD className="text-left">
+                            <TD className="text-left" sticky="right">
                               <span className="flex justify-start gap-1">
                                 {item.status === "pending_review" ? (
                                   <>

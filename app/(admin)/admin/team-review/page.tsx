@@ -82,7 +82,7 @@ export default function TeamReviewPage() {
           <QueryMessage loading={query.isLoading} error={query.error} empty={!filtered.length} />
           <Table>
             <THead>
-              <TH isRowHeader>绩效日期</TH>
+              <TH isRowHeader sticky="left">绩效日期</TH>
               <TH>团队</TH>
               <TH>成员</TH>
               <TH>绩效点</TH>
@@ -92,7 +92,7 @@ export default function TeamReviewPage() {
             <TBody>
               {filtered.map((item) => (
                 <TR key={item.id}>
-                  <TD>{formatDate(item.perf_date)}</TD>
+                  <TD sticky="left">{formatDate(item.perf_date)}</TD>
                   <TD>{item.team?.name ?? "—"}</TD>
                   <TD>{item.profile?.name ?? "—"}</TD>
                   <TD>{item.no_perf ? (item.no_perf_note || "停播") : (item.point?.name ?? "—")}</TD>

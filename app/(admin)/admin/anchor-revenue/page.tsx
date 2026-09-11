@@ -400,15 +400,15 @@ function AnchorRevenueWorkspace({ settings, settingsRefreshing }: { settings: Sy
                       onChange={toggleSelectAll}
                     />
                   </TH>
-                  <TH>主播</TH>
+                  <TH sticky="left">主播</TH>
                   <TH className="text-left">总流水</TH>
-                  <TH className="text-left">考勤加点（百分点）</TH>
-                  <TH className="text-left">dy任务加点（百分点）</TH>
+                  <TH className="text-left">考勤加点</TH>
+                  <TH className="text-left">dy任务加点</TH>
                   <TH className="text-left">最终提成率</TH>
                   <TH className="text-left">提成</TH>
                   <TH className="text-left">保底</TH>
                   {adjustmentColumns.map((name) => <TH key={name} className="text-left">{name}</TH>)}
-                  <TH className="text-left">调整合计 / 编辑</TH>
+                  <TH className="text-left">调整项</TH>
                   <TH className="text-left">总工资</TH>
                   <TH className="text-left">实发</TH>
                   <TH className="text-left">明细</TH>
@@ -426,7 +426,7 @@ function AnchorRevenueWorkspace({ settings, settingsRefreshing }: { settings: Sy
                             title={row.hasScheme ? undefined : "该主播未配置生效工资方案，无法结算"}
                           />
                         </TD>
-                        <TD>{row.profileName}</TD>
+                        <TD sticky="left">{row.profileName}</TD>
                         <TD className="text-left whitespace-nowrap">{formatCentsToYuan(row.revenueCents)}</TD>
                         {row.hasScheme ? (
                           <>
