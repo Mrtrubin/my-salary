@@ -64,6 +64,11 @@ export interface AnchorPayrollResult {
   commissionStartInCents: AmountInCents;
   /** 本次实际采用的最终提成费率（基点，不封顶；仅阶梯加点封顶 500 bps）。 */
   commissionRateBps: RateInBps;
+  /**
+   * 本次采用的基础提成率（基点），用于持久化快照。
+   * 阶梯提点 = commissionRateBps − 本字段 − 考勤加点 − dy任务加点。
+   */
+  baseCommissionRateBps: RateInBps;
   /** 是否达标（当月流水 >= 门槛）。 */
   isQualified: boolean;
   /** 是否处于无责期（前3个月）。 */

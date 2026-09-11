@@ -237,8 +237,11 @@ export default function PayrollPage() {
                         const baseIncome = item.gross_cents - adjustmentTotal;
                         const attendanceBonusBps = item.attendance_bonus_bps ?? 0;
                         const dyTaskBonusBps = item.dy_task_bonus_bps ?? 0;
-                        // 历史记录尚未保存基础提成率快照，不能可靠拆分基础与阶梯提点。
-                        const rateBreakdownUnavailable = item.commission_rate_bps > 0;
+                        // 基础提成率取结算快照；阶梯提点 = 最终提成率 − 基础 − 考勤 − dy，未计提时为 0。
+                        const baseCommissionRateBps = item.base_commission_rate_bps ?? 0;
+                        const tierBonusBps = item.commission_rate_bps > 0
+                          ? Math.max(item.commission_rate_bps - baseCommissionRateBps - attendanceBonusBps - dyTaskBonusBps, 0)
+                          : 0;
                         return (
                         <Fragment key={item.id}>
                           <TR>
@@ -257,8 +260,8 @@ export default function PayrollPage() {
                             <TD className="text-left tabular-nums">{formatCentsToYuan(item.commission_start_cents)}</TD>
                             <TD className="text-left tabular-nums">{formatCentsToYuan(item.threshold_cents)}</TD>
                             <TD>{item.is_qualified ? "达标" : "未达标"}</TD>
-                            <TD className="text-left tabular-nums"><span title={rateBreakdownUnavailable ? "历史记录未保存基础提成率快照，无法拆分" : undefined}>{rateBreakdownUnavailable ? "—" : formatBpsAsPercent(0)}</span></TD>
-                            <TD className="text-left tabular-nums"><span title={rateBreakdownUnavailable ? "历史记录未保存基础提成率快照，无法拆分" : undefined}>{rateBreakdownUnavailable ? "—" : formatBpsAsPercent(0)}</span></TD>
+                            <TD className="text-left tabular-nums"><span title="结算时该主播的基础提成率快照">{formatBpsAsPercent(baseCommissionRateBps)}</span></TD>
+                            <TD className="text-left tabular-nums"><span title={item.commission_rate_bps === 0 ? "未达提成起征线，本次未计提" : "每满 1 万流水 +1%，最高 +5%"}>{formatBpsAsPercent(tierBonusBps)}</span></TD>
                             <TD className="text-left tabular-nums"><span title="结算保存的考勤加点，仅达到提成起征线后生效">{attendanceBonusBps / 100}</span></TD>
                             <TD className="text-left tabular-nums"><span title="结算保存的dy任务加点，仅达到提成起征线后生效">{dyTaskBonusBps / 100}</span></TD>
                             <TD className="text-left tabular-nums"><span title={item.commission_rate_bps === 0 ? "本次结算未计提成" : "本次结算实际采用的提成率"}>{formatBpsAsPercent(item.commission_rate_bps)}</span></TD>

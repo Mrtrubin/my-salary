@@ -17,6 +17,7 @@ const base: AnchorPayrollResult = {
   thresholdInCents: 2120000,
   commissionStartInCents: 4000000,
   commissionRateBps: 2000,
+  baseCommissionRateBps: 2000,
   isQualified: true,
   isGracefulPeriod: false,
   guaranteedComponentInCents: 800000,

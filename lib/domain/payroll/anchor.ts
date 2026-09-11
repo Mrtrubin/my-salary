@@ -154,6 +154,7 @@ export function calculateAnchorPayroll(
     thresholdInCents,
     commissionStartInCents,
     commissionRateBps,
+    baseCommissionRateBps,
     isQualified,
     isGracefulPeriod,
     guaranteedComponentInCents,

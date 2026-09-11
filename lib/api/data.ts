@@ -571,6 +571,7 @@ export async function rejectAndRecompute(id: string, _options?: { operatorProfil
     p_gross_cents: adjusted.grossSalaryInCents,
     p_service_fee_cents: adjusted.serviceFeeInCents,
     p_net_cents: adjusted.netSalaryInCents,
+    p_base_commission_rate_bps: context.baseCommissionRateBps,
     p_note: `管理员驳回，按保存周期跨团重算并保留调整项；计算方案 ${context.schemeId}（原方案关联 ${record.scheme_id ?? "无"} 保持不变）`,
   }));
   if (rpcError) {
@@ -1100,6 +1101,7 @@ export async function settleAnchorRevenue(input: { teamId: string | null; period
       thresholdCents: draft.thresholdCents,
       commissionStartCents: draft.commissionStartCents,
       commissionRateBps: base.commissionRateBps,
+      baseCommissionRateBps: base.baseCommissionRateBps,
       attendanceBonusBps,
       dyTaskBonusBps,
       isQualified: draft.isQualified,

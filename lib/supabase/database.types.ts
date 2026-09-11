@@ -208,6 +208,7 @@ export type Database = {
           dy_task_bonus_bps: number
           base_guarantee_cents: number
           commission_rate_bps: number
+          base_commission_rate_bps: number
           commission_start_cents: number
           created_at: string
           gross_cents: number
@@ -244,6 +245,7 @@ export type Database = {
           dy_task_bonus_bps?: number
           base_guarantee_cents?: number
           commission_rate_bps: number
+          base_commission_rate_bps?: number
           commission_start_cents?: number
           created_at?: string
           gross_cents: number
@@ -280,6 +282,7 @@ export type Database = {
           dy_task_bonus_bps?: number
           base_guarantee_cents?: number
           commission_rate_bps?: number
+          base_commission_rate_bps?: number
           commission_start_cents?: number
           created_at?: string
           gross_cents?: number
@@ -720,6 +723,7 @@ export type Database = {
           p_gross_cents: number
           p_service_fee_cents: number
           p_net_cents: number
+          p_base_commission_rate_bps?: number
           p_note?: string | null
         }
         Returns: undefined

@@ -53,6 +53,8 @@ export interface SettlementDraft {
   thresholdCents: number;
   commissionStartCents: number;
   commissionRateBps: number;
+  /** 结算时采用的基础提成率快照（基点）。无方案时取主播配置值。 */
+  baseCommissionRateBps: number;
   isQualified: boolean;
   isGracePeriod: boolean;
   guaranteedComponentCents: number;
@@ -130,6 +132,7 @@ export function aggregateSettlement(
         thresholdCents: 0,
         commissionStartCents: 0,
         commissionRateBps: 0,
+        baseCommissionRateBps: member.baseCommissionRateBps,
         isQualified: false,
         isGracePeriod: false,
         guaranteedComponentCents: 0,
@@ -161,6 +164,7 @@ export function aggregateSettlement(
       thresholdCents: result.thresholdInCents,
       commissionStartCents: result.commissionStartInCents,
       commissionRateBps: result.commissionRateBps,
+      baseCommissionRateBps: result.baseCommissionRateBps,
       isQualified: result.isQualified,
       isGracePeriod: result.isGracefulPeriod,
       guaranteedComponentCents: result.guaranteedComponentInCents,

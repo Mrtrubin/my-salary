@@ -36,6 +36,8 @@ export interface PayrollResult {
   thresholdInCents: number;
   commissionStartInCents: number;
   commissionRateBps: number;
+  /** 本次采用的基础提成率（基点），用于持久化快照。 */
+  baseCommissionRateBps: number;
   isQualified: boolean;
   isGracefulPeriod: boolean;
   guaranteedComponentInCents: number;
@@ -110,6 +112,7 @@ export function computePayroll(input: PayrollInput): PayrollResult {
     thresholdInCents,
     commissionStartInCents,
     commissionRateBps,
+    baseCommissionRateBps,
     isQualified,
     isGracefulPeriod,
     guaranteedComponentInCents,
