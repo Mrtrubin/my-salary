@@ -15,7 +15,7 @@ import type { PeriodRange } from "@/lib/domain/settlement/cycle";
 import { aggregateSettlement } from "@/lib/domain/settlement/aggregate";
 import { applyAdjustments, getAdjustmentPresets, parseAdjustmentAmountYuan } from "@/lib/domain/payroll/adjustment";
 import type { PayrollAdjustment } from "@/lib/domain/payroll/adjustment";
-import { calculateAnchorPayroll } from "@/lib/domain/payroll/anchor";
+import { calculateAnchorPayroll, parseCommissionBonusPoints } from "@/lib/domain/payroll/anchor";
 import { formatCentsToYuan, formatDate } from "@/lib/format";
 
 /** 周期下拉可选的历史周期数量（含当前周期）。 */
@@ -43,6 +43,16 @@ function signedAmount(cents: number): string {
   return `${cents > 0 ? "+" : ""}${formatCentsToYuan(cents)}`;
 }
 
+interface CommissionBonusDraft {
+  attendance: string;
+  dyTask: string;
+}
+
+const BONUS_FIELDS = [
+  { key: "attendance", label: "考勤加点" },
+  { key: "dyTask", label: "dy任务加点" },
+] as const;
+
 /** 单主播的实时试算结果（聚合 + 调整项叠加后）。 */
 interface AnchorRow {
   profileId: string;
@@ -57,6 +67,7 @@ interface AnchorRow {
   grossCents: number;
   netCents: number;
   hasScheme: boolean;
+  bonusError: string | null;
 }
 
 export default function AnchorRevenuePage() {
@@ -82,6 +93,7 @@ function AnchorRevenueWorkspace({ settings, settingsRefreshing }: { settings: Sy
   // 配置版本变化时整个工作区重新挂载，避免提交旧周期草稿。
   const [anchorDate, setAnchorDate] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bonuses, setBonuses] = useState<Record<string, CommissionBonusDraft>>({});
   const [adjustments, setAdjustments] = useState<Record<string, AdjustmentDraft[]>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [keyword, setKeyword] = useState("");
@@ -136,14 +148,28 @@ function AnchorRevenueWorkspace({ settings, settingsRefreshing }: { settings: Sy
           grossCents: 0,
           netCents: 0,
           hasScheme: false,
+          bonusError: null,
         };
       }
-      const base = calculateAnchorPayroll({
+      const input = {
         scheme: ctx.scheme,
         monthlyRevenueInCents: draft.revenueCents,
         tenureMonth: draft.tenureMonth,
         lastMonthQualified: ctx.lastMonthQualified,
-      });
+      };
+      const attendanceBonusBps = parseCommissionBonusPoints(bonuses[memberKey]?.attendance ?? "");
+      const dyTaskBonusBps = parseCommissionBonusPoints(bonuses[memberKey]?.dyTask ?? "");
+      let bonusError: string | null = null;
+      let base = calculateAnchorPayroll(input);
+      if (attendanceBonusBps === null || dyTaskBonusBps === null) {
+        bonusError = "加点须为非负数，最多两位小数，且不能超过存储范围";
+      } else {
+        try {
+          base = calculateAnchorPayroll({ ...input, attendanceBonusBps, dyTaskBonusBps });
+        } catch (error) {
+          bonusError = error instanceof Error ? error.message : "加点试算失败";
+        }
+      }
       const adjusted = applyAdjustments(base, validAdjustments(adjustments[memberKey] ?? []));
       return {
         profileId: draft.profileId,
@@ -151,16 +177,25 @@ function AnchorRevenueWorkspace({ settings, settingsRefreshing }: { settings: Sy
         memberKey,
         profileName: profileNames[draft.profileId] ?? "—",
         revenueCents: draft.revenueCents,
-        commissionRateBps: draft.commissionRateBps,
-        performanceComponentCents: draft.performanceComponentCents,
-        guaranteedComponentCents: draft.guaranteedComponentCents,
+        commissionRateBps: adjusted.commissionRateBps,
+        performanceComponentCents: adjusted.performanceComponentInCents,
+        guaranteedComponentCents: adjusted.guaranteedComponentInCents,
         adjustmentTotalCents: adjusted.adjustmentTotalInCents,
         grossCents: adjusted.grossSalaryInCents,
         netCents: adjusted.netSalaryInCents,
         hasScheme: true,
+        bonusError,
       };
     });
-  }, [period, contextsQuery.data, perfQuery.data, adjustments]);
+  }, [period, contextsQuery.data, perfQuery.data, adjustments, bonuses]);
+
+  // 预设常驻，自定义项按名称排序；搜索主播不改变列顺序。
+  const adjustmentColumns = useMemo(() => {
+    const presets = getAdjustmentPresets(0).map((item) => item.name);
+    const names = new Set(Object.values(adjustments).flatMap((items) => items.map((item) => item.name.trim()).filter(Boolean)));
+    return [...presets, ...Array.from(names).filter((name) => !presets.includes(name)).sort((a, b) => a.localeCompare(b, "zh-CN"))];
+  }, [adjustments]);
+  const columnCount = 12 + adjustmentColumns.length;
 
   const filteredRows = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
@@ -194,6 +229,7 @@ function AnchorRevenueWorkspace({ settings, settingsRefreshing }: { settings: Sy
   function resetDraft() {
     setSelectedIds(new Set());
     setAdjustments({});
+    setBonuses({});
     setExpandedId(null);
     clearFeedback();
   }
@@ -252,6 +288,11 @@ function AnchorRevenueWorkspace({ settings, settingsRefreshing }: { settings: Sy
       setValidationError("请等待数据加载完成，并重新选择具有生效工资方案的主播。");
       return;
     }
+    const invalidBonusRow = selectedRows.find((row) => row.bonusError);
+    if (invalidBonusRow) {
+      setValidationError(`请检查「${invalidBonusRow.profileName}」的加点：${invalidBonusRow.bonusError}。`);
+      return;
+    }
     const invalidRow = selectedRows.find((row) => (adjustments[row.memberKey] ?? []).some((item) => !toPayrollAdjustment(item)));
     if (invalidRow) {
       setExpandedId(invalidRow.memberKey);
@@ -261,12 +302,15 @@ function AnchorRevenueWorkspace({ settings, settingsRefreshing }: { settings: Sy
     const members: AnchorSettleMember[] = selectedRows.map((row) => ({
       profileId: row.profileId,
       positionId: row.positionId,
+      attendanceBonusBps: parseCommissionBonusPoints(bonuses[row.memberKey]?.attendance ?? "")!,
+      dyTaskBonusBps: parseCommissionBonusPoints(bonuses[row.memberKey]?.dyTask ?? "")!,
       adjustments: validAdjustments(adjustments[row.memberKey] ?? []),
     }));
     settleMutation.mutate({ teamId, period, members }, {
       onSuccess: () => {
         setSelectedIds(new Set());
         setAdjustments({});
+        setBonuses({});
         setExpandedId(null);
       },
     });
@@ -344,6 +388,7 @@ function AnchorRevenueWorkspace({ settings, settingsRefreshing }: { settings: Sy
                 error={perfQuery.error || contextsQuery.error}
                 empty={!filteredRows.length}
               />
+              <p className="px-4 py-2 text-xs text-slate-500">加点单位为百分点，填 1 表示增加 1 个百分点，空值按 0；达到原提成起征线后生效。同名调整项合并显示，明细中可逐条编辑。</p>
               <Table>
                 <THead>
                   <TH isRowHeader>
@@ -357,9 +402,13 @@ function AnchorRevenueWorkspace({ settings, settingsRefreshing }: { settings: Sy
                   </TH>
                   <TH>主播</TH>
                   <TH className="text-left">总流水</TH>
+                  <TH className="text-left">考勤加点（百分点）</TH>
+                  <TH className="text-left">dy任务加点（百分点）</TH>
+                  <TH className="text-left">最终提成率</TH>
                   <TH className="text-left">提成</TH>
                   <TH className="text-left">保底</TH>
-                  <TH className="text-left">调整项</TH>
+                  {adjustmentColumns.map((name) => <TH key={name} className="text-left">{name}</TH>)}
+                  <TH className="text-left">调整合计 / 编辑</TH>
                   <TH className="text-left">总工资</TH>
                   <TH className="text-left">实发</TH>
                   <TH className="text-left">明细</TH>
@@ -381,8 +430,42 @@ function AnchorRevenueWorkspace({ settings, settingsRefreshing }: { settings: Sy
                         <TD className="text-left whitespace-nowrap">{formatCentsToYuan(row.revenueCents)}</TD>
                         {row.hasScheme ? (
                           <>
-                            <TD className="text-left whitespace-nowrap">{formatCentsToYuan(row.performanceComponentCents)}</TD>
+                            {BONUS_FIELDS.map(({ key, label }) => (
+                              <TD key={key} className="min-w-40 align-top">
+                                <Input
+                                  inputMode="decimal"
+                                  aria-label={`${row.profileName}的${label}（百分点）`}
+                                  aria-invalid={parseCommissionBonusPoints(bonuses[row.memberKey]?.[key] ?? "") === null}
+                                  aria-describedby={row.bonusError ? `${row.memberKey}-bonus-error` : undefined}
+                                  value={bonuses[row.memberKey]?.[key] ?? ""}
+                                  placeholder="0"
+                                  disabled={dataUnavailable || settleMutation.isPending}
+                                  onChange={(event) => {
+                                    const value = event.target.value;
+                                    clearFeedback();
+                                    setBonuses((prev) => ({
+                                      ...prev,
+                                      [row.memberKey]: { ...(prev[row.memberKey] ?? { attendance: "", dyTask: "" }), [key]: value },
+                                    }));
+                                  }}
+                                />
+                              </TD>
+                            ))}
+                            <TD className="text-left whitespace-nowrap">
+                              {row.bonusError ? <span id={`${row.memberKey}-bonus-error`} role="status" className="block max-w-52 whitespace-normal text-xs text-red-600">{row.bonusError}，试算暂不可用</span> : `${row.commissionRateBps / 100}%`}
+                            </TD>
+                            <TD className="text-left whitespace-nowrap">{row.bonusError ? "—" : formatCentsToYuan(row.performanceComponentCents)}</TD>
                             <TD className="text-left whitespace-nowrap">{formatCentsToYuan(row.guaranteedComponentCents)}</TD>
+                            {adjustmentColumns.map((name) => {
+                              const items = (adjustments[row.memberKey] ?? []).filter((item) => item.name.trim() === name);
+                              const total = validAdjustments(items).reduce((sum, item) => sum + item.amountCents, 0);
+                              return (
+                                <TD key={name} className="text-left whitespace-nowrap">
+                                  <span className={total < 0 ? "text-red-600" : total > 0 ? "text-emerald-600" : "text-slate-500"}>{items.length ? signedAmount(total) : "—"}</span>
+                                  {items.some((item) => !toPayrollAdjustment(item)) ? <span className="ml-1 text-xs text-amber-600">待完善</span> : null}
+                                </TD>
+                              );
+                            })}
                             <TD className="text-left">
                               <button
                                 type="button"
@@ -404,11 +487,11 @@ function AnchorRevenueWorkspace({ settings, settingsRefreshing }: { settings: Sy
                                 ) : <span className="text-sm text-indigo-600">+ 添加调整</span>}
                               </button>
                             </TD>
-                            <TD className="text-left font-medium whitespace-nowrap">{formatCentsToYuan(row.grossCents)}</TD>
-                            <TD className={`text-left font-medium whitespace-nowrap${row.netCents < 0 ? " text-red-600" : ""}`}>{formatCentsToYuan(row.netCents)}</TD>
+                            <TD className="text-left font-medium whitespace-nowrap">{row.bonusError ? "—" : formatCentsToYuan(row.grossCents)}</TD>
+                            <TD className={`text-left font-medium whitespace-nowrap${row.netCents < 0 ? " text-red-600" : ""}`}>{row.bonusError ? "—" : formatCentsToYuan(row.netCents)}</TD>
                           </>
                         ) : (
-                          <TD className="text-center text-sm text-amber-600" colSpan={5}>
+                          <TD className="text-center text-sm text-amber-600" colSpan={columnCount - 4}>
                             未配置生效工资方案
                           </TD>
                         )}
@@ -421,7 +504,7 @@ function AnchorRevenueWorkspace({ settings, settingsRefreshing }: { settings: Sy
                       {expandedId === row.memberKey ? (
                         <TR>
                           <TD className="bg-slate-50" />
-                          <TD className="bg-slate-50 px-4 py-4" colSpan={8}>
+                          <TD className="bg-slate-50 px-4 py-4" colSpan={columnCount - 1}>
                             <div className="grid gap-5 whitespace-normal xl:grid-cols-[minmax(16rem,1fr)_minmax(30rem,1.5fr)]">
                               <div>
                                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">周期内流水</p>
@@ -444,7 +527,7 @@ function AnchorRevenueWorkspace({ settings, settingsRefreshing }: { settings: Sy
                                     <h3 className="text-sm font-semibold text-slate-900">工资调整 <span className="ml-1 font-normal text-slate-400">{(adjustments[row.memberKey] ?? []).length} 项</span></h3>
                                     <p className="mt-1 text-xs text-slate-500">{row.hasScheme ? "点击预设添加，名称、增减方向和金额均可修改。" : "无生效工资方案，暂不可调整。"}</p>
                                   </div>
-                                  <span className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">本期保底 ¥{formatCentsToYuan(row.guaranteedComponentCents)}</span>
+                                  <span className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">本期保底 {formatCentsToYuan(row.guaranteedComponentCents)}</span>
                                 </div>
                                 <div className="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
                                   {getAdjustmentPresets(row.guaranteedComponentCents).map((preset) => (
@@ -457,7 +540,7 @@ function AnchorRevenueWorkspace({ settings, settingsRefreshing }: { settings: Sy
                                       <span className="flex items-center justify-between text-sm font-medium text-slate-800"><span>{preset.name}</span><span aria-hidden="true">+</span></span>
                                       <span className="mt-1 block text-xs text-slate-500">{preset.name === "迟到" ? "保底 ÷ 26 × 0.1" : preset.name === "缺勤" ? "保底 ÷ 26" : "自定义奖励金额"}</span>
                                       <span className={`mt-2 block text-sm font-semibold tabular-nums ${preset.name === "奖励" ? "text-emerald-700" : "text-red-600"}`}>
-                                        {preset.name === "奖励" ? "+ 输入金额" : `扣除 ¥${formatCentsToYuan(Math.abs(preset.amountCents))}`}
+                                        {preset.name === "奖励" ? "+ 输入金额" : `扣除 ${formatCentsToYuan(Math.abs(preset.amountCents))}`}
                                       </span>
                                     </button>
                                   ))}
@@ -509,7 +592,7 @@ function AnchorRevenueWorkspace({ settings, settingsRefreshing }: { settings: Sy
                                   </div>
                                   <div className="mt-2 flex items-center justify-between gap-3 text-sm">
                                     <span className="text-slate-600">调整后实发 <span className="text-xs text-slate-400">（已扣服务费）</span></span>
-                                    <span className="font-semibold tabular-nums text-slate-900">{formatCentsToYuan(row.netCents)} 元</span>
+                                    <span className="font-semibold tabular-nums text-slate-900">{row.bonusError ? "—" : formatCentsToYuan(row.netCents)} 元</span>
                                   </div>
                                   {(adjustments[row.memberKey] ?? []).some((item) => !toPayrollAdjustment(item)) ? <p role="status" className="mt-2 text-xs text-amber-700">存在未完善的调整项，暂不计入试算；请填写完整后再结算。</p> : null}
                                   <p className="mt-2 text-xs text-slate-400">仅本次结算草稿，点击「结算所选」后生效。</p>

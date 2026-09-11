@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ApiError, ApiErrorCode } from "@/lib/api/contracts/errors";
+import { parseCommissionBonusPoints } from "@/lib/domain/payroll/anchor";
 import { computePayroll } from "../supabase/functions/settle-team-payroll/payroll";
 import {
   applyRateCeil,
@@ -180,6 +181,71 @@ describe("主播工资计算器 - 服务费与实发", () => {
     // 服务费 = ceil(1600000 × 3%) = 48000
     expect(r.serviceFeeInCents).toBe(48000);
     expect(r.netSalaryInCents).toBe(1552000);
+  });
+});
+
+describe("主播考勤与 dy 任务加点", () => {
+  const input = { scheme, monthlyRevenueInCents: COMMISSION_START, tenureMonth: 4 };
+
+  it.each([COMMISSION_START - 1, COMMISSION_START, 12000000])("省略及显式零加点兼容旧结果：%i", (revenue) => {
+    const zero = calculateAnchorPayroll({ ...input, monthlyRevenueInCents: revenue,
+      attendanceBonusBps: 0, dyTaskBonusBps: 0 });
+    expect(zero).toEqual(calculateAnchorPayroll({ ...input, monthlyRevenueInCents: revenue }));
+    expect(zero).toEqual(computePayroll({ ...input, monthlyRevenueInCents: revenue }));
+  });
+
+  it.each([
+    [COMMISSION_START - 1, 0], [COMMISSION_START, 2375],
+    [4999999, 2375], [5000000, 2475], [9000000, 2875], [12000000, 2875],
+  ])("流水 %i 时仅阶梯封顶，实际费率 %i", (revenue, rate) => {
+    const result = calculateAnchorPayroll({ ...input, monthlyRevenueInCents: revenue,
+      attendanceBonusBps: 125, dyTaskBonusBps: 250 });
+    expect(result.commissionRateBps).toBe(rate);
+    expect(result.performanceComponentInCents).toBe(Math.floor(revenue * rate / 10000));
+    expect(result.guaranteedComponentInCents).toBe(800000);
+    expect(result.commissionStartInCents).toBe(COMMISSION_START);
+    expect(result.thresholdInCents).toBe(THRESHOLD);
+    expect(result.serviceFeeInCents).toBe(Math.ceil(result.grossSalaryInCents * 300 / 10000));
+    expect(result.netSalaryInCents).toBe(result.grossSalaryInCents - result.serviceFeeInCents);
+  });
+
+  it("降级保底仍决定起征，两种加点可以单独使用", () => {
+    for (const bonus of [{ attendanceBonusBps: 125 }, { dyTaskBonusBps: 125 }]) {
+      const result = calculateAnchorPayroll({ ...input, ...bonus,
+        monthlyRevenueInCents: 2500000, lastMonthQualified: false });
+      expect(result.commissionStartInCents).toBe(2500000);
+      expect(result.guaranteedComponentInCents).toBe(500000);
+      expect(result.commissionRateBps).toBe(2125);
+      expect(result.performanceComponentInCents).toBe(531250);
+    }
+  });
+
+  it.each(["attendanceBonusBps", "dyTaskBonusBps"] as const)("%s 拒绝非法输入，包括未起征时", (field) => {
+    for (const value of [-1, 0.5, NaN, Infinity, -Infinity, 2147483648, null, "100"]) {
+      expect(() => calculateAnchorPayroll({ ...input, monthlyRevenueInCents: 0, [field]: value }))
+        .toThrow(expect.objectContaining({ code: ApiErrorCode.INVALID_INPUT }));
+    }
+  });
+
+  it("费率只受整数技术上限限制，超过 100% 仍可计算", () => {
+    expect(calculateAnchorPayroll({ ...input, attendanceBonusBps: 10000 }).commissionRateBps).toBe(12000);
+    expect(calculateAnchorPayroll({ ...input, attendanceBonusBps: 2147481646, dyTaskBonusBps: 1 })
+      .commissionRateBps).toBe(2147483647);
+    expect(() => calculateAnchorPayroll({ ...input, attendanceBonusBps: 2147481646, dyTaskBonusBps: 2 }))
+      .toThrow(expect.objectContaining({ code: ApiErrorCode.INVALID_INPUT }));
+    expect(() => calculateAnchorPayroll({ ...input, monthlyRevenueInCents: 9000000,
+      attendanceBonusBps: 2147481647 })).toThrow();
+    expect(calculateAnchorPayroll({ ...input, monthlyRevenueInCents: COMMISSION_START - 1,
+      attendanceBonusBps: 2147483647, dyTaskBonusBps: 2147483647 }).commissionRateBps).toBe(0);
+  });
+
+  it.each([
+    ["", 0], ["  ", 0], ["0", 0], ["1", 100], [" 1.25 ", 125], [".5", 50],
+    ["1.", 100], ["0.01", 1], ["21474836.47", 2147483647],
+    ["21474836.48", null], ["1.001", null], ["-1", null], ["1e2", null],
+    ["NaN", null], ["Infinity", null], ["abc", null], ["1,000", null],
+  ])("百分点解析 %j 得到 %j 基点", (text, expected) => {
+    expect(parseCommissionBonusPoints(text)).toBe(expected);
   });
 });
 

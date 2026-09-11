@@ -198,6 +198,8 @@ export type Database = {
       salary_records: {
         Row: {
           adjustments: Json
+          attendance_bonus_bps: number
+          dy_task_bonus_bps: number
           base_guarantee_cents: number
           commission_rate_bps: number
           commission_start_cents: number
@@ -232,6 +234,8 @@ export type Database = {
         }
         Insert: {
           adjustments?: Json
+          attendance_bonus_bps?: number
+          dy_task_bonus_bps?: number
           base_guarantee_cents?: number
           commission_rate_bps: number
           commission_start_cents?: number
@@ -266,6 +270,8 @@ export type Database = {
         }
         Update: {
           adjustments?: Json
+          attendance_bonus_bps?: number
+          dy_task_bonus_bps?: number
           base_guarantee_cents?: number
           commission_rate_bps?: number
           commission_start_cents?: number

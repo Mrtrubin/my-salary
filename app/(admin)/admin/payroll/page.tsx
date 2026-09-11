@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { QueryMessage } from "@/components/query-message";
 import { COMMISSION_BASE_RATE_BPS } from "@/lib/domain/payroll/types";
-import type { PayrollAdjustment } from "@/lib/domain/payroll/adjustment";
+import { getAdjustmentPresets, type PayrollAdjustment } from "@/lib/domain/payroll/adjustment";
 import { Select } from "@/components/ui/input";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import {
@@ -66,7 +66,7 @@ const DEFAULT_POSITION_TABS = [
   { code: "makeup", name: "化妆师" },
 ];
 
-const ANCHOR_COLUMN_COUNT = 22;
+const ANCHOR_BASE_COLUMN_COUNT = 22;
 
 /** 读取结算时保存的调整项，不读取流水页尚未结算的临时输入。 */
 function readAdjustments(value: SalaryRecord["adjustments"]): PayrollAdjustment[] {
@@ -125,6 +125,13 @@ export default function PayrollPage() {
     () => (salary.data ?? []).filter((item) => item.position?.code === "anchor"),
     [salary.data],
   );
+  const adjustmentColumns = useMemo(() => {
+    const presets = getAdjustmentPresets(0).map((item) => item.name);
+    const names = new Set(anchorRecords.flatMap((item) => readAdjustments(item.adjustments).map((adjustment) => adjustment.name.trim()).filter(Boolean)));
+    return [...presets, ...Array.from(names).filter((name) => !presets.includes(name)).sort((a, b) => a.localeCompare(b, "zh-CN"))];
+  }, [anchorRecords]);
+  const anchorColumnCount = ANCHOR_BASE_COLUMN_COUNT + adjustmentColumns.length;
+
   const anchorMembers = useMemo(() => {
     const profileIds = new Set(anchorRecords.map((item) => item.profile_id));
     return (members.data ?? []).filter((member) => profileIds.has(member.id));
@@ -210,11 +217,12 @@ export default function PayrollPage() {
                   <TH>是否达标</TH>
                   <TH className="text-left">基础提成率</TH>
                   <TH className="text-left">阶梯提点</TH>
-                  <TH className="text-left">考勤加点</TH>
-                  <TH className="text-left">dy任务加点</TH>
+                  <TH className="text-left">考勤加点（百分点）</TH>
+                  <TH className="text-left">dy任务加点（百分点）</TH>
                   <TH className="text-left">最终提成率</TH>
                   <TH className="text-left">基础收益</TH>
-                  <TH>调整项</TH>
+                  {adjustmentColumns.map((name) => <TH key={name} className="text-left">{name}</TH>)}
+                  <TH className="text-left">调整合计</TH>
                   <TH className="text-left">实发收益</TH>
                   <TH className="text-left">服务费</TH>
                   <TH className="text-left">到手工资</TH>
@@ -228,7 +236,11 @@ export default function PayrollPage() {
                         const adjustmentTotal = adjustments.reduce((sum, adjustment) => sum + adjustment.amountCents, 0);
                         // 展示历史结算快照，不能按新公式重算已结算工资。
                         const baseIncome = item.gross_cents - adjustmentTotal;
-                        const stepRate = Math.max(0, item.commission_rate_bps - COMMISSION_BASE_RATE_BPS);
+                        const attendanceBonusBps = item.attendance_bonus_bps ?? 0;
+                        const dyTaskBonusBps = item.dy_task_bonus_bps ?? 0;
+                        const stepRate = item.commission_rate_bps === 0 ? 0 : Math.max(0,
+                          item.commission_rate_bps - COMMISSION_BASE_RATE_BPS - attendanceBonusBps - dyTaskBonusBps,
+                        );
                         return (
                         <Fragment key={item.id}>
                           <TR>
@@ -249,25 +261,22 @@ export default function PayrollPage() {
                             <TD>{item.is_qualified ? "达标" : "未达标"}</TD>
                             <TD className="text-left tabular-nums">{formatBpsAsPercent(COMMISSION_BASE_RATE_BPS)}</TD>
                             <TD className="text-left tabular-nums">{formatBpsAsPercent(stepRate)}</TD>
-                            <TD className="text-left"><span title="暂未接入考勤加点，不将金额调整项作为提点">—</span></TD>
-                            <TD className="text-left"><span title="暂未接入抖音任务加点">—</span></TD>
+                            <TD className="text-left tabular-nums"><span title="结算保存的考勤加点，仅达到提成起征线后生效">{attendanceBonusBps / 100}</span></TD>
+                            <TD className="text-left tabular-nums"><span title="结算保存的dy任务加点，仅达到提成起征线后生效">{dyTaskBonusBps / 100}</span></TD>
                             <TD className="text-left tabular-nums"><span title={item.commission_rate_bps === 0 ? "本次结算未计提成" : "本次结算实际采用的提成率"}>{formatBpsAsPercent(item.commission_rate_bps)}</span></TD>
                             <TD className="text-left tabular-nums"><span title="已结算实发收益扣除调整项合计">{formatCentsToYuan(baseIncome)}</span></TD>
-                            <TD>
-                              {adjustments.length ? (
-                                <div className="space-y-1 text-xs">
-                                  {adjustments.map((adjustment, index) => (
-                                    <div key={index} className="flex justify-between gap-3">
-                                      <span className="max-w-48 whitespace-normal break-words">{adjustment.name}</span>
-                                      <span className={`tabular-nums ${adjustment.amountCents < 0 ? "text-red-600" : "text-emerald-600"}`}>{signedAmount(adjustment.amountCents)}</span>
-                                    </div>
-                                  ))}
-                                  <div className="flex justify-between gap-3 border-t border-slate-100 pt-1 font-semibold">
-                                    <span>合计</span><span className="tabular-nums">{signedAmount(adjustmentTotal)}</span>
-                                  </div>
-                                </div>
-                              ) : "—"}
-                            </TD>
+                            {adjustmentColumns.map((name) => {
+                              const items = adjustments.filter((adjustment) => adjustment.name.trim() === name);
+                              const total = items.reduce((sum, adjustment) => sum + adjustment.amountCents, 0);
+                              return (
+                                <TD key={name} className="text-left tabular-nums">
+                                  <span title={items.length > 1 ? `${items.length} 项合计，可展开查看明细` : undefined} className={total < 0 ? "text-red-600" : total > 0 ? "text-emerald-600" : "text-slate-500"}>
+                                    {items.length ? signedAmount(total) : "—"}
+                                  </span>
+                                </TD>
+                              );
+                            })}
+                            <TD className="text-left tabular-nums">{adjustments.length ? signedAmount(adjustmentTotal) : "—"}</TD>
                             <TD className="text-left tabular-nums">{formatCentsToYuan(item.gross_cents)}</TD>
                             <TD className="text-left tabular-nums">{formatCentsToYuan(item.service_fee_cents)}</TD>
                             <TD className="text-left font-semibold tabular-nums">{formatCentsToYuan(item.net_cents)}</TD>
@@ -294,7 +303,7 @@ export default function PayrollPage() {
                           </TR>
                           {expandedId === item.id ? (
                             <TR>
-                              <TD colSpan={ANCHOR_COLUMN_COUNT}>
+                              <TD colSpan={anchorColumnCount}>
                                 <div className="space-y-2">
                                   <StatusTimeline recordId={item.id} />
                                   {/* 该条记录的计算参数明细（主播展示阶梯提点相关参数） */}
@@ -303,7 +312,19 @@ export default function PayrollPage() {
                                     <p>保底基准：{formatCentsToYuan(item.base_guarantee_cents)}</p>
                                     <p>达标门槛：{formatCentsToYuan(item.threshold_cents)}</p>
                                     <p>提成起征：{formatCentsToYuan(item.commission_start_cents)}</p>
+                                    <p>考勤加点：{attendanceBonusBps / 100} 个百分点；dy任务加点：{dyTaskBonusBps / 100} 个百分点（未起征时不计入提成）</p>
                                   </div>
+                                  {adjustments.length ? (
+                                    <div className="space-y-1 bg-slate-50 p-3 text-xs text-slate-600">
+                                      <p className="font-semibold">结算调整明细</p>
+                                      {adjustments.map((adjustment, index) => (
+                                        <div key={index} className="flex gap-3">
+                                          <span className="max-w-48 whitespace-normal break-words">{adjustment.name || "未命名调整"}</span>
+                                          <span className={`tabular-nums ${adjustment.amountCents < 0 ? "text-red-600" : "text-emerald-600"}`}>{signedAmount(adjustment.amountCents)}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : null}
                                 </div>
                               </TD>
                             </TR>

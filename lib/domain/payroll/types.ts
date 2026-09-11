@@ -44,6 +44,10 @@ export interface AnchorPayrollInput {
    * 无责期（tenureMonth <= 3）时忽略。默认为 true（按初始保底）。
    */
   lastMonthQualified?: boolean;
+  /** 考勤加点（基点），默认 0；1 个百分点 = 100 bps。 */
+  attendanceBonusBps?: RateInBps;
+  /** dy 任务加点（基点），默认 0。 */
+  dyTaskBonusBps?: RateInBps;
   /** 服务费费率（基点），默认 300 bps = 3%。 */
   serviceFeeRateBps?: RateInBps;
 }

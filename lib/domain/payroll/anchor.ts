@@ -12,6 +12,7 @@
  */
 import { ApiError, ApiErrorCode } from "@/lib/api/contracts/errors";
 import { applyRateCeil, applyRateFloor, isWithinGracePeriod } from "./money";
+import { parseAdjustmentAmountYuan } from "./adjustment";
 import {
   COMMISSION_STEP_IN_CENTS,
   COMMISSION_STEP_RATE_BPS,
@@ -23,8 +24,23 @@ import {
   type AnchorPayrollResult,
 } from "./types";
 
+// PostgreSQL integer 的存储上限，仅为技术限制，不是业务费率封顶。
+const POSTGRES_INT_MAX = 2_147_483_647;
+
+/** 字符串百分点转基点；空值默认 0，至多两位小数，非法输入返回 null。 */
+export function parseCommissionBonusPoints(value: string): number | null {
+  if (!value.trim()) return 0;
+  const bps = parseAdjustmentAmountYuan(value);
+  return bps !== null && bps <= POSTGRES_INT_MAX ? bps : null;
+}
+
 function validateInput(input: AnchorPayrollInput): void {
-  const { scheme, monthlyRevenueInCents, tenureMonth } = input;
+  const { scheme, monthlyRevenueInCents, tenureMonth, attendanceBonusBps = 0, dyTaskBonusBps = 0 } = input;
+  if ([attendanceBonusBps, dyTaskBonusBps].some(
+    (bps) => !Number.isInteger(bps) || bps < 0 || bps > POSTGRES_INT_MAX,
+  )) {
+    throw new ApiError(ApiErrorCode.INVALID_INPUT, "提成加点须为非负整数基点，且不能超过 PostgreSQL int 存储范围");
+  }
   if (!scheme) {
     throw new ApiError(ApiErrorCode.SALARY_SCHEME_MISSING, "缺少主播工资方案");
   }
@@ -46,7 +62,7 @@ function validateInput(input: AnchorPayrollInput): void {
 /**
  * 计算阶梯提成费率（基点）——全额累进。
  * 阶梯加点 = min(max(floor((流水 - 拿提点门槛) / 1万元), 0), 5) × 1%。
- * 当前已接入的最终提成率 = 基础 20% + 阶梯加点；仅阶梯加点封顶 5%，总费率不封顶。
+ * 基础与阶梯费率 = 20% + 阶梯加点；另外叠加考勤及 dy 任务加点，总费率无业务封顶。
  */
 function resolveCommissionRateBps(
   monthlyRevenueInCents: number,
@@ -69,7 +85,7 @@ export function calculateAnchorPayroll(
 ): AnchorPayrollResult {
   validateInput(input);
 
-  const { scheme, monthlyRevenueInCents, tenureMonth } = input;
+  const { scheme, monthlyRevenueInCents, tenureMonth, attendanceBonusBps = 0, dyTaskBonusBps = 0 } = input;
   const serviceFeeRateBps = input.serviceFeeRateBps ?? DEFAULT_SERVICE_FEE_RATE_BPS;
   const isGracefulPeriod = isWithinGracePeriod(tenureMonth, GRACE_PERIOD_MONTHS);
 
@@ -97,7 +113,11 @@ export function calculateAnchorPayroll(
   const commissionRateBps =
     monthlyRevenueInCents >= commissionStartInCents
       ? resolveCommissionRateBps(monthlyRevenueInCents, commissionStartInCents)
+        + attendanceBonusBps + dyTaskBonusBps
       : 0;
+  if (!Number.isInteger(commissionRateBps) || commissionRateBps > POSTGRES_INT_MAX) {
+    throw new ApiError(ApiErrorCode.INVALID_INPUT, "最终提成费率超过 PostgreSQL int 存储范围");
+  }
   const performanceComponentInCents =
     commissionRateBps > 0
       ? applyRateFloor(monthlyRevenueInCents, commissionRateBps)

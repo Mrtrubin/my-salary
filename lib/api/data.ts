@@ -490,7 +490,7 @@ export async function rejectAndRecompute(id: string, _options?: { operatorProfil
   const supabase = getBrowserSupabase();
   const { data: record, error: readError } = await supabase
     .from("salary_records")
-    .select("id, status, profile_id, position_id, scheme_id, period_start, period_end, adjustments")
+    .select("id, status, profile_id, position_id, scheme_id, period_start, period_end, adjustments, attendance_bonus_bps, dy_task_bonus_bps")
     .eq("id", id)
     .single();
   if (readError) fail(readError);
@@ -525,6 +525,8 @@ export async function rejectAndRecompute(id: string, _options?: { operatorProfil
     monthlyRevenueInCents: draft.revenueCents,
     tenureMonth: draft.tenureMonth,
     lastMonthQualified: context.lastMonthQualified,
+    attendanceBonusBps: record.attendance_bonus_bps,
+    dyTaskBonusBps: record.dy_task_bonus_bps,
   }), adjustments);
 
   // 单事务更新快照和日志；现有 RPC 不修改方案关联、保存周期或调整项。
@@ -535,11 +537,11 @@ export async function rejectAndRecompute(id: string, _options?: { operatorProfil
     p_base_guarantee_cents: draft.baseGuaranteeCents,
     p_threshold_cents: draft.thresholdCents,
     p_commission_start_cents: draft.commissionStartCents,
-    p_commission_rate_bps: draft.commissionRateBps,
+    p_commission_rate_bps: adjusted.commissionRateBps,
     p_is_qualified: draft.isQualified,
     p_is_grace_period: draft.isGracePeriod,
     p_guaranteed_component_cents: draft.guaranteedComponentCents,
-    p_performance_component_cents: draft.performanceComponentCents,
+    p_performance_component_cents: adjusted.performanceComponentInCents,
     p_gross_cents: adjusted.grossSalaryInCents,
     p_service_fee_cents: adjusted.serviceFeeInCents,
     p_net_cents: adjusted.netSalaryInCents,
@@ -1003,6 +1005,8 @@ async function loadSettlementContexts(
 export interface AnchorSettleMember {
   profileId: string;
   positionId: number;
+  attendanceBonusBps?: number;
+  dyTaskBonusBps?: number;
   adjustments?: PayrollAdjustment[];
 }
 
@@ -1037,19 +1041,22 @@ export async function settleAnchorRevenue(input: { teamId: string | null; period
     .map((r) => ({ profileId: r.profileId, perfDate: r.perfDate, revenueCents: r.revenueCents, createdAt: r.createdAt }));
 
   const drafts = aggregateSettlement(input.period, contexts, settlementPerf);
-  const adjustmentsByKey = new Map(input.members.map((m) => [settlementMemberKey(m), m.adjustments ?? []]));
+  const membersByKey = new Map(input.members.map((m) => [settlementMemberKey(m), m]));
 
   // 按唯一人岗位叠加调整项，组装 RPC p_members。
   const payload = drafts.map((draft) => {
     const key = settlementMemberKey(draft);
     const context = contextsByKey.get(key)!;
+    const { attendanceBonusBps = 0, dyTaskBonusBps = 0, adjustments = [] } = membersByKey.get(key)!;
     const base = calculateAnchorPayroll({
       scheme: context.scheme!,
       monthlyRevenueInCents: draft.revenueCents,
       tenureMonth: draft.tenureMonth,
       lastMonthQualified: context.lastMonthQualified,
+      attendanceBonusBps,
+      dyTaskBonusBps,
     });
-    const adjusted = applyAdjustments(base, adjustmentsByKey.get(key) ?? []);
+    const adjusted = applyAdjustments(base, adjustments);
     return {
       profileId: draft.profileId,
       positionId: draft.positionId,
@@ -1059,11 +1066,13 @@ export async function settleAnchorRevenue(input: { teamId: string | null; period
       baseGuaranteeCents: draft.baseGuaranteeCents,
       thresholdCents: draft.thresholdCents,
       commissionStartCents: draft.commissionStartCents,
-      commissionRateBps: draft.commissionRateBps,
+      commissionRateBps: base.commissionRateBps,
+      attendanceBonusBps,
+      dyTaskBonusBps,
       isQualified: draft.isQualified,
       isGracePeriod: draft.isGracePeriod,
       guaranteedComponentCents: draft.guaranteedComponentCents,
-      performanceComponentCents: draft.performanceComponentCents,
+      performanceComponentCents: base.performanceComponentInCents,
       grossCents: adjusted.grossSalaryInCents,
       serviceFeeCents: adjusted.serviceFeeInCents,
       netCents: adjusted.netSalaryInCents,
