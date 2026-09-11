@@ -1,7 +1,7 @@
 /**
  * 主播工资「调整项」领域纯函数（PLAN-001 阶段1）。
  *
- * 调整项是结算时叠加在总工资之上的不固定明细：迟到 -100、缺勤 -200、评优 +200 等。
+ * 调整项是结算时叠加在总工资之上的不固定明细：迟到、缺勤扣款、奖励等。
  * 金额一律以「分」为单位的整数存储，可正可负。名称由管理员自定义。
  *
  * 计算口径（已与用户确认）：
@@ -22,10 +22,31 @@ import {
 
 /** 单条工资调整项（结算时落库为 salary_records.adjustments JSONB 数组元素）。 */
 export interface PayrollAdjustment {
-  /** 调整项名称，如「迟到」「缺勤」「评优」。 */
+  /** 调整项名称，如「迟到」「缺勤」「奖励」。 */
   name: string;
   /** 调整金额（分），正为增、负为减。 */
   amountCents: AmountInCents;
+}
+
+/** 三种快捷预设，按本周期生效保底计算；先计算完整公式，再四舍五入到分。 */
+export function getAdjustmentPresets(guaranteeInCents: AmountInCents): PayrollAdjustment[] {
+  if (!Number.isSafeInteger(guaranteeInCents) || guaranteeInCents < 0) {
+    throw new ApiError(ApiErrorCode.INVALID_INPUT, "保底金额须为非负整数分");
+  }
+  return [
+    { name: "迟到", amountCents: -Math.round(guaranteeInCents / 260) || 0 },
+    { name: "缺勤", amountCents: -Math.round(guaranteeInCents / 26) || 0 },
+    { name: "奖励", amountCents: 0 },
+  ];
+}
+
+/** 编辑时保留原始输入；合法的非负元金额转为整数分，空值和超过两位小数不参与试算。 */
+export function parseAdjustmentAmountYuan(value: string): AmountInCents | null {
+  const text = value.trim();
+  if (!/^(?:\d+(?:\.\d{0,2})?|\.\d{1,2})$/.test(text)) return null;
+  const [whole, fraction = ""] = text.split(".");
+  const cents = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+  return Number.isSafeInteger(cents) ? cents : null;
 }
 
 /** 叠加调整项后的工资结果（在 AnchorPayrollResult 基础上扩展）。 */

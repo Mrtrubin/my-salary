@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   addTeamMembers,
   addTeamPerformancePoint,
@@ -34,7 +34,6 @@ import {
   rejectAndRecompute,
   listSalaryStatusLogs,
   confirmSalaryRecord,
-  settleTeamPayroll,
   listNotifications,
   markNotificationRead,
   markAllNotificationsRead,
@@ -46,7 +45,10 @@ import {
   getAnchorSettlementContexts,
   getTeamEarliestPerfDate,
   settleAnchorRevenue,
-} from "./data";import type { Member, AnchorSettleMember } from "./data";
+  getSystemSettlementSettings,
+  updateSystemSettlementSettings,
+} from "./data";
+import type { Member, AnchorSettleMember } from "./data";
 import type { PeriodRange } from "@/lib/domain/settlement/cycle";
 import { readCachedProfile, writeCachedProfile } from "./profile-cache";
 
@@ -62,7 +64,44 @@ export const keys = {
   notifications: ["notifications"] as const,
   anchorRevenuePerf: ["anchorRevenuePerf"] as const,
   anchorSettlementContexts: ["anchorSettlementContexts"] as const,
-};export function useCurrentProfile() {
+  systemSettlementSettings: ["systemSettlementSettings"] as const,
+  teamEarliestPerfDate: ["teamEarliestPerfDate"] as const,
+  salaryStatusLogs: ["salaryStatusLogs"] as const,
+};
+
+/** 成员、方案、流水或工资快照变化后，刷新跨团队试算依赖。 */
+function invalidateSettlementQueries(client: QueryClient) {
+  return Promise.all([
+    keys.anchorRevenuePerf,
+    keys.anchorSettlementContexts,
+    keys.teamEarliestPerfDate,
+  ].map((queryKey) => client.invalidateQueries({ queryKey })));
+}
+
+function invalidateRelatedQueries(client: QueryClient, queryKey: readonly string[]) {
+  return Promise.all([
+    client.invalidateQueries({ queryKey }),
+    invalidateSettlementQueries(client),
+  ]);
+}
+
+export function useSystemSettlementSettings() {
+  return useQuery({ queryKey: keys.systemSettlementSettings, queryFn: getSystemSettlementSettings });
+}
+
+export function useUpdateSystemSettlementSettings() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: updateSystemSettlementSettings,
+    onSuccess: () => Promise.all([
+      ...[keys.systemSettlementSettings, keys.teams, keys.salary, keys.teamPerformance, keys.salaryStatusLogs]
+        .map((queryKey) => client.invalidateQueries({ queryKey })),
+      invalidateSettlementQueries(client),
+    ]),
+  });
+}
+
+export function useCurrentProfile() {
   // hydration 安全：首次渲染（含 SSR）不读 localStorage，避免 server/client 不一致
   const [cached, setCached] = useState<Member | null>(null);
   useEffect(() => {
@@ -88,11 +127,11 @@ export function useMembers() { return useQuery({ queryKey: keys.members, queryFn
 export function usePositions() { return useQuery({ queryKey: keys.positions, queryFn: listPositions }); }
 export function useCreatePosition() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: createPosition, onSuccess: () => client.invalidateQueries({ queryKey: keys.positions }) });
+  return useMutation({ mutationFn: createPosition, onSuccess: () => invalidateRelatedQueries(client, keys.positions) });
 }
 export function useUpdatePosition() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: ({ id, ...input }: { id: number; code?: string; name?: string }) => updatePosition(id, input), onSuccess: () => client.invalidateQueries({ queryKey: keys.positions }) });
+  return useMutation({ mutationFn: ({ id, ...input }: { id: number; code?: string; name?: string }) => updatePosition(id, input), onSuccess: () => invalidateRelatedQueries(client, keys.positions) });
 }
 export function useTeamPerformance(range?: { start?: string; end?: string }) {
   return useQuery({
@@ -106,22 +145,22 @@ export function useTeams() { return useQuery({ queryKey: keys.teams, queryFn: li
 
 export function useCreateMember() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: createMember, onSuccess: () => client.invalidateQueries({ queryKey: keys.members }) });
+  return useMutation({ mutationFn: createMember, onSuccess: () => invalidateRelatedQueries(client, keys.members) });
 }
 export function useSetMemberStatus() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: ({ id, status }: { id: string; status: "active" | "disabled" }) => setMemberStatus(id, status), onSuccess: () => client.invalidateQueries({ queryKey: keys.members }) });
+  return useMutation({ mutationFn: ({ id, status }: { id: string; status: "active" | "disabled" }) => setMemberStatus(id, status), onSuccess: () => invalidateRelatedQueries(client, keys.members) });
 }
 export function useUpdateMember() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: updateMember, onSuccess: () => client.invalidateQueries({ queryKey: keys.members }) });
+  return useMutation({ mutationFn: updateMember, onSuccess: () => invalidateRelatedQueries(client, keys.members) });
 }
 export function useCreateTeamPerformanceRecords() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (input: Parameters<typeof createTeamPerformanceRecords>[0]) => createTeamPerformanceRecords(input),
     onSuccess: () => {
-      client.invalidateQueries({ queryKey: keys.teamPerformance });
+      return invalidateRelatedQueries(client, keys.teamPerformance);
     },
   });
 }
@@ -130,13 +169,13 @@ export function useReplaceTeamPerformanceRecords() {
   return useMutation({
     mutationFn: (input: Parameters<typeof replaceTeamPerformanceRecords>[0]) => replaceTeamPerformanceRecords(input),
     onSuccess: () => {
-      client.invalidateQueries({ queryKey: keys.teamPerformance });
+      return invalidateRelatedQueries(client, keys.teamPerformance);
     },
   });
 }
 export function useCreateScheme() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: createScheme, onSuccess: () => client.invalidateQueries({ queryKey: keys.schemes }) });
+  return useMutation({ mutationFn: createScheme, onSuccess: () => invalidateRelatedQueries(client, keys.schemes) });
 }
 export function useTransitionSalaryStatus() {
   const client = useQueryClient();
@@ -144,8 +183,11 @@ export function useTransitionSalaryStatus() {
     mutationFn: ({ id, status, operatorProfileId, note }: { id: string; status: import("./data").SalaryRecordStatus; operatorProfileId?: string; note?: string }) =>
       transitionSalaryStatus(id, status, { operatorProfileId, note }),
     onSuccess: () => {
-      client.invalidateQueries({ queryKey: keys.salary });
-      client.invalidateQueries({ queryKey: ["salaryStatusLogs"] });
+      return Promise.all([
+        client.invalidateQueries({ queryKey: keys.salary }),
+        client.invalidateQueries({ queryKey: keys.salaryStatusLogs }),
+        invalidateSettlementQueries(client),
+      ]);
     },
   });
 }
@@ -154,9 +196,11 @@ export function useRejectAndRecompute() {
   return useMutation({
     mutationFn: ({ id, operatorProfileId }: { id: string; operatorProfileId?: string }) => rejectAndRecompute(id, { operatorProfileId }),
     onSuccess: () => {
-      client.invalidateQueries({ queryKey: keys.salary });
-      // 展开的状态时间轴用独立 query key，需一并失效才能刷新（前缀匹配所有记录）。
-      client.invalidateQueries({ queryKey: ["salaryStatusLogs"] });
+      return Promise.all([
+        client.invalidateQueries({ queryKey: keys.salary }),
+        client.invalidateQueries({ queryKey: keys.salaryStatusLogs }),
+        invalidateSettlementQueries(client),
+      ]);
     },
   });
 }
@@ -171,17 +215,10 @@ export function useConfirmSalaryRecord() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ id, profileId }: { id: string; profileId: string }) => confirmSalaryRecord(id, profileId),
-    onSuccess: () => client.invalidateQueries({ queryKey: keys.salary }),
-  });
-}
-export function useSettleTeamPayroll() {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: ({ teamId, asOfDate }: { teamId?: string; asOfDate?: string } = {}) => settleTeamPayroll(teamId, asOfDate),
-    onSuccess: () => {
-      client.invalidateQueries({ queryKey: keys.salary });
-      client.invalidateQueries({ queryKey: keys.teams });
-    },
+    onSuccess: () => Promise.all([
+      invalidateRelatedQueries(client, keys.salary),
+      client.invalidateQueries({ queryKey: keys.salaryStatusLogs }),
+    ]),
   });
 }
 export function useNotifications(profileId: string | null) {
@@ -207,23 +244,23 @@ export function useMarkAllNotificationsRead() {
 }
 export function useCreateTeam() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: createTeam, onSuccess: () => client.invalidateQueries({ queryKey: keys.teams }) });
+  return useMutation({ mutationFn: createTeam, onSuccess: () => invalidateRelatedQueries(client, keys.teams) });
 }
 export function useUpdateTeam() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: ({ id, ...input }: { id: string; name?: string; hostProfileId?: string; status?: "active" | "disabled"; settlementType?: "monthly" | "custom"; settlementStartDay?: number }) => updateTeam(id, input), onSuccess: () => client.invalidateQueries({ queryKey: keys.teams }) });
+  return useMutation({ mutationFn: ({ id, ...input }: { id: string; name?: string; hostProfileId?: string; status?: "active" | "disabled" }) => updateTeam(id, input), onSuccess: () => invalidateRelatedQueries(client, keys.teams) });
 }
 export function useDeleteTeam() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: deleteTeam, onSuccess: () => client.invalidateQueries({ queryKey: keys.teams }) });
+  return useMutation({ mutationFn: deleteTeam, onSuccess: () => invalidateRelatedQueries(client, keys.teams) });
 }
 export function useAddTeamMembers() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: ({ teamId, anchorProfileIds }: { teamId: string; anchorProfileIds: string[] }) => addTeamMembers(teamId, anchorProfileIds), onSuccess: () => client.invalidateQueries({ queryKey: keys.teams }) });
+  return useMutation({ mutationFn: ({ teamId, anchorProfileIds }: { teamId: string; anchorProfileIds: string[] }) => addTeamMembers(teamId, anchorProfileIds), onSuccess: () => invalidateRelatedQueries(client, keys.teams) });
 }
 export function useRemoveTeamMember() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: ({ teamId, profileId }: { teamId: string; profileId: string }) => removeTeamMember(teamId, profileId), onSuccess: () => client.invalidateQueries({ queryKey: keys.teams }) });
+  return useMutation({ mutationFn: ({ teamId, profileId }: { teamId: string; profileId: string }) => removeTeamMember(teamId, profileId), onSuccess: () => invalidateRelatedQueries(client, keys.teams) });
 }
 
 // ==================== 绩效点类型（全局字典）====================
@@ -234,23 +271,23 @@ export function usePerformancePoints() {
 }
 export function useCreatePerformancePoint() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: createPerformancePoint, onSuccess: () => client.invalidateQueries({ queryKey: performancePointsKey }) });
+  return useMutation({ mutationFn: createPerformancePoint, onSuccess: () => invalidateRelatedQueries(client, performancePointsKey) });
 }
 export function useUpdatePerformancePoint() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: ({ id, ...input }: { id: string; name?: string; pointsPerYuan?: number; status?: "active" | "disabled" }) => updatePerformancePoint(id, input), onSuccess: () => client.invalidateQueries({ queryKey: performancePointsKey }) });
+  return useMutation({ mutationFn: ({ id, ...input }: { id: string; name?: string; pointsPerYuan?: number; status?: "active" | "disabled" }) => updatePerformancePoint(id, input), onSuccess: () => invalidateRelatedQueries(client, performancePointsKey) });
 }
 export function useDeletePerformancePoint() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: deletePerformancePoint, onSuccess: () => client.invalidateQueries({ queryKey: performancePointsKey }) });
+  return useMutation({ mutationFn: deletePerformancePoint, onSuccess: () => invalidateRelatedQueries(client, performancePointsKey) });
 }
 export function useAddTeamPerformancePoint() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: ({ teamId, pointId }: { teamId: string; pointId: string }) => addTeamPerformancePoint(teamId, pointId), onSuccess: () => client.invalidateQueries({ queryKey: keys.teams }) });
+  return useMutation({ mutationFn: ({ teamId, pointId }: { teamId: string; pointId: string }) => addTeamPerformancePoint(teamId, pointId), onSuccess: () => invalidateRelatedQueries(client, keys.teams) });
 }
 export function useRemoveTeamPerformancePoint() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: ({ teamId, pointId }: { teamId: string; pointId: string }) => removeTeamPerformancePoint(teamId, pointId), onSuccess: () => client.invalidateQueries({ queryKey: keys.teams }) });
+  return useMutation({ mutationFn: ({ teamId, pointId }: { teamId: string; pointId: string }) => removeTeamPerformancePoint(teamId, pointId), onSuccess: () => invalidateRelatedQueries(client, keys.teams) });
 }
 export function useMyChangeRequests() { return useQuery({ queryKey: keys.changeRequests, queryFn: listMyChangeRequests }); }
 export function usePendingChangeRequests() { return useQuery({ queryKey: keys.changeRequests, queryFn: listPendingChangeRequests }); }
@@ -260,7 +297,11 @@ export function useSubmitProfileChanges() {
 }
 export function useReviewProfileChanges() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: reviewProfileChanges, onSuccess: () => { client.invalidateQueries({ queryKey: keys.members }); client.invalidateQueries({ queryKey: keys.changeRequests }); } });
+  return useMutation({ mutationFn: reviewProfileChanges, onSuccess: () => Promise.all([
+    invalidateRelatedQueries(client, keys.members),
+    client.invalidateQueries({ queryKey: keys.changeRequests }),
+    client.invalidateQueries({ queryKey: keys.profile }),
+  ]) });
 }
 export function useSubmitPasswordChange() {
   const client = useQueryClient();
@@ -269,30 +310,29 @@ export function useSubmitPasswordChange() {
 
 // ==================== 主播流水结算（/admin/anchor-revenue）====================
 
-/** 查询某团队某周期内 approved 流水明细。teamId/period 为空时不请求。 */
+/** teamId 为空表示全部系统主播；仅周期为空时不请求。 */
 export function useAnchorRevenuePerf(teamId: string | null, period: PeriodRange | null) {
   return useQuery({
     queryKey: [...keys.anchorRevenuePerf, teamId, period?.start, period?.end],
-    queryFn: () => listAnchorRevenuePerf(teamId!, period!.start, period!.end),
-    enabled: Boolean(teamId && period),
+    queryFn: () => listAnchorRevenuePerf(teamId, period!.start, period!.end),
+    enabled: period !== null,
   });
 }
 
-/** 组装某团队某周期成员结算上下文（工资方案 + 入职 + 上月达标），供实时试算。 */
+/** 团队仅用于筛选名单；上下文与金额使用系统结算口径。 */
 export function useAnchorSettlementContexts(teamId: string | null, period: PeriodRange | null) {
   return useQuery({
     queryKey: [...keys.anchorSettlementContexts, teamId, period?.start, period?.end],
-    queryFn: () => getAnchorSettlementContexts(teamId!, period!),
-    enabled: Boolean(teamId && period),
+    queryFn: () => getAnchorSettlementContexts(teamId, period!),
+    enabled: period !== null,
   });
 }
 
-/** 查询某团队最早一条 approved 流水日期，用作页面周期下拉的下界。 */
+/** teamId 为空时查询系统最早流水日期。 */
 export function useTeamEarliestPerfDate(teamId: string | null) {
   return useQuery({
-    queryKey: ["teamEarliestPerfDate", teamId] as const,
-    queryFn: () => getTeamEarliestPerfDate(teamId!),
-    enabled: Boolean(teamId),
+    queryKey: [...keys.teamEarliestPerfDate, teamId],
+    queryFn: () => getTeamEarliestPerfDate(teamId),
   });
 }
 
@@ -301,10 +341,11 @@ export function useTeamEarliestPerfDate(teamId: string | null) {
 export function useSettleAnchorRevenue() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: { teamId: string; period: PeriodRange; members: AnchorSettleMember[] }) => settleAnchorRevenue(input),
-    onSuccess: () => {
-      client.invalidateQueries({ queryKey: keys.salary });
-      client.invalidateQueries({ queryKey: keys.anchorRevenuePerf });
-    },
+    mutationFn: (input: { teamId: string | null; period: PeriodRange; members: AnchorSettleMember[] }) => settleAnchorRevenue(input),
+    onSuccess: () => Promise.all([
+      client.invalidateQueries({ queryKey: keys.salary }),
+      client.invalidateQueries({ queryKey: keys.salaryStatusLogs }),
+      invalidateSettlementQueries(client),
+    ]),
   });
 }

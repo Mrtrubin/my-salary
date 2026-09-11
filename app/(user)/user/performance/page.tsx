@@ -27,8 +27,8 @@ export default function UserPerformancePage() {
     const map = new Map<string, DailyGroup>();
     const seen = new Set<string>();
     rows.forEach((r) => {
-      // 成员 + 日期 维度去重：查询已按 created_at 倒序，首次遇到即最新。
-      const memberKey = `${r.profile_id}__${r.perf_date}`;
+      // 团队 + 成员 + 日期维度去重，保留同日跨团队的记录。
+      const memberKey = `${r.team_id}__${r.profile_id}__${r.perf_date}`;
       if (seen.has(memberKey)) return;
       seen.add(memberKey);
 

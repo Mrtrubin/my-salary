@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: "/admin/team-points", label: "绩效点管理", icon: "m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z" },
   { href: "/admin/positions", label: "职位管理", icon: "M3 7h18v14H3zM8 7V3h8v4M3 12l9 3 9-3M12 12v5" },
   { href: "/admin/schemes", label: "工资方案", icon: "M5 3h10l4 4v14H5zM14 3v5h5M8 12h8M8 16h8" },
+  { href: "/admin/settlement", label: "系统结算周期", icon: "M8 2v4M16 2v4M3 10h18M3 4h18v18H3zM8 14h3M8 18h7" },
   { href: "/admin/anchor-revenue", label: "主播流水", icon: "M3 3v18h18M7 16l4-5 4 2 6-8M17 5h4v4" },
   { href: "/admin/team-review", label: "团队审核", icon: "m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3ZM8 12l3 3 5-6" },
   { href: "/admin/change-requests", label: "资料审核", icon: "M9 5H5v16h14V5h-4M9 3h6v4H9zM8 14l3 3 5-6" },

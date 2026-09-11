@@ -18,8 +18,77 @@ export type SalaryRecord = Database["public"]["Tables"]["salary_records"]["Row"]
 export type SalaryStatusLog = Database["public"]["Tables"]["salary_record_status_logs"]["Row"] & { operator: Pick<Profile, "name"> | null };
 export type Member = Profile & { user_positions: { position: Position | null }[] };
 
+const settlementErrors: Record<string, string> = {
+  SYSTEM_SETTLEMENT_SETTINGS_MISSING: "系统结算配置不存在，请先完成数据库迁移",
+  SETTLEMENT_PERIOD_MUST_MATCH_SYSTEM: "周期已与系统配置不一致，请刷新后重新选择",
+  INVALID_SETTLEMENT_PERIOD: "结算周期无效",
+  INVALID_SETTLEMENT_MEMBERS: "结算名单格式无效",
+  DUPLICATE_SETTLEMENT_MEMBER_POSITION: "同一成员同一岗位不能重复结算",
+  SALARY_RECORD_NOT_PENDING_REVIEW: "工资已进入审核后续流程，不能覆盖",
+  INVALID_SALARY_ADJUSTMENTS: "工资调整项格式无效",
+  SALARY_PERIOD_OVERLAP: "该成员岗位已有重叠周期工资，请先核对历史记录",
+  TEAM_NOT_FOUND: "团队不存在",
+};
 function fail(error: { message: string; code?: string } | null): never {
-  throw new ApiError(error?.code === "42501" ? ApiErrorCode.FORBIDDEN : ApiErrorCode.UNKNOWN, error?.message ?? "数据请求失败", error);
+  const message = Object.entries(settlementErrors).find(([code]) => error?.message.includes(code))?.[1]
+    ?? (error?.code === "40001" || error?.code === "40P01" ? "结算操作并发冲突，请稍后重试" : error?.message)
+    ?? "数据请求失败";
+  throw new ApiError(error?.code === "42501" ? ApiErrorCode.FORBIDDEN : ApiErrorCode.UNKNOWN, message, error);
+}
+
+/** 仅重试数据库已回滚的事务冲突，不重试业务错误或未知网络结果。 */
+async function retrySettlement<T extends { error: { code?: string } | null }>(operation: () => PromiseLike<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    const result = await operation();
+    if (!result.error || !["40001", "40P01"].includes(result.error.code ?? "") || attempt >= 2) return result;
+    await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+  }
+}
+
+/** Supabase 默认截断结果集，结算读取必须完整分页并使用稳定排序。 */
+async function readSettlementRows<T>(query: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string; code?: string } | null }>): Promise<T[]> {
+  const rows: T[] = [];
+  const pageSize = 500;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await query(from, from + pageSize - 1);
+    if (error) fail(error);
+    rows.push(...(data ?? []));
+    if (!data || data.length < pageSize) return rows;
+  }
+}
+
+export type SystemSettlementSettings = Database["public"]["Tables"]["system_settlement_settings"]["Row"];
+export async function getSystemSettlementSettings(): Promise<SystemSettlementSettings> {
+  const { data, error } = await getBrowserSupabase().from("system_settlement_settings").select("*").eq("id", true).maybeSingle();
+  if (error) fail(error);
+  if (!data) fail({ message: "SYSTEM_SETTLEMENT_SETTINGS_MISSING" });
+  return data;
+}
+export async function updateSystemSettlementSettings(input: { settlementType: SettlementType; settlementStartDay: number }) {
+  if (!Number.isInteger(input.settlementStartDay) || input.settlementStartDay < 1 || input.settlementStartDay > 28) {
+    throw new ApiError(ApiErrorCode.INVALID_INPUT, "周期起始日必须为 1～28 的整数");
+  }
+  const { data, error } = await getBrowserSupabase().from("system_settlement_settings").update({
+    settlement_type: input.settlementType,
+    settlement_start_day: input.settlementType === "monthly" ? 1 : input.settlementStartDay,
+  }).eq("id", true).select("id").maybeSingle();
+  if (error) fail(error);
+  if (!data) throw new ApiError(ApiErrorCode.FORBIDDEN, "系统配置未更新，请检查管理员权限或配置是否存在");
+}
+
+export function settlementMemberKey(member: { profileId: string; positionId: number }): string {
+  return `${member.profileId}:${member.positionId}`;
+}
+
+export function parseSalaryAdjustments(value: Json): PayrollAdjustment[] {
+  if (!Array.isArray(value)) throw new ApiError(ApiErrorCode.INVALID_INPUT, "已保存调整项格式错误，请核对工资记录");
+  return value.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item) || typeof item.name !== "string"
+      || typeof item.amountCents !== "number" || !Number.isSafeInteger(item.amountCents)) {
+      throw new ApiError(ApiErrorCode.INVALID_INPUT, "已保存调整项格式错误，请核对工资记录");
+    }
+    return { name: item.name, amountCents: item.amountCents };
+  });
 }
 
 export async function getCurrentProfile(): Promise<Member | null> {
@@ -412,7 +481,7 @@ export async function transitionSalaryStatus(
 }
 
 /**
- * 驳回并重算：管理员驳回待审核工资条 → 按当前记录的团队 + 周期重新聚合流水、重算，
+ * 驳回并重算：按工资保存周期和岗位汇总本人跨团流水，保留并重新应用原调整项，
  * 原地更新同一条记录并重置为 pending_review（无 reject_reason），插日志
  * (from=pending_review, to=pending_review, note 记录驳回重算)。
  */
@@ -421,7 +490,7 @@ export async function rejectAndRecompute(id: string, _options?: { operatorProfil
   const supabase = getBrowserSupabase();
   const { data: record, error: readError } = await supabase
     .from("salary_records")
-    .select("id, status, profile_id, position_id, scheme_id, team_id, period_start, period_end")
+    .select("id, status, profile_id, position_id, scheme_id, period_start, period_end, adjustments")
     .eq("id", id)
     .single();
   if (readError) fail(readError);
@@ -429,23 +498,13 @@ export async function rejectAndRecompute(id: string, _options?: { operatorProfil
   if (record.status !== "pending_review") {
     throw new ApiError(ApiErrorCode.INVALID_INPUT, "仅待审核工资条可驳回重算");
   }
-  if (!record.team_id || !record.period_start || !record.period_end) {
-    throw new ApiError(ApiErrorCode.INVALID_INPUT, "该记录缺少团队或周期信息，无法重算");
+  if (!record.period_start || !record.period_end) {
+    throw new ApiError(ApiErrorCode.INVALID_INPUT, "该记录缺少周期信息，无法重算");
   }
+  const period = { start: record.period_start, end: record.period_end };
+  const adjustments = parseSalaryAdjustments(record.adjustments);
 
-  // 读取成员生效方案 + 入职日期。
-  const { data: scheme, error: schemeError } = await supabase
-    .from("salary_schemes")
-    .select("*")
-    .eq("profile_id", record.profile_id)
-    .eq("position_id", record.position_id)
-    .eq("status", "active")
-    .order("effective_from", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (schemeError) fail(schemeError);
-  if (!scheme) throw new ApiError(ApiErrorCode.INVALID_INPUT, "该成员无生效工资方案，无法重算");
-
+  // 历史工资始终使用保存周期和岗位，不依赖当前团队或系统周期配置。
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("hire_date")
@@ -453,50 +512,23 @@ export async function rejectAndRecompute(id: string, _options?: { operatorProfil
     .single();
   if (profileError) fail(profileError);
 
-  // 读取周期内流水。
-  const { data: perfRows, error: perfError } = await supabase
-    .from("anchor_revenue_records")
-    .select("profile_id, perf_date, revenue_cents")
-    .eq("team_id", record.team_id)
-    .eq("profile_id", record.profile_id)
-    .gte("perf_date", record.period_start)
-    .lte("perf_date", record.period_end);
-  if (perfError) fail(perfError);
+  const [context] = await loadSettlementContexts([{
+    profileId: record.profile_id,
+    positionId: record.position_id,
+    hireDate: profile.hire_date,
+  }], period);
+  if (!context.scheme) throw new ApiError(ApiErrorCode.INVALID_INPUT, "该成员岗位无周期内生效工资方案，无法重算");
+  const perfRows = await readProfileRevenue([record.profile_id], period);
+  const [draft] = aggregateSettlement(period, [context], perfRows.filter((r) => !r.noPerf));
+  const adjusted = applyAdjustments(calculateAnchorPayroll({
+    scheme: context.scheme,
+    monthlyRevenueInCents: draft.revenueCents,
+    tenureMonth: draft.tenureMonth,
+    lastMonthQualified: context.lastMonthQualified,
+  }), adjustments);
 
-  // 上月是否达标：取该成员+岗位 period_end < 本月周期起始的最近一条记录 is_qualified。
-  // 无上月记录视为达标（保底优先，沿用初始保底）。
-  const { data: lastMonthRows, error: lastMonthError } = await supabase
-    .from("salary_records")
-    .select("is_qualified")
-    .eq("team_id", record.team_id)
-    .eq("profile_id", record.profile_id)
-    .eq("position_id", record.position_id)
-    .lt("period_end", record.period_start)
-    .order("period_end", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (lastMonthError) fail(lastMonthError);
-  const lastMonthQualified = lastMonthRows?.is_qualified ?? true;
-
-  const [draft] = aggregateSettlement(
-    { start: record.period_start, end: record.period_end },
-    [{
-      profileId: record.profile_id,
-      positionId: record.position_id,
-      schemeId: scheme.id,
-      scheme: {
-        baseSalaryInCents: scheme.base_salary_cents,
-        guaranteedSalaryInCents: scheme.guaranteed_salary_cents,
-        thresholdMultiplierBps: scheme.threshold_multiplier_bps,
-      },
-      lastMonthQualified,
-      hireDate: profile.hire_date,
-    }],
-    (perfRows ?? []).map((r) => ({ profileId: r.profile_id, perfDate: r.perf_date, revenueCents: r.revenue_cents })),
-  );
-
-  // 库外重算已完成，落库交给事务 RPC：单事务内 update 主表 + 写日志，杜绝半完成态。
-  const { error: rpcError } = await supabase.rpc("recompute_salary_record", {
+  // 单事务更新快照和日志；现有 RPC 不修改方案关联、保存周期或调整项。
+  const { error: rpcError } = await retrySettlement(() => supabase.rpc("recompute_salary_record", {
     p_id: id,
     p_revenue_cents: draft.revenueCents,
     p_tenure_month: draft.tenureMonth,
@@ -508,11 +540,11 @@ export async function rejectAndRecompute(id: string, _options?: { operatorProfil
     p_is_grace_period: draft.isGracePeriod,
     p_guaranteed_component_cents: draft.guaranteedComponentCents,
     p_performance_component_cents: draft.performanceComponentCents,
-    p_gross_cents: draft.grossCents,
-    p_service_fee_cents: draft.serviceFeeCents,
-    p_net_cents: draft.netCents,
-    p_note: "管理员驳回，已按当前流水重新计算",
-  });
+    p_gross_cents: adjusted.grossSalaryInCents,
+    p_service_fee_cents: adjusted.serviceFeeInCents,
+    p_net_cents: adjusted.netSalaryInCents,
+    p_note: `管理员驳回，按保存周期跨团重算并保留调整项；计算方案 ${context.schemeId}（原方案关联 ${record.scheme_id ?? "无"} 保持不变）`,
+  }));
   if (rpcError) {
     const msg = rpcError.message ?? "";
     if (msg.includes("SALARY_RECORD_NOT_FOUND")) throw new ApiError(ApiErrorCode.NOT_FOUND, "工资记录不存在");
@@ -531,32 +563,6 @@ export async function listSalaryStatusLogs(salaryRecordId: string): Promise<Sala
     .order("created_at", { ascending: true });
   if (error) fail(error);
   return data as unknown as SalaryStatusLog[];
-}
-
-export interface SettlePayrollResult {
-  code: string;
-  message: string;
-  asOf?: string;
-  settledTeams: number;
-  settledRecords: number;
-  failedTeams?: { teamId: string; error: string }[];
-}
-
-/**
- * 管理员手动触发工资核算：全量 recheck 所有活跃团队成员的未结算/需重算周期。
- * 不传 teamId 则核算全部团队；传 teamId 则仅核算该团队。走 settle-team-payroll Edge Function（service_role），
- * 幂等：已锁定（confirmed/completed）的周期跳过，业绩未变更的待审周期跳过。
- */
-export async function settleTeamPayroll(teamId?: string, asOfDate?: string): Promise<SettlePayrollResult> {
-  const result = await callEdgeFunction("settle-team-payroll", { teamId, asOfDate });
-  return {
-    code: result.code as string ?? "OK",
-    message: result.message as string ?? "",
-    asOf: result.asOf as string | undefined,
-    settledTeams: (result.settledTeams as number) ?? 0,
-    settledRecords: (result.settledRecords as number) ?? 0,
-    failedTeams: (result.failedTeams as { teamId: string; error: string }[]) ?? [],
-  };
 }
 
 /**
@@ -608,6 +614,7 @@ export async function listTeams(): Promise<Team[]> {
   const { data, error } = await getBrowserSupabase()
     .from("teams")
     .select("*, host:profiles!teams_host_profile_id_fkey(id, name), members:team_members(profile:profiles(id,name)), points:team_performance_points(point:performance_points(id,name,points_per_yuan))")
+    .is("members.left_at", null)
     .order("name");
   if (error) fail(error);
   return data as unknown as Team[];
@@ -624,15 +631,13 @@ export async function createTeam(input: { name: string; hostProfileId: string; a
   return data;
 }
 
-export async function updateTeam(id: string, input: { name?: string; hostProfileId?: string; status?: "active" | "disabled"; settlementType?: "monthly" | "custom"; settlementStartDay?: number }) {
+export async function updateTeam(id: string, input: { name?: string; hostProfileId?: string; status?: "active" | "disabled" }) {
   const { error } = await getBrowserSupabase()
     .from("teams")
     .update({
       name: input.name,
       host_profile_id: input.hostProfileId,
       status: input.status,
-      settlement_type: input.settlementType,
-      settlement_start_day: input.settlementStartDay,
       updated_at: new Date().toISOString(),
     })
     .eq("id", id);
@@ -820,19 +825,48 @@ export async function submitPasswordChange(input: { currentPassword: string; new
 
 // ==================== 主播流水结算（PLAN-001：/admin/anchor-revenue）====================
 
-/**
- * 按结算周期解析某团队的周期区间。默认取「当前」周期（asOfDate 缺省=今天）。
- * 供页面周期下拉的默认锚点与「上一/下一周期」计算复用。
- */
-export function resolveTeamPeriod(team: Pick<Team, "settlement_type" | "settlement_start_day">, asOfDate?: string): PeriodRange {
-  const type = (team.settlement_type ?? "monthly") as SettlementType;
-  const startDay = team.settlement_start_day ?? 1;
-  const date = asOfDate ?? new Date().toISOString().slice(0, 10);
-  return getPeriodRange(type, startDay, date);
+/** 按系统唯一配置解析周期；默认使用本地日历日。 */
+export function resolveSystemPeriod(settings: Pick<SystemSettlementSettings, "settlement_type" | "settlement_start_day">, asOfDate?: string): PeriodRange {
+  const now = new Date();
+  const date = asOfDate ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  return getPeriodRange(settings.settlement_type, settings.settlement_start_day, date);
 }
 
-/** 周期内单条流水明细（用于页面展开查看，每日仅显最新一条由前端按 perf_date 去重）。 */
+/** 兼容旧调用方；团队字段仅是系统配置的镜像。 */
+export function resolveTeamPeriod(team: Pick<Team, "settlement_type" | "settlement_start_day">, asOfDate?: string): PeriodRange {
+  return resolveSystemPeriod(team, asOfDate);
+}
+
+/** 历史关系与流水发现离组人员，系统范围另外包含无团队主播。 */
+async function getSettlementProfileIds(teamId: string | null, period?: PeriodRange): Promise<string[]> {
+  const supabase = getBrowserSupabase();
+  const memberships = await readSettlementRows((from, to) => {
+    let query = supabase.from("team_members").select("id, profile_id");
+    if (teamId) query = query.eq("team_id", teamId);
+    if (period) query = query.lte("joined_at", period.end).or(`left_at.is.null,left_at.gte.${period.start}`);
+    return query.order("id").range(from, to);
+  });
+  const revenues = await readSettlementRows((from, to) => {
+    let query = supabase.from("anchor_revenue_records").select("id, profile_id");
+    if (teamId) query = query.eq("team_id", teamId);
+    if (period) query = query.gte("perf_date", period.start).lte("perf_date", period.end);
+    return query.order("id").range(from, to);
+  });
+  const ids = new Set([...memberships, ...revenues].map((r) => r.profile_id));
+  if (!teamId) {
+    const anchors = await readSettlementRows((from, to) => supabase.from("user_positions")
+      .select("profile_id, position:positions!inner(code), profile:profiles!inner(hire_date)")
+      .eq("position.code", "anchor").lte("profile.hire_date", period?.end ?? "9999-12-31")
+      .order("profile_id").order("position_id").range(from, to));
+    for (const row of anchors) ids.add(row.profile_id);
+  }
+  return [...ids];
+}
+
+/** 保留每条来源团队流水，不按主播和日期去重。 */
 export interface AnchorRevenuePerfRow {
+  teamId: string;
+  teamName: string | null;
   id: string;
   profileId: string;
   profileName: string | null;
@@ -845,136 +879,130 @@ export interface AnchorRevenuePerfRow {
   createdAt: string;
 }
 
-/**
- * 查询某团队某结算周期内的流水明细（按主播 + 日期倒序 + 录入时间倒序）。
- * 页面按「主播 + 日期」聚合展示,同日多条时取最新（created_at 最大）。
- */
-export async function listAnchorRevenuePerf(teamId: string, periodStart: string, periodEnd: string): Promise<AnchorRevenuePerfRow[]> {
-  const { data, error } = await getBrowserSupabase()
-    .from("anchor_revenue_records")
-    .select("id, profile_id, perf_date, revenue_cents, broadcast_minutes, no_perf, no_perf_note, created_at, point:performance_points(name), profile:profiles!anchor_revenue_records_profile_id_fkey(name)")
-    .eq("team_id", teamId)
-    .gte("perf_date", periodStart)
-    .lte("perf_date", periodEnd)
-    .order("perf_date", { ascending: false })
-    .order("created_at", { ascending: false });
-  if (error) fail(error);
-  return (data as unknown as {
-    id: string; profile_id: string; perf_date: string; revenue_cents: number; broadcast_minutes: number;
-    no_perf: boolean; no_perf_note: string | null; created_at: string;
-    point: { name: string } | null; profile: { name: string } | null;
-  }[]).map((r) => ({
-    id: r.id,
-    profileId: r.profile_id,
-    profileName: r.profile?.name ?? null,
-    perfDate: r.perf_date,
-    revenueCents: r.revenue_cents,
-    broadcastMinutes: r.broadcast_minutes,
-    pointName: r.point?.name ?? null,
-    noPerf: r.no_perf,
-    noPerfNote: r.no_perf_note,
-    createdAt: r.created_at,
-  }));
+/** 团队仅筛人员，返回名单成员在周期内所有团队的流水。 */
+export async function listAnchorRevenuePerf(teamId: string | null, periodStart: string, periodEnd: string): Promise<AnchorRevenuePerfRow[]> {
+  const profileIds = await getSettlementProfileIds(teamId, { start: periodStart, end: periodEnd });
+  return readProfileRevenue(profileIds, { start: periodStart, end: periodEnd });
+}
+
+async function readProfileRevenue(profileIds: string[], period: PeriodRange): Promise<AnchorRevenuePerfRow[]> {
+  const supabase = getBrowserSupabase();
+  const rows: AnchorRevenuePerfRow[] = [];
+  const uniqueIds = [...new Set(profileIds)];
+  for (let i = 0; i < uniqueIds.length; i += 100) {
+    const ids = uniqueIds.slice(i, i + 100);
+    const data = await readSettlementRows((from, to) => supabase.from("anchor_revenue_records")
+      .select("id, team_id, profile_id, perf_date, revenue_cents, broadcast_minutes, no_perf, no_perf_note, created_at, team:teams(name), point:performance_points(name), profile:profiles!anchor_revenue_records_profile_id_fkey(name)")
+      .in("profile_id", ids).gte("perf_date", period.start).lte("perf_date", period.end)
+      .order("perf_date", { ascending: false }).order("created_at", { ascending: false }).order("id")
+      .range(from, to));
+    rows.push(...data.map((r) => ({
+      id: r.id, teamId: r.team_id, teamName: r.team?.name ?? null,
+      profileId: r.profile_id, profileName: r.profile?.name ?? null,
+      perfDate: r.perf_date, revenueCents: r.revenue_cents, broadcastMinutes: r.broadcast_minutes,
+      pointName: r.point?.name ?? null, noPerf: r.no_perf, noPerfNote: r.no_perf_note, createdAt: r.created_at,
+    })));
+  }
+  return rows.sort((a, b) => b.perfDate.localeCompare(a.perfDate) || b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
+}
+
+/** 名单人员跨团最早流水日期；空团队查询全系统，用于历史周期下界。 */
+export async function getTeamEarliestPerfDate(teamId: string | null): Promise<string | null> {
+  const supabase = getBrowserSupabase();
+  const ids = teamId ? await getSettlementProfileIds(teamId) : null;
+  let earliest: string | null = null;
+  for (let i = 0; i < (ids?.length ?? 1); i += 100) {
+    let query = supabase.from("anchor_revenue_records").select("perf_date");
+    if (ids) query = query.in("profile_id", ids.slice(i, i + 100));
+    const { data, error } = await query.order("perf_date").limit(1).maybeSingle();
+    if (error) fail(error);
+    if (data && (!earliest || data.perf_date < earliest)) earliest = data.perf_date;
+  }
+  return earliest;
 }
 
 /**
- * 查询某团队最早一条流水的日期（perf_date 升序取第一条）。
- * 用于页面周期下拉的下界:无流水返回 null（此时下拉仅显示当前周期）。
+ * 拉取系统或团队名单在指定周期内的主播岗位、有效方案与名称映射。
+ * 团队仅筛名单，供前端结合本人跨团流水实时试算（不落库）。
+ * 无生效方案仍返回成员用于展示流水，但不允许结算。
  */
-export async function getTeamEarliestPerfDate(teamId: string): Promise<string | null> {
-  const { data, error } = await getBrowserSupabase()
-    .from("anchor_revenue_records")
-    .select("perf_date")
-    .eq("team_id", teamId)
-    .order("perf_date", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (error) fail(error);
-  return (data as { perf_date: string } | null)?.perf_date ?? null;
-}
-
-/**
- * 拉取某团队在指定周期内的成员结算上下文（含流水、方案、名称映射）。
- * 供前端复用 [`aggregateSettlement()`](lib/domain/settlement/aggregate.ts:88) 实时试算（不落库）。
- * 无生效方案的成员将被跳过（无法计算工资），返回结果仅含可结算成员。
- */
-export async function getAnchorSettlementContexts(teamId: string, period: PeriodRange): Promise<{ members: SettlementMemberContext[]; profileNames: Record<string, string> }> {
+export async function getAnchorSettlementContexts(teamId: string | null, period: PeriodRange): Promise<{ members: SettlementMemberContext[]; profileNames: Record<string, string> }> {
   const supabase = getBrowserSupabase();
 
-  // 1. 团队在「该周期区间内」曾在组的成员：joined_at <= period.end 且 (left_at IS NULL 或 left_at >= period.start)。
-  //    仅按 left_at IS NULL 过滤会导致：切到历史周期时漏掉当时在组但现已离组的成员，
-  //    且把周期结束后才入组的成员错误纳入 —— 造成成员与实际不符。
-  const { data: memberRows, error: memberError } = await supabase
-    .from("team_members")
-    .select("joined_at, left_at, profile:profiles(id, name, hire_date)")
-    .eq("team_id", teamId)
-    .lte("joined_at", period.end)
-    .or(`left_at.is.null,left_at.gte.${period.start}`);
-  if (memberError) fail(memberError);
-  const profiles = (memberRows as unknown as { joined_at: string; left_at: string | null; profile: { id: string; name: string; hire_date: string } | null }[])
-    .map((r) => r.profile)
-    .filter((p): p is { id: string; name: string; hire_date: string } => Boolean(p));
-  if (!profiles.length) return { members: [], profileNames: {} };
-
-  const profileIds = profiles.map((p) => p.id);
-  const profileNames = Object.fromEntries(profiles.map((p) => [p.id, p.name]));
-
-  // 2. 各成员生效工资方案（active、effective_from 最新）。
-  const { data: schemeRows, error: schemeError } = await supabase
-    .from("salary_schemes")
-    .select("id, profile_id, position_id, base_salary_cents, guaranteed_salary_cents, threshold_multiplier_bps, effective_from")
-    .in("profile_id", profileIds)
-    .eq("status", "active")
-    .order("effective_from", { ascending: false });
-  if (schemeError) fail(schemeError);
-  // 同一 (profile, position) 取 effective_from 最新的一条（已按降序，首见即最新）。
-  const schemeByProfile = new Map<string, { id: string; positionId: number; base: number; guaranteed: number; multiplier: number }>();
-  for (const s of (schemeRows as unknown as { id: string; profile_id: string; position_id: number; base_salary_cents: number; guaranteed_salary_cents: number; threshold_multiplier_bps: number }[])) {
-    if (!schemeByProfile.has(s.profile_id)) {
-      schemeByProfile.set(s.profile_id, { id: s.id, positionId: s.position_id, base: s.base_salary_cents, guaranteed: s.guaranteed_salary_cents, multiplier: s.threshold_multiplier_bps });
-    }
-  }
-
-  // 3. 各成员上月是否达标（period_end < 本周期起始的最近一条 is_qualified，无则默认达标）。
-  const { data: lastRows, error: lastError } = await supabase
-    .from("salary_records")
-    .select("profile_id, is_qualified, period_end")
-    .eq("team_id", teamId)
-    .in("profile_id", profileIds)
-    .lt("period_end", period.start)
-    .order("period_end", { ascending: false });
-  if (lastError) fail(lastError);
-  const lastQualifiedByProfile = new Map<string, boolean>();
-  for (const r of (lastRows as unknown as { profile_id: string; is_qualified: boolean }[])) {
-    if (!lastQualifiedByProfile.has(r.profile_id)) lastQualifiedByProfile.set(r.profile_id, r.is_qualified);
-  }
-
+  const profileIds = await getSettlementProfileIds(teamId, period);
+  const { data: anchorPosition, error: positionError } = await supabase.from("positions").select("id").eq("code", "anchor").maybeSingle();
+  if (positionError) fail(positionError);
+  if (!anchorPosition) throw new ApiError(ApiErrorCode.INVALID_INPUT, "未配置主播岗位，无法生成结算名单");
   const members: SettlementMemberContext[] = [];
-  for (const p of profiles) {
-    const scheme = schemeByProfile.get(p.id);
-    // 无生效方案：仍纳入成员列表（scheme 置 null），页面据此显示「未配置工资方案」提示，
-    // 而不是隐藏该主播；此类成员不参与工资计算，也不可被结算。
-    members.push({
-      profileId: p.id,
-      positionId: scheme?.positionId ?? 0,
-      schemeId: scheme?.id ?? null,
-      scheme: scheme
-        ? {
-            baseSalaryInCents: scheme.base,
-            guaranteedSalaryInCents: scheme.guaranteed,
-            thresholdMultiplierBps: scheme.multiplier,
-          }
-        : null,
-      lastMonthQualified: lastQualifiedByProfile.get(p.id) ?? true,
-      hireDate: p.hire_date,
+  const profileNames: Record<string, string> = {};
+  for (let i = 0; i < profileIds.length; i += 100) {
+    const ids = profileIds.slice(i, i + 100);
+    const profiles = await readSettlementRows((from, to) => supabase.from("profiles")
+      .select("id, name, hire_date").in("id", ids).order("id").range(from, to));
+    const identities = profiles.map((p) => {
+      profileNames[p.id] = p.name;
+      return { profileId: p.id, positionId: anchorPosition.id, hireDate: p.hire_date };
     });
+    members.push(...await loadSettlementContexts(identities, period));
   }
   return { members, profileNames };
 }
 
-/** 单个主播的结算入参：聚合上下文 + 本次携带的调整项。 */
+/** 试算、结算、重算共用：个人有效方案优先，其次同岗位模板；上期达标跨团。 */
+async function loadSettlementContexts(
+  identities: Pick<SettlementMemberContext, "profileId" | "positionId" | "hireDate">[],
+  period: PeriodRange,
+): Promise<SettlementMemberContext[]> {
+  if (!identities.length) return [];
+  const supabase = getBrowserSupabase();
+  const profileIds = [...new Set(identities.map((m) => m.profileId))];
+  const positionIds = [...new Set(identities.map((m) => m.positionId))];
+  const schemes = await readSettlementRows((from, to) => supabase.from("salary_schemes")
+    .select("*").in("position_id", positionIds)
+    .or(`profile_id.is.null,profile_id.in.(${profileIds.join(",")})`)
+    .eq("status", "active").lte("effective_from", period.end)
+    .order("effective_from", { ascending: false }).order("version", { ascending: false }).order("id")
+    .range(from, to));
+  const previous = await readSettlementRows((from, to) => supabase.from("salary_records")
+    .select("id, profile_id, position_id, is_qualified, period_end")
+    .in("profile_id", profileIds).in("position_id", positionIds).lt("period_end", period.start)
+    .order("period_end", { ascending: false }).order("id").range(from, to));
+  const personal = new Map<string, typeof schemes[number]>();
+  const templates = new Map<number, typeof schemes[number]>();
+  for (const scheme of schemes) {
+    if (scheme.position_id === null) continue;
+    if (scheme.profile_id === null) {
+      if (!templates.has(scheme.position_id)) templates.set(scheme.position_id, scheme);
+    } else {
+      const key = settlementMemberKey({ profileId: scheme.profile_id, positionId: scheme.position_id });
+      if (!personal.has(key)) personal.set(key, scheme);
+    }
+  }
+  const qualified = new Map<string, boolean>();
+  for (const record of previous) {
+    const key = settlementMemberKey({ profileId: record.profile_id, positionId: record.position_id });
+    if (!qualified.has(key)) qualified.set(key, record.is_qualified);
+  }
+  const unique = new Map(identities.map((m) => [settlementMemberKey(m), m]));
+  return [...unique].map(([key, identity]) => {
+    const scheme = personal.get(key) ?? templates.get(identity.positionId);
+    return {
+      ...identity,
+      schemeId: scheme?.id ?? null,
+      scheme: scheme ? {
+        baseSalaryInCents: scheme.base_salary_cents,
+        guaranteedSalaryInCents: scheme.guaranteed_salary_cents,
+        thresholdMultiplierBps: scheme.threshold_multiplier_bps,
+      } : null,
+      lastMonthQualified: qualified.get(key) ?? true,
+    };
+  });
+}
+
+/** 单个主播岗位的结算入参与本次调整项。 */
 export interface AnchorSettleMember {
   profileId: string;
+  positionId: number;
   adjustments?: PayrollAdjustment[];
 }
 
@@ -984,39 +1012,44 @@ export interface AnchorSettleMember {
  * 流程：拉取周期流水与成员上下文 → [`aggregateSettlement()`](lib/domain/settlement/aggregate.ts:88)
  * 得基础工资草稿 → 逐主播 [`applyAdjustments()`](lib/domain/payroll/adjustment.ts) 叠加调整项
  * 重算总工资/服务费/实发 → 组装 p_members 调 settle_anchor_revenue RPC（单事务 upsert + 日志，
- * 不触碰团队自动结算游标）。
+ * 仅允许管理员手动写入，不再提供自动结算入口）。
  */
-export async function settleAnchorRevenue(input: { teamId: string; period: PeriodRange; members: AnchorSettleMember[] }): Promise<{ settledRecords: number }> {
+export async function settleAnchorRevenue(input: { teamId: string | null; period: PeriodRange; members: AnchorSettleMember[] }): Promise<{ settledRecords: number }> {
   if (!input.members.length) throw new ApiError(ApiErrorCode.INVALID_INPUT, "请至少勾选一名主播");
+  const selectedKeys = new Set(input.members.map(settlementMemberKey));
+  if (selectedKeys.size !== input.members.length) {
+    throw new ApiError(ApiErrorCode.INVALID_INPUT, "同一成员同一岗位不能重复结算");
+  }
   const supabase = getBrowserSupabase();
 
-  // 组装聚合上下文（仅取勾选主播）。
+  // 团队只约束可选名单，身份始终为成员 + 岗位。
   const { members: allContexts } = await getAnchorSettlementContexts(input.teamId, input.period);
-  const selectedIds = new Set(input.members.map((m) => m.profileId));
-  const contexts = allContexts.filter((c) => selectedIds.has(c.profileId) && c.scheme !== null);
-  const missing = input.members.filter((m) => !contexts.some((c) => c.profileId === m.profileId));
-  if (missing.length) throw new ApiError(ApiErrorCode.INVALID_INPUT, "部分主播缺少生效工资方案，无法结算");
+  const contexts = allContexts.filter((c) => selectedKeys.has(settlementMemberKey(c)) && c.scheme !== null);
+  const contextsByKey = new Map(contexts.map((c) => [settlementMemberKey(c), c]));
+  if (input.members.some((m) => !contextsByKey.has(settlementMemberKey(m)))) {
+    throw new ApiError(ApiErrorCode.INVALID_INPUT, "部分主播不在当前名单、岗位不匹配或缺少生效工资方案，无法结算");
+  }
 
-  // 周期流水明细 → 聚合入参。
-  const perfRows = await listAnchorRevenuePerf(input.teamId, input.period.start, input.period.end);
+  // 仅读取已选人员的跨团流水，避免再次发现全量名单。
+  const perfRows = await readProfileRevenue(contexts.map((c) => c.profileId), input.period);
   const settlementPerf: SettlementPerfRow[] = perfRows
     .filter((r) => !r.noPerf)
     .map((r) => ({ profileId: r.profileId, perfDate: r.perfDate, revenueCents: r.revenueCents, createdAt: r.createdAt }));
 
   const drafts = aggregateSettlement(input.period, contexts, settlementPerf);
-  const adjustmentsByProfile = new Map(input.members.map((m) => [m.profileId, m.adjustments ?? []]));
+  const adjustmentsByKey = new Map(input.members.map((m) => [settlementMemberKey(m), m.adjustments ?? []]));
 
-  // 逐主播叠加调整项，组装 RPC p_members。
+  // 按唯一人岗位叠加调整项，组装 RPC p_members。
   const payload = drafts.map((draft) => {
-    const adjustments = adjustmentsByProfile.get(draft.profileId) ?? [];
-    // 用领域计算器重建 AnchorPayrollResult 作为 applyAdjustments 的 base（draft 已含全部字段）。
-        const base = calculateAnchorPayroll({
-      scheme: contexts.find((c) => c.profileId === draft.profileId)!.scheme!,
+    const key = settlementMemberKey(draft);
+    const context = contextsByKey.get(key)!;
+    const base = calculateAnchorPayroll({
+      scheme: context.scheme!,
       monthlyRevenueInCents: draft.revenueCents,
       tenureMonth: draft.tenureMonth,
-      lastMonthQualified: contexts.find((c) => c.profileId === draft.profileId)!.lastMonthQualified,
+      lastMonthQualified: context.lastMonthQualified,
     });
-    const adjusted = applyAdjustments(base, adjustments);
+    const adjusted = applyAdjustments(base, adjustmentsByKey.get(key) ?? []);
     return {
       profileId: draft.profileId,
       positionId: draft.positionId,
@@ -1038,12 +1071,12 @@ export async function settleAnchorRevenue(input: { teamId: string; period: Perio
     };
   });
 
-  const { data, error } = await supabase.rpc("settle_anchor_revenue", {
+  const { data, error } = await retrySettlement(() => supabase.rpc("settle_anchor_revenue", {
     p_team_id: input.teamId,
     p_period_start: input.period.start,
     p_period_end: input.period.end,
     p_members: payload as unknown as Json,
-  });
+  }));
   if (error) {
     const msg = error.message ?? "";
     if (msg.includes("FORBIDDEN_TRANSITION")) throw new ApiError(ApiErrorCode.FORBIDDEN, "无权手动结算");

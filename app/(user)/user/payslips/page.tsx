@@ -11,7 +11,7 @@ import {
   useSalaryRecords,
   useSalaryStatusLogs,
 } from "@/lib/api/hooks";
-import { formatBpsAsPercent, formatCentsToYuan, formatDateTime, formatMonth } from "@/lib/format";
+import { formatBpsAsPercent, formatCentsToYuan, formatDate, formatDateTime, formatMonth } from "@/lib/format";
 
 const STATUS_LABELS: Record<string, string> = {
   pending_review: "待审核",
@@ -59,7 +59,12 @@ export default function UserPayslipsPage() {
           <li key={item.id}>
             <Card className="px-5 py-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold">{formatMonth(item.month.slice(0, 7))}</span>
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold">{item.period_start && item.period_end
+                    ? `${formatDate(item.period_start)} ~ ${formatDate(item.period_end)}`
+                    : formatMonth(item.month.slice(0, 7))}</p>
+                  <p className="text-xs text-muted">{item.team_id === null ? "系统结算" : item.team?.name ?? "团队信息缺失"}</p>
+                </div>
                 <div className="flex gap-1">
                   <Badge tone={item.is_qualified ? "green" : "amber"}>{item.is_qualified ? "达标" : "未达标"}</Badge>
                   <SalaryRecordStatusBadge status={item.status} />
@@ -74,7 +79,7 @@ export default function UserPayslipsPage() {
               </div>
 
               <dl className="mt-4 space-y-2.5 text-sm">
-             <Row label="当月流水" value={formatCentsToYuan(item.revenue_cents)} />
+                <Row label="周期流水" value={formatCentsToYuan(item.revenue_cents)} />
                 <Row label="达标门槛" value={formatCentsToYuan(item.threshold_cents)} />
                 <Row label="保障性部分" value={formatCentsToYuan(item.guaranteed_component_cents)} />
                 <Row label={`绩效工资（${formatBpsAsPercent(item.commission_rate_bps)}）`} value={formatCentsToYuan(item.performance_component_cents)} />

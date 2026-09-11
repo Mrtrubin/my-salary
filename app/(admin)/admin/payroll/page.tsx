@@ -17,7 +17,6 @@ import {
   useRejectAndRecompute,
   useSalaryRecords,
   useSalaryStatusLogs,
-  useTeams,
   useTransitionSalaryStatus,
 } from "@/lib/api/hooks";
 import type { SalaryRecord } from "@/lib/api/data";
@@ -67,7 +66,7 @@ const DEFAULT_POSITION_TABS = [
   { code: "makeup", name: "化妆师" },
 ];
 
-const ANCHOR_COLUMN_COUNT = 21;
+const ANCHOR_COLUMN_COUNT = 22;
 
 /** 读取结算时保存的调整项，不读取流水页尚未结算的临时输入。 */
 function readAdjustments(value: SalaryRecord["adjustments"]): PayrollAdjustment[] {
@@ -86,7 +85,6 @@ function signedAmount(cents: number): string {
 export default function PayrollPage() {
   const salary = useSalaryRecords();
   const members = useMembers();
-  const teams = useTeams();
   const positions = usePositions();
   const me = useCurrentProfile();
   const transition = useTransitionSalaryStatus();
@@ -110,7 +108,6 @@ export default function PayrollPage() {
   }
 
   // 筛选状态
-  const [teamId, setTeamId] = useState("");
   const [memberId, setMemberId] = useState("");
   const [period, setPeriod] = useState("");
   const [status, setStatus] = useState("");
@@ -139,26 +136,11 @@ export default function PayrollPage() {
   );
 
   const filtered = useMemo(() => anchorRecords.filter((item) => {
-    if (teamId && item.team_id !== teamId) return false;
     if (memberId && item.profile_id !== memberId) return false;
     if (period && periodLabel(item) !== period) return false;
     if (status && item.status !== status) return false;
     return true;
-  }), [anchorRecords, teamId, memberId, period, status]);
-
-  const groups = useMemo(() => {
-    const map = new Map<string, { key: string; team: string; period: string; records: SalaryRecord[] }>();
-    for (const item of filtered) {
-      const key = `${item.team_id ?? "none"}__${item.period_start ?? item.month}__${item.period_end ?? ""}`;
-      let group = map.get(key);
-      if (!group) {
-        group = { key, team: item.team?.name ?? "未关联团队", period: periodLabel(item), records: [] };
-        map.set(key, group);
-      }
-      group.records.push(item);
-    }
-    return Array.from(map.values());
-  }, [filtered]);
+  }), [anchorRecords, memberId, period, status]);
 
   return (
     <Tabs className="w-full min-w-0 gap-5" selectedKey={activePosition} onSelectionChange={(key) => {
@@ -180,13 +162,7 @@ export default function PayrollPage() {
       </div>
       <TabPanel id="anchor" className="m-0 min-w-0 space-y-4 p-0">
       <Card>
-        <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Select
-            value={teamId}
-            placeholder="全部团队"
-            options={[{ id: "", name: "全部团队" }, ...(teams.data ?? []).map((t) => ({ id: t.id, name: t.name }))]}
-            onChange={setTeamId}
-          />
+        <CardContent className="grid gap-3 sm:grid-cols-3">
           <Select
             value={memberId}
             placeholder="全部主播"
@@ -224,6 +200,7 @@ export default function PayrollPage() {
           <Table>
                 <THead>
                   <TH isRowHeader>主播姓名</TH>
+                  <TH>结算周期</TH>
                   <TH>主播类型</TH>
                   <TH className="text-left">保底金额</TH>
                   <TH className="text-left">总音浪</TH>
@@ -246,14 +223,7 @@ export default function PayrollPage() {
                   <TH className="text-left">操作</TH>
                 </THead>
                 <TBody>
-                  {groups.map((group) => (
-                    <Fragment key={group.key}>
-                      <TR>
-                        <TD className="bg-slate-100 text-xs font-semibold text-slate-600" colSpan={ANCHOR_COLUMN_COUNT}>
-                          {`${group.team} · ${group.period}`}
-                        </TD>
-                      </TR>
-                      {group.records.map((item) => {
+                  {filtered.map((item) => {
                         const adjustments = readAdjustments(item.adjustments);
                         const adjustmentTotal = adjustments.reduce((sum, adjustment) => sum + adjustment.amountCents, 0);
                         // 展示历史结算快照，不能按新公式重算已结算工资。
@@ -267,6 +237,7 @@ export default function PayrollPage() {
                                 {item.profile?.name ?? "未关联"}
                               </button>
                             </TD>
+                            <TD><span className="whitespace-nowrap text-xs">{periodLabel(item)}</span></TD>
                             <TD>{item.is_grace_period ? "新主播" : "老主播"}</TD>
                             <TD className="text-left tabular-nums">{formatCentsToYuan(item.base_guarantee_cents)}</TD>
                             <TD className="text-left tabular-nums">
@@ -339,9 +310,7 @@ export default function PayrollPage() {
                           ) : null}
                         </Fragment>
                         );
-                      })}
-                    </Fragment>
-                  ))}
+                  })}
                 </TBody>
               </Table>
             </CardContent>

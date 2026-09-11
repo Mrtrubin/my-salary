@@ -14,6 +14,28 @@ export type Database = {
   }
   public: {
     Tables: {
+      system_settlement_settings: {
+        Row: {
+          id: boolean
+          settlement_type: Database["public"]["Enums"]["settlement_type"]
+          settlement_start_day: number
+          last_settled_period_end: string | null
+          updated_at: string
+        }
+        Insert: {
+          id?: boolean
+          settlement_type?: Database["public"]["Enums"]["settlement_type"]
+          settlement_start_day?: number
+          last_settled_period_end?: string | null
+          updated_at?: string
+        }
+        Update: {
+          settlement_type?: Database["public"]["Enums"]["settlement_type"]
+          settlement_start_day?: number
+          last_settled_period_end?: string | null
+        }
+        Relationships: []
+      }
       performance_points: {
         Row: {
           created_at: string
@@ -198,8 +220,8 @@ export type Database = {
           threshold_cents: number
           updated_at: string
           team_id: string | null
-          period_start: string | null
-          period_end: string | null
+          period_start: string
+          period_end: string
           review_pending_at: string | null
           confirm_pending_at: string | null
           confirmed_at: string | null
@@ -232,8 +254,8 @@ export type Database = {
           threshold_cents: number
           updated_at?: string
           team_id?: string | null
-          period_start?: string | null
-          period_end?: string | null
+          period_start: string
+          period_end: string
           review_pending_at?: string | null
           confirm_pending_at?: string | null
           confirmed_at?: string | null
@@ -266,8 +288,8 @@ export type Database = {
           threshold_cents?: number
           updated_at?: string
           team_id?: string | null
-          period_start?: string | null
-          period_end?: string | null
+          period_start?: string
+          period_end?: string
           review_pending_at?: string | null
           confirm_pending_at?: string | null
           confirmed_at?: string | null
@@ -661,19 +683,9 @@ export type Database = {
         }
         Returns: undefined
       }
-      settle_team_period: {
-        Args: {
-          p_team_id: string
-          p_period_start: string
-          p_period_end: string
-          p_members: Json
-          p_force?: boolean
-        }
-        Returns: number
-      }
       settle_anchor_revenue: {
         Args: {
-          p_team_id: string
+          p_team_id: string | null
           p_period_start: string
           p_period_end: string
           p_members: Json

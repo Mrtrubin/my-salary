@@ -1,23 +1,18 @@
 /**
- * 团队结算聚合（PLAN-001 阶段2，纯函数、可测）。
- *
- * 职责：给定某团队某结算周期内的成员流水明细 + 各成员工资方案 + 入职日期，
- * 逐成员聚合周期内流水，计算在职月序，调用主播工资计算器
- * [`calculateAnchorPayroll()`](lib/domain/payroll/anchor.ts:44)，
- * 产出可直接 upsert 进 salary_records 的草稿数据（含 period_start/end）。
- *
- * 说明：本层不触库、无副作用；数据读取与写入由 Edge Function / data 层负责。
+ * 周期结算聚合（纯函数、可测）。
+ * 给定人员岗位上下文与本人跨团流水，汇总周期收入并生成工资草稿。
+ * 数据读取、无绩效过滤及写入由调用方负责；本层不触库、无副作用。
  */
 import { calculateAnchorPayroll } from "@/lib/domain/payroll/anchor";
 import type { AnchorSalaryScheme } from "@/lib/domain/payroll/types";
 import type { PeriodRange } from "./cycle";
 
-/** 单条周期内流水明细（已按 approved 过滤，perf_date 落在周期内）。 */
+/** 单条流水；调用方排除无绩效记录，聚合时再检查周期边界。 */
 export interface SettlementPerfRow {
   profileId: string;
   perfDate: string;
   revenueCents: number;
-  /** 录入时间（ISO），可选。当前聚合不再依赖它去重（DB 已保证每日唯一）。 */
+  /** 录入时间（ISO），可选。不按人员日期去重，同日跨团流水均累加。 */
   createdAt?: string;
 }
 
@@ -87,10 +82,10 @@ function periodMonth(periodStart: string): string {
 }
 
 /**
- * 聚合某团队某周期的结算草稿。
+ * 按人员岗位生成周期结算草稿，收入汇总本人所有团队流水。
  * @param period 结算周期区间（含端点）
- * @param members 参与结算的成员上下文（通常为团队当前成员）
- * @param perfRows 周期内 approved 流水明细
+ * @param members 参与结算的成员上下文，由调用方保证人员岗位身份唯一
+ * @param perfRows 已排除无绩效记录的跨团流水明细
  * @param serviceFeeRateBps 服务费率（默认走计算器内置 300 bps）
  */
 export function aggregateSettlement(
@@ -100,7 +95,7 @@ export function aggregateSettlement(
   serviceFeeRateBps?: number,
 ): SettlementDraft[] {
   // 按成员汇总周期内流水。
-  // DB 唯一约束 (team_id, perf_date, profile_id) 保证每日每主播仅一条，故直接累加。
+  // DB 唯一维度是团队、日期、人员；同人同日不同团队均需累加。
   const revenueByProfile = new Map<string, number>();
   for (const row of perfRows) {
     if (row.perfDate < period.start || row.perfDate > period.end) continue;

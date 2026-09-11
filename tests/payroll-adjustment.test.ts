@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "@/lib/api/contracts/errors";
+import { getAdjustmentPresets, parseAdjustmentAmountYuan } from "@/lib/domain/payroll/adjustment";
 import {
   applyAdjustments,
   sumAdjustments,
@@ -24,6 +25,47 @@ const base: AnchorPayrollResult = {
   serviceFeeInCents: 30000,
   netSalaryInCents: 970000,
 };
+
+describe("快捷调整项预设与金额编辑", () => {
+  it("只提供迟到、缺勤、奖励，保底 2600 元对应扣款 10 元、100 元", () => {
+    expect(getAdjustmentPresets(260000)).toEqual([
+      { name: "迟到", amountCents: -1000 },
+      { name: "缺勤", amountCents: -10000 },
+      { name: "奖励", amountCents: 0 },
+    ]);
+  });
+
+  it("按各主播保底计算，完整公式四舍五入到分", () => {
+    expect(getAdjustmentPresets(800000).map((item) => item.amountCents)).toEqual([-3077, -30769, 0]);
+    expect(getAdjustmentPresets(3900).map((item) => item.amountCents)).toEqual([-15, -150, 0]);
+    expect(getAdjustmentPresets(0).map((item) => item.amountCents)).toEqual([0, 0, 0]);
+    expect(getAdjustmentPresets(13)[1].amountCents).toBe(-1);
+  });
+
+  it("修改已添加项不影响后续预设，保留手动金额参与工资计算", () => {
+    const item = getAdjustmentPresets(800000)[0];
+    item.name = "迟到（已复核）";
+    item.amountCents = -1234;
+    expect(getAdjustmentPresets(800000)[0].amountCents).toBe(-3077);
+    expect(applyAdjustments(base, [item]).grossSalaryInCents).toBe(998766);
+  });
+
+  it.each([-1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])("拒绝无效保底 %s", (value) => {
+    expect(() => getAdjustmentPresets(value)).toThrow(ApiError);
+  });
+
+  it.each([["0", 0], ["12.", 1200], ["12.30", 1230], [".5", 50], ["1.01", 101], [" 10.5 ", 1050]])(
+    "金额 %s 精确转换为 %s 分", (value, expected) => {
+      expect(parseAdjustmentAmountYuan(String(value))).toBe(expected);
+    },
+  );
+
+  it.each(["", " ", "-1", "abc", "1.001", "1e3", "Infinity", "9007199254740992"])(
+    "无效输入 %s 不静默转换为零", (value) => {
+      expect(parseAdjustmentAmountYuan(value)).toBeNull();
+    },
+  );
+});
 
 describe("sumAdjustments 合计调整项", () => {
   it("空数组返回 0", () => {

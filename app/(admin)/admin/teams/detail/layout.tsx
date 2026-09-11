@@ -17,7 +17,7 @@ function DetailChrome({ children }: { children: ReactNode }) {
   const tabs = [
     { key: "/admin/teams/detail/members", href: `/admin/teams/detail/members${suffix}`, label: "成员管理" },
     { key: "/admin/teams/detail/points", href: `/admin/teams/detail/points${suffix}`, label: "绩效管理" },
-    { key: "/admin/teams/detail/settlement", href: `/admin/teams/detail/settlement${suffix}`, label: "结算周期" },
+    { key: "/admin/settlement", href: "/admin/settlement", label: "系统结算周期" },
   ];
 
   return (

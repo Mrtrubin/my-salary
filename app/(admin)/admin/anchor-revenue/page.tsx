@@ -7,13 +7,13 @@ import { Input } from "@/components/ui/input";
 import { QueryMessage } from "@/components/query-message";
 import { PageHeader } from "@/components/ui/stat-card";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { useTeams, useAnchorRevenuePerf, useAnchorSettlementContexts, useSettleAnchorRevenue, useTeamEarliestPerfDate } from "@/lib/api/hooks";
-import { resolveTeamPeriod } from "@/lib/api/data";
-import type { AnchorSettleMember } from "@/lib/api/data";
+import { useTeams, useAnchorRevenuePerf, useAnchorSettlementContexts, useSettleAnchorRevenue, useTeamEarliestPerfDate, useSystemSettlementSettings } from "@/lib/api/hooks";
+import { resolveSystemPeriod, settlementMemberKey } from "@/lib/api/data";
+import type { AnchorSettleMember, AnchorRevenuePerfRow, SystemSettlementSettings } from "@/lib/api/data";
 import { getPeriodRange, getPreviousPeriodRange } from "@/lib/domain/settlement/cycle";
-import type { PeriodRange, SettlementType } from "@/lib/domain/settlement/cycle";
+import type { PeriodRange } from "@/lib/domain/settlement/cycle";
 import { aggregateSettlement } from "@/lib/domain/settlement/aggregate";
-import { applyAdjustments } from "@/lib/domain/payroll/adjustment";
+import { applyAdjustments, getAdjustmentPresets, parseAdjustmentAmountYuan } from "@/lib/domain/payroll/adjustment";
 import type { PayrollAdjustment } from "@/lib/domain/payroll/adjustment";
 import { calculateAnchorPayroll } from "@/lib/domain/payroll/anchor";
 import { formatCentsToYuan, formatDate } from "@/lib/format";
@@ -21,16 +21,33 @@ import { formatCentsToYuan, formatDate } from "@/lib/format";
 /** 周期下拉可选的历史周期数量（含当前周期）。 */
 const PERIOD_OPTION_COUNT = 12;
 
-/** 快捷调整项预设（点击即添加，可再编辑金额）。金额单位：分。 */
-const ADJUSTMENT_PRESETS: { name: string; amountCents: number }[] = [
-  { name: "迟到", amountCents: -10000 },
-  { name: "缺勤", amountCents: -20000 },
-  { name: "评优", amountCents: 20000 },
-];
+/** 编辑草稿与结算数据分离，允许清空名称、金额及连续输入小数。 */
+interface AdjustmentDraft {
+  id: string;
+  name: string;
+  direction: "deduction" | "reward";
+  amountYuan: string;
+}
+
+function toPayrollAdjustment(draft: AdjustmentDraft): PayrollAdjustment | null {
+  const amount = parseAdjustmentAmountYuan(draft.amountYuan);
+  if (!draft.name.trim() || amount === null) return null;
+  return { name: draft.name.trim(), amountCents: draft.direction === "deduction" ? -amount : amount };
+}
+
+function validAdjustments(drafts: AdjustmentDraft[]): PayrollAdjustment[] {
+  return drafts.map(toPayrollAdjustment).filter((item): item is PayrollAdjustment => item !== null);
+}
+
+function signedAmount(cents: number): string {
+  return `${cents > 0 ? "+" : ""}${formatCentsToYuan(cents)}`;
+}
 
 /** 单主播的实时试算结果（聚合 + 调整项叠加后）。 */
 interface AnchorRow {
   profileId: string;
+  positionId: number;
+  memberKey: string;
   profileName: string;
   revenueCents: number;
   commissionRateBps: number;
@@ -42,53 +59,52 @@ interface AnchorRow {
   hasScheme: boolean;
 }
 
-export default function AnchorRevenuePage(){
+export default function AnchorRevenuePage() {
+  const settings = useSystemSettlementSettings();
+  return (
+    <>
+      <QueryMessage loading={settings.isLoading} error={settings.error} />
+      {settings.data && !settings.isError ? (
+        <AnchorRevenueWorkspace
+          key={`${settings.data.settlement_type}:${settings.data.settlement_start_day}:${settings.data.updated_at}`}
+          settings={settings.data}
+          settingsRefreshing={settings.isFetching}
+        />
+      ) : null}
+      {settings.isError ? <Button onClick={() => { void settings.refetch(); }}>重试加载系统周期</Button> : null}
+    </>
+  );
+}
+
+function AnchorRevenueWorkspace({ settings, settingsRefreshing }: { settings: SystemSettlementSettings; settingsRefreshing: boolean }) {
   const teamsQuery = useTeams();
-  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
-  // 周期锚点：以某日期计算所属周期。null=用当前团队默认（今天）。
+  const [teamId, setSelectedTeamId] = useState<string | null>(null);
+  // 配置版本变化时整个工作区重新挂载，避免提交旧周期草稿。
   const [anchorDate, setAnchorDate] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [adjustments, setAdjustments] = useState<Record<string, PayrollAdjustment[]>>({});
+  const [adjustments, setAdjustments] = useState<Record<string, AdjustmentDraft[]>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [keyword, setKeyword] = useState("");
+  const [validationError, setValidationError] = useState<string | null>(null);
 
-  // 有效团队 id：未手动选择时默认取第一个团队（派生 state，避免 effect 里 setState）。
-  const teamId = selectedTeamId ?? teamsQuery.data?.[0]?.id ?? null;
+  const period = useMemo(() => anchorDate
+    ? getPeriodRange(settings.settlement_type, settings.settlement_start_day, anchorDate)
+    : resolveSystemPeriod(settings), [settings, anchorDate]);
 
-  const team = useMemo(
-    () => (teamsQuery.data ?? []).find((t) => t.id === teamId) ?? null,
-    [teamsQuery.data, teamId],
-  );
-
-  const period: PeriodRange | null = useMemo(() => {
-    if (!team) return null;
-    const type = (team.settlement_type ?? "monthly") as SettlementType;
-    const startDay = team.settlement_start_day ?? 1;
-    if (anchorDate) return getPeriodRange(type, startDay, anchorDate);
-    return resolveTeamPeriod(team);
-  }, [team, anchorDate]);
-
-  // 团队最早一条 approved 流水日期，作为周期下拉的下界。
+  // 团队仅筛名单，最早日期与金额均按名单成员的跨团队流水计算。
   const earliestPerfQuery = useTeamEarliestPerfDate(teamId);
-
-  // 周期下拉选项：从「当前周期」往回枚举，最新的排最上面。
-  // 下界：最早的周期不早于「最早流水所在周期」（prev.end < 最早流水日期则整段都在其之前，停止）。
   const periodOptions: PeriodRange[] = useMemo(() => {
-    if (!team) return [];
-    const type = (team.settlement_type ?? "monthly") as SettlementType;
-    const startDay = team.settlement_start_day ?? 1;
-    const earliestPerfDate = earliestPerfQuery.data ?? null; // YYYY-MM-DD 或 null（无流水）
+    const earliestPerfDate = earliestPerfQuery.data ?? null;
     const list: PeriodRange[] = [];
-    let cursor = resolveTeamPeriod(team); // 当前周期（今天所属）。
+    let cursor = resolveSystemPeriod(settings);
     for (let i = 0; i < PERIOD_OPTION_COUNT; i += 1) {
       list.push(cursor);
-      const prev = getPreviousPeriodRange(type, startDay, cursor.start); // 往回推一个周期。
-      // 无流水：仅保留当前周期；有流水：上一周期整体早于最早流水日期则停止（保留含最早流水的那个周期）。
+      const prev = getPreviousPeriodRange(settings.settlement_type, settings.settlement_start_day, cursor.start);
       if (!earliestPerfDate || prev.end < earliestPerfDate) break;
       cursor = prev;
     }
-    return list; // 已是最新→最旧顺序。
-  }, [team, earliestPerfQuery.data]);
+    return list;
+  }, [settings, earliestPerfQuery.data]);
 
   const perfQuery = useAnchorRevenuePerf(teamId, period);
   const contextsQuery = useAnchorSettlementContexts(teamId, period);
@@ -103,11 +119,14 @@ export default function AnchorRevenuePage(){
       .map((r) => ({ profileId: r.profileId, perfDate: r.perfDate, revenueCents: r.revenueCents, createdAt: r.createdAt }));
     const drafts = aggregateSettlement(period, members, perfRows);
     return drafts.map((draft) => {
-      const ctx = members.find((m) => m.profileId === draft.profileId)!;
+      const memberKey = settlementMemberKey(draft);
+      const ctx = members.find((m) => settlementMemberKey(m) === memberKey)!;
       // 无生效方案：仅展示流水，不计算工资，工资相关列置 0，行标记 hasScheme=false。
       if (!ctx.scheme) {
         return {
           profileId: draft.profileId,
+          positionId: draft.positionId,
+          memberKey,
           profileName: profileNames[draft.profileId] ?? "—",
           revenueCents: draft.revenueCents,
           commissionRateBps: 0,
@@ -125,9 +144,11 @@ export default function AnchorRevenuePage(){
         tenureMonth: draft.tenureMonth,
         lastMonthQualified: ctx.lastMonthQualified,
       });
-      const adjusted = applyAdjustments(base, adjustments[draft.profileId] ?? []);
+      const adjusted = applyAdjustments(base, validAdjustments(adjustments[memberKey] ?? []));
       return {
         profileId: draft.profileId,
+        positionId: draft.positionId,
+        memberKey,
         profileName: profileNames[draft.profileId] ?? "—",
         revenueCents: draft.revenueCents,
         commissionRateBps: draft.commissionRateBps,
@@ -150,63 +171,105 @@ export default function AnchorRevenuePage(){
   // 可结算行：仅含已配置生效工资方案的主播（无方案行不可勾选、不参与结算）。
   const settleableRows = useMemo(() => filteredRows.filter((r) => r.hasScheme), [filteredRows]);
 
-  // 每位主播的周期内流水明细（DB 唯一约束保证同一团队每日每主播仅一条）。
+  // 同一人员的跨团队流水供各岗位查看，交互状态仍按人员与岗位隔离。
   const dailyByProfile = useMemo(() => {
-    const map: Record<string, { perfDate: string; revenueCents: number; pointName: string | null; createdAt: string }[]> = {};
-    for (const r of perfQuery.data ?? []) {
-      if (r.noPerf) continue;
-      const list = (map[r.profileId] ??= []);
-      list.push({ perfDate: r.perfDate, revenueCents: r.revenueCents, pointName: r.pointName, createdAt: r.createdAt });
+    const map: Record<string, AnchorRevenuePerfRow[]> = {};
+    for (const row of perfQuery.data ?? []) {
+      if (!row.noPerf) (map[row.profileId] ??= []).push(row);
     }
     return map;
   }, [perfQuery.data]);
 
-  function toggleSelect(profileId: string) {
-    // 无生效方案的主播不可结算，禁止勾选。
-    if (!rows.find((r) => r.profileId === profileId)?.hasScheme) return;
+  const dataUnavailable = settingsRefreshing || perfQuery.isFetching || contextsQuery.isFetching
+    || !perfQuery.isSuccess || !contextsQuery.isSuccess;
+  const selectedRows = rows.filter((row) => selectedIds.has(row.memberKey));
+  const selectionValid = selectedRows.length === selectedIds.size && selectedRows.every((row) => row.hasScheme);
+  const allVisibleSelected = settleableRows.length > 0 && settleableRows.every((row) => selectedIds.has(row.memberKey));
+
+  function clearFeedback() {
+    setValidationError(null);
+    settleMutation.reset();
+  }
+
+  function resetDraft() {
+    setSelectedIds(new Set());
+    setAdjustments({});
+    setExpandedId(null);
+    clearFeedback();
+  }
+
+  function toggleSelect(memberKey: string) {
+    if (!rows.find((row) => row.memberKey === memberKey)?.hasScheme) return;
+    clearFeedback();
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(profileId)) next.delete(profileId);
-      else next.add(profileId);
+      if (next.has(memberKey)) next.delete(memberKey);
+      else next.add(memberKey);
       return next;
     });
   }
 
   function toggleSelectAll() {
-    setSelectedIds((prev) =>
-      prev.size === settleableRows.length ? new Set() : new Set(settleableRows.map((r) => r.profileId)),
-    );
-  }
-
-  function addAdjustment(profileId: string, preset: { name: string; amountCents: number }) {
-    setAdjustments((prev) => ({ ...prev, [profileId]: [...(prev[profileId] ?? []), { ...preset }] }));
-  }
-
-  function updateAdjustment(profileId: string, index: number, patch: Partial<PayrollAdjustment>) {
-    setAdjustments((prev) => {
-      const list = [...(prev[profileId] ?? [])];
-      list[index] = { ...list[index], ...patch };
-      return { ...prev, [profileId]: list };
+    clearFeedback();
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const row of settleableRows) {
+        if (allVisibleSelected) next.delete(row.memberKey);
+        else next.add(row.memberKey);
+      }
+      return next;
     });
   }
 
-  function removeAdjustment(profileId: string, index: number) {
-    setAdjustments((prev) => {
-      const list = [...(prev[profileId] ?? [])];
-      list.splice(index, 1);
-      return { ...prev, [profileId]: list };
-    });
+  function addAdjustment(memberKey: string, preset: PayrollAdjustment) {
+    clearFeedback();
+    const draft: AdjustmentDraft = {
+      id: crypto.randomUUID(),
+      name: preset.name,
+      direction: preset.name === "奖励" ? "reward" : "deduction",
+      amountYuan: preset.name === "奖励" ? "" : (Math.abs(preset.amountCents) / 100).toFixed(2),
+    };
+    setAdjustments((prev) => ({ ...prev, [memberKey]: [...(prev[memberKey] ?? []), draft] }));
   }
 
-  async function settle() {
-    if (!teamId || !period || !selectedIds.size) return;
-    const members: AnchorSettleMember[] = [...selectedIds].map((profileId) => ({
-      profileId,
-      adjustments: adjustments[profileId] ?? [],
+  function updateAdjustment(memberKey: string, id: string, patch: Partial<AdjustmentDraft>) {
+    clearFeedback();
+    setAdjustments((prev) => ({
+      ...prev,
+      [memberKey]: (prev[memberKey] ?? []).map((item) => item.id === id ? { ...item, ...patch } : item),
     }));
-    await settleMutation.mutateAsync({ teamId, period, members });
-    setSelectedIds(new Set());
-    setAdjustments({});
+  }
+
+  function removeAdjustment(memberKey: string, id: string) {
+    clearFeedback();
+    setAdjustments((prev) => ({ ...prev, [memberKey]: (prev[memberKey] ?? []).filter((item) => item.id !== id) }));
+  }
+
+  function settle() {
+    if (settleMutation.isPending) return;
+    clearFeedback();
+    if (dataUnavailable || !selectedIds.size || !selectionValid) {
+      setValidationError("请等待数据加载完成，并重新选择具有生效工资方案的主播。");
+      return;
+    }
+    const invalidRow = selectedRows.find((row) => (adjustments[row.memberKey] ?? []).some((item) => !toPayrollAdjustment(item)));
+    if (invalidRow) {
+      setExpandedId(invalidRow.memberKey);
+      setValidationError(`请完善「${invalidRow.profileName}」的调整项：名称不能为空，金额须为非负数且最多两位小数。`);
+      return;
+    }
+    const members: AnchorSettleMember[] = selectedRows.map((row) => ({
+      profileId: row.profileId,
+      positionId: row.positionId,
+      adjustments: validAdjustments(adjustments[row.memberKey] ?? []),
+    }));
+    settleMutation.mutate({ teamId, period, members }, {
+      onSuccess: () => {
+        setSelectedIds(new Set());
+        setAdjustments({});
+        setExpandedId(null);
+      },
+    });
   }
 
   return (
@@ -218,23 +281,25 @@ export default function AnchorRevenuePage(){
           <div className="flex flex-wrap items-center gap-3 p-4">
             <select
               value={teamId ?? ""}
-              onChange={(event) => { setSelectedTeamId(event.target.value || null); setAnchorDate(null); setSelectedIds(new Set()); setAdjustments({}); }}
+              onChange={(event) => { setSelectedTeamId(event.target.value || null); setAnchorDate(null); resetDraft(); }}
+              disabled={settleMutation.isPending}
+              aria-label="团队名单筛选"
               className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
             >
-              <option value="">选择团队</option>
+              <option value="">全部主播</option>
               {(teamsQuery.data ?? []).map((t) => (
                 <option key={t.id} value={t.id}>{t.name}</option>
               ))}
             </select>
-            {team && period ? (
+            {period ? (
               <select
                 value={period.start}
                 onChange={(event) => {
                   setAnchorDate(event.target.value);
-                  setSelectedIds(new Set());
-                  setAdjustments({});
-                  setExpandedId(null);
+                  resetDraft();
                 }}
+                disabled={settleMutation.isPending || earliestPerfQuery.isFetching}
+                aria-label="系统结算周期"
                 className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
               >
                 {periodOptions.map((p, index) => (
@@ -246,8 +311,19 @@ export default function AnchorRevenuePage(){
             ) : null}
           </div>
 
-          {team ? (
-            <>
+          <p className="px-4 pb-3 text-sm text-slate-500">统一使用系统周期；团队仅筛选主播名单，流水跨团队汇总。工资全部由管理员勾选后手动结算。</p>
+          <QueryMessage loading={teamsQuery.isLoading || earliestPerfQuery.isLoading} error={teamsQuery.error || earliestPerfQuery.error} />
+          {validationError || settleMutation.isError ? (
+            <p role="alert" className="px-4 pb-3 text-sm text-red-600">{validationError ?? settleMutation.error?.message}</p>
+          ) : null}
+          {settleMutation.isSuccess ? <p role="status" className="px-4 pb-3 text-sm text-emerald-600">结算成功，工资已进入待审核。</p> : null}
+          {!selectionValid ? (
+            <div role="alert" className="flex items-center gap-3 px-4 pb-3 text-sm text-amber-700">
+              部分已选主播或工资方案已变更，请清空选择后重新勾选。
+              <Button variant="secondary" disabled={settleMutation.isPending} onClick={resetDraft}>清空选择与调整</Button>
+            </div>
+          ) : null}
+          <fieldset disabled={settleMutation.isPending || dataUnavailable} className="min-w-0">
               <div className="flex flex-wrap items-center justify-between gap-3 px-4 pb-3">
                 <Input
                   className="max-w-xs"
@@ -257,7 +333,7 @@ export default function AnchorRevenuePage(){
                 />
                 <Button
                   variant="primary"
-                  disabled={!selectedIds.size || settleMutation.isPending}
+                  disabled={!selectedIds.size || !selectionValid || dataUnavailable || settleMutation.isPending}
                   onClick={settle}
                 >
                   结算所选（{selectedIds.size}）
@@ -273,14 +349,16 @@ export default function AnchorRevenuePage(){
                   <TH isRowHeader>
                     <input
                       type="checkbox"
-                      checked={settleableRows.length > 0 && selectedIds.size === settleableRows.length}
+                      checked={allVisibleSelected}
+                      disabled={!settleableRows.length}
+                      aria-label="全选当前可结算主播"
                       onChange={toggleSelectAll}
                     />
                   </TH>
                   <TH>主播</TH>
                   <TH className="text-left">总流水</TH>
                   <TH className="text-left">提成</TH>
-             <TH className="text-left">保底</TH>
+                  <TH className="text-left">保底</TH>
                   <TH className="text-left">调整项</TH>
                   <TH className="text-left">总工资</TH>
                   <TH className="text-left">实发</TH>
@@ -288,13 +366,13 @@ export default function AnchorRevenuePage(){
                 </THead>
                 <TBody>
                   {filteredRows.map((row) => (
-                    <Fragment key={row.profileId}>
+                    <Fragment key={row.memberKey}>
                       <TR>
                         <TD>
                           <input
                             type="checkbox"
-                            checked={selectedIds.has(row.profileId)}
-                            onChange={() => toggleSelect(row.profileId)}
+                            checked={selectedIds.has(row.memberKey)}
+                            onChange={() => toggleSelect(row.memberKey)}
                             disabled={!row.hasScheme}
                             title={row.hasScheme ? undefined : "该主播未配置生效工资方案，无法结算"}
                           />
@@ -305,8 +383,26 @@ export default function AnchorRevenuePage(){
                           <>
                             <TD className="text-left whitespace-nowrap">{formatCentsToYuan(row.performanceComponentCents)}</TD>
                             <TD className="text-left whitespace-nowrap">{formatCentsToYuan(row.guaranteedComponentCents)}</TD>
-                            <TD className={`text-left whitespace-nowrap${row.adjustmentTotalCents < 0 ? " text-red-600" : row.adjustmentTotalCents > 0 ? " text-emerald-600" : ""}`}>
-                              {row.adjustmentTotalCents ? formatCentsToYuan(row.adjustmentTotalCents) : "—"}
+                            <TD className="text-left">
+                              <button
+                                type="button"
+                                aria-label={`${row.profileName}的调整项`}
+                                aria-expanded={expandedId === row.memberKey}
+                                onClick={() => setExpandedId(expandedId === row.memberKey ? null : row.memberKey)}
+                                className="rounded-lg px-2 py-1 text-left transition hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-indigo-500 disabled:opacity-50"
+                              >
+                                {(adjustments[row.memberKey] ?? []).length ? (
+                                  <>
+                                    <span className={`block font-medium tabular-nums ${row.adjustmentTotalCents < 0 ? "text-red-600" : row.adjustmentTotalCents > 0 ? "text-emerald-600" : "text-slate-700"}`}>
+                                      {signedAmount(row.adjustmentTotalCents)}
+                                    </span>
+                                    <span className="block text-xs text-slate-500">
+                                      {adjustments[row.memberKey].length} 项 · 编辑
+                                      {adjustments[row.memberKey].some((item) => !toPayrollAdjustment(item)) ? " · 待完善" : ""}
+                                    </span>
+                                  </>
+                                ) : <span className="text-sm text-indigo-600">+ 添加调整</span>}
+                              </button>
                             </TD>
                             <TD className="text-left font-medium whitespace-nowrap">{formatCentsToYuan(row.grossCents)}</TD>
                             <TD className={`text-left font-medium whitespace-nowrap${row.netCents < 0 ? " text-red-600" : ""}`}>{formatCentsToYuan(row.netCents)}</TD>
@@ -317,23 +413,23 @@ export default function AnchorRevenuePage(){
                           </TD>
                         )}
                         <TD className="text-left">
-                          <Button variant="ghost" onClick={() => setExpandedId(expandedId=== row.profileId ? null : row.profileId)}>
-                            {expandedId === row.profileId ? "收起" : "查看"}
+                          <Button variant="ghost" onClick={() => setExpandedId(expandedId === row.memberKey ? null : row.memberKey)}>
+                            {expandedId === row.memberKey ? "收起" : "查看"}
                           </Button>
                         </TD>
                       </TR>
-                      {expandedId === row.profileId ? (
-                  <TR>
+                      {expandedId === row.memberKey ? (
+                        <TR>
                           <TD className="bg-slate-50" />
                           <TD className="bg-slate-50 px-4 py-4" colSpan={8}>
-                            <div className="grid gap-6 md:grid-cols-2">
+                            <div className="grid gap-5 whitespace-normal xl:grid-cols-[minmax(16rem,1fr)_minmax(30rem,1.5fr)]">
                               <div>
                                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">周期内流水</p>
                                 {(dailyByProfile[row.profileId] ?? []).length ? (
                                   <ul className="space-y-1 text-sm text-slate-700">
                                     {(dailyByProfile[row.profileId] ?? []).map((d) => (
-                                      <li key={`${d.perfDate}-${d.createdAt}`} className="flex justify-between gap-4">
-                                        <span>{`${formatDate(d.perfDate)} · ${d.pointName ?? "—"}`}</span>
+                                      <li key={d.id} className="flex justify-between gap-4">
+                                        <span>{`${formatDate(d.perfDate)} · ${d.teamName ?? "未知团队"} · ${d.pointName ?? "—"}`}</span>
                                         <span className="tabular-nums">{formatCentsToYuan(d.revenueCents)}</span>
                                       </li>
                                     ))}
@@ -342,46 +438,83 @@ export default function AnchorRevenuePage(){
                                   <p className="text-sm text-slate-400">该周期暂无有效流水。</p>
                                 )}
                               </div>
-                              <div>
-                                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">调整项</p>
-                                <div className="mb-3 flex flex-wrap gap-2">
-                                  {ADJUSTMENT_PRESETS.map((preset) => (
-                                    <Button
+                              <fieldset disabled={!row.hasScheme || dataUnavailable || settleMutation.isPending} className="min-w-0 rounded-xl border border-slate-200 bg-white p-4">
+                                <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                                  <div>
+                                    <h3 className="text-sm font-semibold text-slate-900">工资调整 <span className="ml-1 font-normal text-slate-400">{(adjustments[row.memberKey] ?? []).length} 项</span></h3>
+                                    <p className="mt-1 text-xs text-slate-500">{row.hasScheme ? "点击预设添加，名称、增减方向和金额均可修改。" : "无生效工资方案，暂不可调整。"}</p>
+                                  </div>
+                                  <span className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">本期保底 ¥{formatCentsToYuan(row.guaranteedComponentCents)}</span>
+                                </div>
+                                <div className="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                  {getAdjustmentPresets(row.guaranteedComponentCents).map((preset) => (
+                                    <button
                                       key={preset.name}
-                                      variant="secondary"
-                                      onClick={() => addAdjustment(row.profileId, preset)}
+                                      type="button"
+                                      onClick={() => addAdjustment(row.memberKey, preset)}
+                                      className={`rounded-lg border p-3 text-left transition focus-visible:outline-2 focus-visible:outline-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 ${preset.name === "奖励" ? "border-emerald-100 bg-emerald-50/50 hover:border-emerald-300" : "border-red-100 bg-red-50/40 hover:border-red-300"}`}
                                     >
-                                      + {preset.name}（{formatCentsToYuan(preset.amountCents)}）
-                                    </Button>
+                                      <span className="flex items-center justify-between text-sm font-medium text-slate-800"><span>{preset.name}</span><span aria-hidden="true">+</span></span>
+                                      <span className="mt-1 block text-xs text-slate-500">{preset.name === "迟到" ? "保底 ÷ 26 × 0.1" : preset.name === "缺勤" ? "保底 ÷ 26" : "自定义奖励金额"}</span>
+                                      <span className={`mt-2 block text-sm font-semibold tabular-nums ${preset.name === "奖励" ? "text-emerald-700" : "text-red-600"}`}>
+                                        {preset.name === "奖励" ? "+ 输入金额" : `扣除 ¥${formatCentsToYuan(Math.abs(preset.amountCents))}`}
+                                      </span>
+                                    </button>
                                   ))}
                                 </div>
-                                <div className="space-y-2">
-                                  {(adjustments[row.profileId] ?? []).map((adj, index) => (
-                                    <div key={index} className="flex items-center gap-2">
-                                      <Input
-                                        className="flex-1"
-                                        value={adj.name}
-                                        onChange={(event) => updateAdjustment(row.profileId, index, { name: event.target.value })}
-                                      />
-                                      <Input
-                                        className="w-28"
-                                        value={String(adj.amountCents / 100)}
-                                        onChange={(event) => {
-                                          const yuan = Number(event.target.value);
-                                          updateAdjustment(row.profileId, index, {
-                                            amountCents: Number.isFinite(yuan) ? Math.round(yuan * 100) : 0,
-                                          });
-                                        }}
-                                      />
-                                      <span className="text-xs text-slate-400">元</span>
-                                      <Button variant="danger" onClick={() => removeAdjustment(row.profileId, index)}>删除</Button>
+                                <p className="mb-4 text-xs text-slate-400">扣款按添加时的保底计算，四舍五入到分；添加后可单独修改。</p>
+                                <div className="space-y-3">
+                                  {(adjustments[row.memberKey] ?? []).map((adj, index) => {
+                                    const amount = parseAdjustmentAmountYuan(adj.amountYuan);
+                                    const isDeduction = adj.direction === "deduction";
+                                    return (
+                                      <div key={adj.id} className={`rounded-lg border border-slate-200 border-l-4 p-3 ${isDeduction ? "border-l-red-300" : "border-l-emerald-300"}`}>
+                                        <div className="mb-3 flex items-center justify-between gap-3">
+                                          <span className="text-xs font-medium text-slate-500">调整 {index + 1} · {isDeduction ? "扣除工资" : "增加工资"}</span>
+                                          <button type="button" onClick={() => removeAdjustment(row.memberKey, adj.id)} aria-label={`删除调整 ${index + 1} ${adj.name}`} className="rounded px-2 py-1 text-xs text-slate-500 hover:bg-red-50 hover:text-red-600 focus-visible:outline-2 focus-visible:outline-indigo-500">删除</button>
+                                        </div>
+                                        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_6rem_minmax(0,1fr)]">
+                                          <label className="min-w-0">
+                                            <span className="mb-1 block text-xs text-slate-500">调整名称</span>
+                                            <Input value={adj.name} placeholder="如：迟到" aria-invalid={!adj.name.trim()} aria-describedby={!adj.name.trim() ? `${adj.id}-name-error` : undefined} onChange={(event) => updateAdjustment(row.memberKey, adj.id, { name: event.target.value })} />
+                                            {!adj.name.trim() ? <span id={`${adj.id}-name-error`} className="mt-1 block text-xs text-red-600">请填写名称</span> : null}
+                                          </label>
+                                          <label>
+                                            <span className="mb-1 block text-xs text-slate-500">增减方向</span>
+                                            <select value={adj.direction} onChange={(event) => updateAdjustment(row.memberKey, adj.id, { direction: event.target.value as AdjustmentDraft["direction"] })} className={`h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 ${isDeduction ? "text-red-600" : "text-emerald-700"}`}>
+                                              <option value="deduction">− 扣除</option>
+                                              <option value="reward">+ 增加</option>
+                                            </select>
+                                          </label>
+                                          <label className="min-w-0">
+                                            <span className="mb-1 block text-xs text-slate-500">金额（元）</span>
+                                            <Input inputMode="decimal" value={adj.amountYuan} placeholder="请输入金额" autoFocus={adj.name === "奖励" && adj.amountYuan === ""} aria-invalid={amount === null} aria-describedby={amount === null ? `${adj.id}-amount-error` : undefined} onChange={(event) => updateAdjustment(row.memberKey, adj.id, { amountYuan: event.target.value })} onBlur={() => { if (amount !== null) updateAdjustment(row.memberKey, adj.id, { amountYuan: (amount / 100).toFixed(2) }); }} />
+                                            {amount === null ? <span id={`${adj.id}-amount-error`} className="mt-1 block text-xs text-red-600">{adj.amountYuan.trim() ? "请输入非负金额，最多两位小数" : "请填写金额"}</span> : null}
+                                          </label>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                  {!(adjustments[row.memberKey] ?? []).length ? (
+                                    <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-5 text-center">
+                                      <p className="text-sm text-slate-500">暂无调整项</p>
+                                      <p className="mt-1 text-xs text-slate-400">点击上方「迟到」「缺勤」或「奖励」添加</p>
                                     </div>
-                                  ))}
-                                  {!(adjustments[row.profileId] ?? []).length ? (
-                                    <p className="text-sm text-slate-400">暂无调整项，点击上方预设添加。</p>
                                   ) : null}
                                 </div>
-                              </div>
+                                <div className="mt-4 border-t border-slate-100 pt-3">
+                                  <div className="flex items-center justify-between gap-3 text-sm">
+                                    <span className="text-slate-600">调整合计</span>
+                                    <span className={`font-semibold tabular-nums ${row.adjustmentTotalCents < 0 ? "text-red-600" : row.adjustmentTotalCents > 0 ? "text-emerald-700" : "text-slate-900"}`}>{signedAmount(row.adjustmentTotalCents)} 元</span>
+                                  </div>
+                                  <div className="mt-2 flex items-center justify-between gap-3 text-sm">
+                                    <span className="text-slate-600">调整后实发 <span className="text-xs text-slate-400">（已扣服务费）</span></span>
+                                    <span className="font-semibold tabular-nums text-slate-900">{formatCentsToYuan(row.netCents)} 元</span>
+                                  </div>
+                                  {(adjustments[row.memberKey] ?? []).some((item) => !toPayrollAdjustment(item)) ? <p role="status" className="mt-2 text-xs text-amber-700">存在未完善的调整项，暂不计入试算；请填写完整后再结算。</p> : null}
+                                  <p className="mt-2 text-xs text-slate-400">仅本次结算草稿，点击「结算所选」后生效。</p>
+                                </div>
+                              </fieldset>
                             </div>
                           </TD>
                         </TR>
@@ -390,10 +523,7 @@ export default function AnchorRevenuePage(){
                   ))}
                 </TBody>
               </Table>
-            </>
-          ) : (
-            <p className="p-6 text-sm text-slate-500">请先选择团队以查看该周期主播流水。</p>
-          )}
+          </fieldset>
         </CardContent>
       </Card>
     </>
