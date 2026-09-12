@@ -40,6 +40,10 @@ export function SummaryCard({
             <div className="text-sm text-muted">暂无业绩数据</div>
           )}
           <div className="flex items-center justify-between border-t pt-1 text-sm font-semibold">
+            <span>总业绩</span>
+            <span className="tabular-nums text-slate-900">{rows.reduce((s, r) => s + r.amount, 0).toLocaleString()}</span>
+          </div>
+          <div className="flex items-center justify-between text-sm font-semibold">
             <span>总流水</span>
             <span className="tabular-nums text-indigo-700">{yuan(totalRevenue)}</span>
           </div>

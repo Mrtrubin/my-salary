@@ -10,15 +10,36 @@ import { SummaryCard, today } from "./_shared";
 
 type Team = NonNullable<ReturnType<typeof useTeams>["data"]>[number];
 
-/** 团队版单成员行：绩效点 + 业绩 + 无绩效勾选 + 停播文本。 */
+/** 单条业绩调整项：自定义名称 + 数值（允许正负）。 */
+export type PerfAdjustment = {
+  id: string;
+  name: string;
+  amount: string;
+};
+
+/** 团队版单成员行：绩效点 + 业绩 + 调整项 + 无绩效勾选 + 停播文本。 */
 export type TeamMemberRow = {
   profileId: string;
   name: string;
   pointId: string;
   pointsAmount: string;
+  adjustments: PerfAdjustment[];
   noPerf: boolean;
   noPerfNote: string;
 };
+
+/** 生成调整项唯一 id。 */
+function makeAdjId() {
+  return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
+}
+
+/** 累加一行的有效调整项数值（空/非法按 0）。 */
+function sumAdjustments(list: PerfAdjustment[]): number {
+  return (list ?? []).reduce((sum, a) => {
+    const v = Number(a.amount);
+    return sum + (Number.isFinite(v) ? v : 0);
+  }, 0);
+}
 
 /** 原生下拉/日期输入统一样式，与 UI 组件视觉对齐。 */
 const controlClass =
@@ -161,6 +182,8 @@ export function TeamUpload({
     initialData ? String((initialData.broadcastMinutes / 60).toFixed(1)) : "",
   );
   const [memberRows, setMemberRows] = useState<Record<string, TeamMemberRow>>(initialData?.memberRows ?? {});
+  // 当前展开调整项面板的成员（null 表示全部收起）。
+  const [expandedAdjId, setExpandedAdjId] = useState<string | null>(null);
 
   const teamMembers = useMemo(() => {
     const list = (selectedTeam?.members ?? []).filter((m) => m.profile).map((m) => m.profile!);
@@ -171,6 +194,7 @@ export function TeamUpload({
         name: m.name,
         pointId: teamDefaultPointId,
         pointsAmount: "",
+        adjustments: [],
         noPerf: false,
         noPerfNote: "停播",
       };
@@ -184,14 +208,42 @@ export function TeamUpload({
       return { ...prev, [profileId]: { ...base, ...prev[profileId], ...patch } };
     });
 
+  // —— 调整项操作 ——
+  const addAdjustment = (profileId: string, preset?: { name: string; amount: string }) => {
+    const base = teamMembers.find((m) => m.profileId === profileId);
+    if (!base) return;
+    const current = (memberRows[profileId]?.adjustments ?? base.adjustments) ?? [];
+    const next: PerfAdjustment = { id: makeAdjId(), name: preset?.name ?? "", amount: preset?.amount ?? "" };
+    updateMember(profileId, { adjustments: [...current, next] });
+    setExpandedAdjId(profileId);
+  };
+  const updateAdjustment = (profileId: string, id: string, patch: Partial<PerfAdjustment>) => {
+    const base = teamMembers.find((m) => m.profileId === profileId);
+    if (!base) return;
+    const current = (memberRows[profileId]?.adjustments ?? base.adjustments) ?? [];
+    updateMember(profileId, { adjustments: current.map((a) => (a.id === id ? { ...a, ...patch } : a)) });
+  };
+  const removeAdjustment = (profileId: string, id: string) => {
+    const base = teamMembers.find((m) => m.profileId === profileId);
+    if (!base) return;
+    const current = (memberRows[profileId]?.adjustments ?? base.adjustments) ?? [];
+    updateMember(profileId, { adjustments: current.filter((a) => a.id !== id) });
+  };
+
+  // 总业绩 = 业绩 + 调整项累加（无绩效行为 0）。
+  const totalPointsOf = (m: TeamMemberRow): number => {
+    if (m.noPerf) return 0;
+    return (Number(m.pointsAmount) || 0) + sumAdjustments(m.adjustments);
+  };
+
   const teamRateOf = (pointId: string) => teamPoints.find((p) => p.id === pointId)?.rate ?? 0;
   const teamRevenueYuanOf = (m: TeamMemberRow): number => {
     if (m.noPerf) return 0;
     const rate = teamRateOf(m.pointId || teamDefaultPointId);
-    const amount = Number(m.pointsAmount) || 0;
+    const amount = totalPointsOf(m);
     return rate > 0 ? amount / rate : 0;
   };
-  const teamValidMembers = teamMembers.filter((m) => m.noPerf || Number(m.pointsAmount) > 0);
+  const teamValidMembers = teamMembers.filter((m) => m.noPerf || Number(m.pointsAmount) > 0 || m.adjustments.length > 0);
   // 开播时长必须在 (0, 24] 区间内。
   const broadcastHoursValue = Number(broadcastHours);
   const broadcastHoursValid = broadcastHours !== "" && broadcastHoursValue > 0 && broadcastHoursValue <= 24;
@@ -206,7 +258,7 @@ export function TeamUpload({
       return {
         profileId: m.profileId,
         pointId,
-        pointsAmount: m.noPerf ? 0 : Number(m.pointsAmount) || 0,
+        pointsAmount: m.noPerf ? 0 : totalPointsOf(m),
         revenueCents: Math.round(teamRevenueYuanOf(m) * 100),
         noPerf: m.noPerf,
       noPerfNote: m.noPerf ? m.noPerfNote : undefined,
@@ -234,8 +286,9 @@ export function TeamUpload({
     let totalRevenue = 0;
     teamMembers.forEach((m) => {
       if (m.noPerf) return;
-      const amount = Number(m.pointsAmount) || 0;
-      if (amount <= 0) return;
+      // 汇总口径为「总业绩 = 业绩 + 调整项」。
+      const amount = totalPointsOf(m);
+      if (amount === 0 && !(Number(m.pointsAmount) > 0) && !m.adjustments.length) return;
       const pid = m.pointId || teamDefaultPointId;
       const p = teamPoints.find((x) => x.id === pid);
       if (!p) return;
@@ -317,22 +370,18 @@ export function TeamUpload({
             </CardContent>
           </Card>
         ) : (
-          <Card>
-            <div className="overflow-x-auto">
-              {/* 列宽按内容自适应（table-auto + w-auto），单列上限 50vw（见各单元格 max-w-[50vw]） */}
-              <table className="w-auto min-w-full table-auto text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100 text-left text-xs font-medium text-slate-500">
-                    <th className="whitespace-nowrap px-3 py-2.5 text-center font-medium">停播</th>
-                    <th className="whitespace-nowrap px-3 py-2.5 font-medium">成员</th>
-                    <th className="whitespace-nowrap px-3 py-2.5 font-medium">种类</th>
-                    <th className="whitespace-nowrap px-3 py-2.5 font-medium">业绩</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {teamMembers.map((m) => (
-                    <tr key={m.profileId} className={m.noPerf ? "bg-amber-50/60" : ""}>
-                      <td className="px-3 py-2.5 text-center">
+          <div className="space-y-2">
+            {teamMembers.map((m) => {
+              const adjTotal = sumAdjustments(m.adjustments);
+              const total = totalPointsOf(m);
+              const expanded = expandedAdjId === m.profileId;
+              return (
+                <Card key={m.profileId} className={m.noPerf ? "bg-amber-50/60" : ""}>
+                  <CardContent className="space-y-2 !px-3 !py-2.5">
+                    {/* 头部：姓名 + 停播开关 */}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-900">{m.name}</span>
+                      <label className="flex shrink-0 items-center gap-1 text-xs text-slate-500">
                         <input
                           type="checkbox"
                           checked={m.noPerf}
@@ -340,30 +389,32 @@ export function TeamUpload({
                           className="size-4 accent-amber-500"
                           aria-label={`${m.name} 停播`}
                         />
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <span className="block max-w-[50vw] break-words font-medium text-slate-900">{m.name}</span>
-                      </td>
-                      {m.noPerf ? (
-                        <td className="px-3 py-2.5" colSpan={2}>
-                          <Input
-                            size="sm"
-                            maxLength={20}
-                            placeholder="停播备注"
-                            value={m.noPerfNote}
-                            onChange={(e) => updateMember(m.profileId, { noPerfNote: e.target.value.slice(0, 20) })}
-                          />
-                        </td>
-                      ) : (
-                        <>
-                          <td className="px-3 py-2.5">
+                        停播
+                      </label>
+                    </div>
+
+                    {m.noPerf ? (
+                      <Input
+                        size="sm"
+                        maxLength={20}
+                        placeholder="停播备注"
+                        value={m.noPerfNote}
+                        onChange={(e) => updateMember(m.profileId, { noPerfNote: e.target.value.slice(0, 20) })}
+                      />
+                    ) : (
+                     <>
+                        {/* 种类 / 业绩 / 总业绩 一行紧凑排布 */}
+                        <div className="grid grid-cols-2 items-end gap-2">
+                          <label className="min-w-0 block">
+                            <span className="mb-1 block text-xs text-slate-400">种类</span>
                             <SelectMenu
                               value={m.pointId || teamDefaultPointId}
                               options={teamPoints}
                               onChange={(id) => updateMember(m.profileId, { pointId: id })}
                             />
-                          </td>
-                          <td className="px-3 py-2.5">
+                          </label>
+                          <label className="block">
+                            <span className="mb-1 block text-xs text-slate-400">业绩</span>
                             <Input
                               size="sm"
                               type="number"
@@ -373,15 +424,100 @@ export function TeamUpload({
                               value={m.pointsAmount}
                               onChange={(e) => updateMember(m.profileId, { pointsAmount: e.target.value })}
                             />
-                          </td>
-                        </>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
+                          </label>
+                        </div>
+
+                        {/* 调整项 + 总业绩 */}
+                        <div className="flex items-center justify-between gap-2">
+                          <button
+                            type="button"
+                            aria-expanded={expanded}
+                            onClick={() => setExpandedAdjId(expanded ? null : m.profileId)}
+                            className="flex items-center gap-1 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50"
+                          >
+                            <span className="text-slate-400">调整项</span>
+                            {m.adjustments.length ? (
+                              <span className={`tabular-nums ${adjTotal < 0 ? "text-red-600" : adjTotal > 0 ? "text-emerald-600" : "text-slate-500"}`}>
+                                {adjTotal > 0 ? "+" : ""}{adjTotal}（{m.adjustments.length}项）
+                              </span>
+                            ) : (
+                              <span className="text-indigo-600">+ 添加</span>
+                            )}
+                            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className={`size-3.5 text-slate-400 transition-transform ${expanded ? "rotate-180" : ""}`}>
+                              <path d="M6 8l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </button>
+                          <span className="whitespace-nowrap text-sm">
+                            <span className="text-xs text-slate-400">总业绩 </span>
+                            <span className="font-semibold tabular-nums text-slate-900">{total}</span>
+                          </span>
+                        </div>
+
+                        {expanded ? (
+                          <div className="space-y-2 rounded-lg bg-slate-50 p-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => addAdjustment(m.profileId, { name: "运营票", amount: "" })}
+                                className="rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100"
+                              >
+                                + 运营票
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => addAdjustment(m.profileId)}
+                                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100"
+                              >
+                                + 自定义
+                              </button>
+                            </div>
+                            {m.adjustments.length ? (
+                              <div className="space-y-2">
+                                {m.adjustments.map((a) => (
+                                  <div key={a.id} className="flex items-center gap-2">
+                                    <Input
+                                      size="sm"
+                                      className="min-w-0 flex-1"
+                                      placeholder="名称，如：运营票"
+                                      value={a.name}
+                                      onChange={(e) => updateAdjustment(m.profileId, a.id, { name: e.target.value })}
+                                    />
+                                    <Input
+                                      size="sm"
+                                      type="number"
+                                      step="1"
+                                      className="w-20 shrink-0"
+                                      placeholder="数值"
+                                      value={a.amount}
+                                      onChange={(e) => updateAdjustment(m.profileId, a.id, { amount: e.target.value })}
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => removeAdjustment(m.profileId, a.id)}
+                                      aria-label={`删除调整项 ${a.name || ""}`}
+                                      className="shrink-0 rounded px-2 py-1 text-xs text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                                    >
+                                      删除
+                                    </button>
+                                  </div>
+                                ))}
+                                <div className="flex justify-between border-t border-slate-200 pt-2 text-xs">
+                                  <span className="text-slate-500">调整合计</span>
+                                  <span className={`tabular-nums font-medium ${adjTotal < 0 ? "text-red-600" : adjTotal > 0 ? "text-emerald-600" : "text-slate-700"}`}>{adjTotal > 0 ? "+" : ""}{adjTotal}</span>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-slate-400">点击「运营票」或「自定义」新增调整项，数值可正可负。</p>
+                            )}
+                          </div>
+                        ) : null}
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
         )}
       </div>
 
