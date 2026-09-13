@@ -20,6 +20,7 @@ type FormValues = {
   phone: string;
   email: string;
   idCard: string;
+  douyinId: string;
 };
 
 const todayStr = () => {
@@ -29,7 +30,7 @@ const todayStr = () => {
   return `${d.getFullYear()}-${m}-${day}`;
 };
 
-const DEFAULTS: FormValues = { username: "", password: "123456", hireDate: todayStr(), name: "", phone: "", email: "", idCard: "" };
+const DEFAULTS: FormValues = { username: "", password: "123456", hireDate: todayStr(), name: "", phone: "", email: "", idCard: "", douyinId: "" };
 
 export default function MembersPage() {
   const members = useMembers();
@@ -69,7 +70,7 @@ export default function MembersPage() {
         return false;
       }
       if (kw) {
-        const hay = [item.name, item.username, item.phone, item.email, item.id_card]
+        const hay = [item.name, item.username, item.phone, item.email, item.id_card, item.douyin_id]
           .filter(Boolean)
           .join(" ")
           .toLowerCase();
@@ -107,6 +108,7 @@ export default function MembersPage() {
         phone: values.phone || undefined,
         email: values.email || undefined,
         idCard: values.idCard || undefined,
+        douyinId: values.douyinId || undefined,
         positionIds: selected,
       });
       close();
@@ -191,6 +193,9 @@ export default function MembersPage() {
                 </FormField>
                 <FormField label="身份证号">
                   <Input maxLength={32} {...register("idCard")} />
+                </FormField>
+                <FormField label="抖音号">
+                  <Input maxLength={64} {...register("douyinId")} />
                 </FormField>
                 <div className="sm:col-span-2">
                   <FormField label="职位">
@@ -345,6 +350,7 @@ type EditFormValues = {
   email: string;
   hireDate: string;
   idCard: string;
+  douyinId: string;
   status: "active" | "disabled";
 };
 
@@ -370,6 +376,7 @@ function EditMemberModal({
       email: member.email ?? "",
       hireDate: member.hire_date,
       idCard: member.id_card ?? "",
+      douyinId: member.douyin_id ?? "",
       status: member.status,
     },
   });
@@ -388,6 +395,7 @@ function EditMemberModal({
         email: values.email,
         hireDate: values.hireDate,
         idCard: values.idCard,
+        douyinId: values.douyinId,
         status: values.status,
         positionIds: selected,
       });
@@ -423,6 +431,9 @@ function EditMemberModal({
             </FormField>
             <FormField label="身份证号" hint="留空可清除">
               <Input maxLength={32} {...register("idCard")} />
+            </FormField>
+            <FormField label="抖音号" hint="留空可清除">
+              <Input maxLength={64} {...register("douyinId")} />
             </FormField>
             <FormField label="状态">
               <select
@@ -568,6 +579,7 @@ function MemberDetailModal({
             <DetailRow label="手机号" value={member.phone || "-"} />
             <DetailRow label="联系邮箱" value={member.email || "-"} />
             <DetailRow label="身份证号" value={member.id_card || "-"} />
+            <DetailRow label="抖音号" value={member.douyin_id || "-"} />
             <DetailRow label="入职日期" value={member.hire_date} />
             <DetailRow label="系统角色" value={member.system_role === "admin" ? "管理员" : "普通用户"} />
             <DetailRow

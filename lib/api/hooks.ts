@@ -69,7 +69,6 @@ export const keys = {
   teamEarliestPerfDate: ["teamEarliestPerfDate"] as const,
   salaryStatusLogs: ["salaryStatusLogs"] as const,
 };
-
 /** 成员、方案、流水或工资快照变化后，刷新跨团队试算依赖。 */
 function invalidateSettlementQueries(client: QueryClient) {
   return Promise.all([

@@ -69,6 +69,7 @@ Deno.serve(async (req: Request) => {
     hireDate?: string;
     positionIds?: number[];
     idCard?: string;
+    douyinId?: string;
   };
   try {
     payload = await req.json();
@@ -84,6 +85,7 @@ Deno.serve(async (req: Request) => {
   const hireDate = (payload.hireDate ?? "").trim();
   const positionIds = Array.isArray(payload.positionIds) ? payload.positionIds : [];
   const idCard = (payload.idCard ?? "").trim();
+  const douyinId = (payload.douyinId ?? "").trim();
 
   if (username.length < 1 || username.length > 32) {
     return json({ code: "INVALID_INPUT", message: "用户名必填，长度 1-32 个字符" }, 400);
@@ -105,6 +107,16 @@ Deno.serve(async (req: Request) => {
     .eq("username", username)
     .maybeSingle();
   if (existing) return json({ code: "USERNAME_TAKEN", message: "该用户名已被占用" }, 409);
+
+  // 抖音号唯一性预检（唯一索引兜底）
+  if (douyinId !== "") {
+    const { data: dyExisting } = await admin
+      .from("profiles")
+      .select("id")
+      .eq("douyin_id", douyinId)
+      .maybeSingle();
+    if (dyExisting) return json({ code: "INVALID_INPUT", message: "该抖音号已被占用" }, 409);
+  }
 
   // 创建登录账号（合成邮箱，直接确认）
   const { data: created, error: createError } = await admin.auth.admin.createUser({
@@ -128,6 +140,7 @@ Deno.serve(async (req: Request) => {
       email: email === "" ? null : email,
       hire_date: hireDate,
       id_card: idCard === "" ? null : idCard,
+      douyin_id: douyinId === "" ? null : douyinId,
       system_role: "user",
     })
     .select("id")

@@ -11,7 +11,7 @@ import { PageHeader } from "@/components/ui/stat-card";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { useCreateTeam, useDeleteTeam, useMembers, useTeams } from "@/lib/api/hooks";
 
-type FormValues = { name: string; hostProfileId: string };
+type FormValues = { name: string; teamKey: string; hostProfileId: string };
 
 function hasPosition(emp: { user_positions: { position: { code: string } | null }[] }, code: string) {
   return emp.user_positions.some(({ position }) => position?.code === code);
@@ -30,20 +30,23 @@ export default function TeamsPage() {
   const anchors = useMemo(() => members.data?.filter((e) => hasPosition(e, "anchor")) ?? [], [members.data]);
 
   async function submit(values: FormValues) {
-    await create.mutateAsync({ name: values.name, hostProfileId: values.hostProfileId, anchorProfileIds: selectedAnchors });
+    await create.mutateAsync({ name: values.name, teamKey: values.teamKey, hostProfileId: values.hostProfileId, anchorProfileIds: selectedAnchors });
     reset(); setSelectedAnchors([]); setShow(false);
   }
 
   return <><PageHeader title="团队管理" description="每个团队含 1 名主持人与若干主播；点击团队进入详情，可分别管理成员与绩效" action={<Button onClick={() => setShow(!show)}>{show ? "收起" : "+ 新建团队"}</Button>} />
     {show ? <Card className="mb-6"><CardHeader title="新建团队" /><CardContent><form onSubmit={handleSubmit(submit)} className="grid gap-4 sm:grid-cols-2">
       <FormField label="团队名称"><Input required {...register("name")} /></FormField>
+      <FormField label="团队 Key（唯一，创建后不可修改）"><Input required {...register("teamKey")} placeholder="如：TEAM-001" /></FormField>
       <FormField label="主持人"><select required {...register("hostProfileId")} className="w-full rounded border px-3 py-2 text-sm"><option value="">请选择主持人</option>{hosts.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}</select></FormField>
       <FormField label="主播成员"><div className="flex flex-wrap gap-2">{anchors.map((a) => <button type="button" key={a.id} onClick={() => setSelectedAnchors((old) => old.includes(a.id) ? old.filter((id) => id !== a.id) : [...old, a.id])} className={`rounded border px-3 py-1 text-xs ${selectedAnchors.includes(a.id) ? "border-indigo-600 text-indigo-700" : ""}`}>{a.name}</button>)}</div></FormField>
       <Button type="submit" disabled={create.isPending}>保存</Button>
+      {create.error ? <p className="col-span-full rounded bg-red-50 px-3 py-2 text-sm text-danger">保存失败：{(create.error as Error).message.includes("teams_team_key_key") ? "团队 Key 已存在，请更换" : (create.error as Error).message}</p> : null}
     </form></CardContent></Card> : null}
     <Card><CardContent className="p-0"><QueryMessage loading={teams.isLoading} error={teams.error} empty={!teams.data?.length} />
-      <Table><THead><TH isRowHeader sticky="left">团队</TH><TH>主持人</TH><TH>主播成员数</TH><TH>绩效点数</TH><TH className="text-left" sticky="right">操作</TH></THead><TBody>{teams.data?.map((t) => <TR key={t.id}>
+      <Table><THead><TH isRowHeader sticky="left">团队</TH><TH>Key</TH><TH>主持人</TH><TH>主播成员数</TH><TH>绩效点数</TH><TH className="text-left" sticky="right">操作</TH></THead><TBody>{teams.data?.map((t) => <TR key={t.id}>
         <TD sticky="left"><Link href={`/admin/teams/detail/members?teamId=${t.id}`} className="font-medium text-accent hover:underline">{t.name}</Link></TD>
+        <TD className="font-mono text-xs text-muted">{t.team_key}</TD>
         <TD>{t.host?.name ?? "-"}</TD>
         <TD>{t.members.length}</TD>
         <TD>{t.points.length}</TD>

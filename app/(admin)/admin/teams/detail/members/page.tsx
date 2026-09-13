@@ -11,10 +11,14 @@ import {
   useMembers,
   useRemoveTeamMember,
   useTeams,
+  useUpdateTeam,
 } from "@/lib/api/hooks";
-
 function hasAnchorPosition(member: { user_positions: { position: { code: string } | null }[] }) {
   return member.user_positions.some(({ position }) => position?.code === "anchor");
+}
+
+function hasHostPosition(member: { user_positions: { position: { code: string } | null }[] }) {
+  return member.user_positions.some(({ position }) => position?.code === "host");
 }
 
 function TeamMembersInner() {
@@ -30,6 +34,11 @@ function TeamMembersInner() {
     () => members.data?.filter(hasAnchorPosition) ?? [],
     [members.data],
   );
+  const hosts = useMemo(
+    () => members.data?.filter(hasHostPosition) ?? [],
+    [members.data],
+  );
+  const updateTeam = useUpdateTeam();
   const availableAnchors = useMemo(
     () => anchors.filter((anchor) => !team?.members.some((member) => member.profile?.id === anchor.id)),
     [anchors, team?.members],
@@ -56,6 +65,22 @@ function TeamMembersInner() {
                 {availableAnchors.map((anchor) => <option key={anchor.id} value={anchor.id}>{anchor.name}</option>)}
               </select>
               <span className="text-xs text-muted">当前成员 {team.members.length} 人</span>
+            </div>
+            <div className="mb-4 flex flex-wrap items-center gap-3 border-b pb-4">
+              <span className="text-sm font-medium text-slate-700">主持人</span>
+              <select
+                value={team.host_profile_id}
+                onChange={(event) => {
+                  if (!event.target.value || event.target.value === team.host_profile_id) return;
+                  updateTeam.mutate({ id: teamId, hostProfileId: event.target.value });
+                }}
+                className="rounded border px-3 py-2 text-sm"
+                disabled={updateTeam.isPending}
+              >
+                {hosts.map((host) => <option key={host.id} value={host.id}>{host.name}</option>)}
+              </select>
+              {updateTeam.isPending ? <span className="text-xs text-muted">保存中…</span> : null}
+              {updateTeam.error ? <span className="text-xs text-danger">修改失败：{(updateTeam.error as Error).message}</span> : null}
             </div>
             <Table>
               <THead><TH isRowHeader>成员姓名</TH><TH>职位</TH><TH>操作</TH></THead>

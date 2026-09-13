@@ -9,6 +9,7 @@ import type { TeamPerformanceRow } from "@/lib/api/data";
 export interface DailyGroup {
   key: string;
   teamName: string;
+  teamKey: string;
   perfDate: string;
   broadcastMinutes: number;
   rows: TeamPerformanceRow[];
@@ -109,6 +110,9 @@ export function TeamPerformanceCard({
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-2 text-sm font-semibold text-slate-900">
           {shortDate(group.perfDate)} {group.teamName}
+          {group.teamKey ? (
+            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-normal text-slate-400">ID：{group.teamKey}</span>
+          ) : null}
         </span>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="secondary" onClick={handleCopy}>
@@ -128,6 +132,12 @@ export function TeamPerformanceCard({
           <span className="text-muted">总开播时</span>
           <span className="tabular-nums">{toHours(group.broadcastMinutes)}</span>
         </div>
+        {group.rows[0]?.host?.name ? (
+          <div className="flex items-center justify-between">
+            <span className="text-muted">录入主持</span>
+            <span>{group.rows[0].host.name}</span>
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-3 space-y-1 text-sm">

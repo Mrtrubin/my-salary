@@ -319,9 +319,15 @@ export function TeamUpload({
                   className={controlClass}
                   disabled={isEditMode}
                 >
-                  {myTeams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  {myTeams.map((t) => <option key={t.id} value={t.id}>{t.name}（ID：{t.team_key}）</option>)}
                 </select>
               </label>
+            ) : null}
+            {selectedTeam ? (
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-lg bg-slate-50 px-3 py-2">
+                <span className="text-sm font-medium text-slate-900">{selectedTeam.name}</span>
+                <span className="text-xs text-slate-400">ID：{selectedTeam.team_key}</span>
+              </div>
             ) : null}
             <div className="grid grid-cols-2 gap-3">
               <label className="block">

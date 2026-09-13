@@ -120,11 +120,13 @@ export interface CreateMemberInput {
   email?: string;
   /** 身份证号（选填）。 */
   idCard?: string;
+  /** 抖音号（选填，唯一）。 */
+  douyinId?: string;
   /** 职位 ID 列表（选填）。 */
   positionIds?: number[];
 }
 /**
- * 管理员新增成员：经 admin-create-member Edge Function（service role）
+ * 管理员新增成员：经 admin-create-member Edge Function（service role）：经 admin-create-member Edge Function（service role）
  * 一次性创建登录账号 + 成员资料 + 职位关联。普通客户端不可直接写 profiles。
  */
 export async function createMember(input: CreateMemberInput): Promise<{ id: string }> {
@@ -146,6 +148,7 @@ export async function createMember(input: CreateMemberInput): Promise<{ id: stri
       phone: input.phone?.trim() ?? "",
       email: input.email?.trim() ?? "",
       idCard: input.idCard?.trim() ?? "",
+      douyinId: input.douyinId?.trim() ?? "",
       hireDate: input.hireDate,
       positionIds: input.positionIds ?? [],
     }),
@@ -196,6 +199,8 @@ export interface UpdateMemberInput {
   hireDate?: string;
   /** 身份证号（选填，传空串表示清空）。 */
   idCard?: string;
+  /** 抖音号（选填，唯一，传空串表示清空）。 */
+  douyinId?: string;
   /** 在职状态（选填）。 */
   status?: "active" | "disabled";
   /** 职位 ID 列表（选填，传入即按全量覆盖）。 */
@@ -242,6 +247,7 @@ export async function updateMember(input: UpdateMemberInput): Promise<{ id: stri
   if (input.email !== undefined) body.email = input.email.trim();
   if (input.hireDate !== undefined) body.hireDate = input.hireDate;
   if (input.idCard !== undefined) body.idCard = input.idCard.trim();
+  if (input.douyinId !== undefined) body.douyinId = input.douyinId.trim();
   if (input.status !== undefined) body.status = input.status;
   if (input.positionIds !== undefined) body.positionIds = input.positionIds;
 
@@ -320,9 +326,10 @@ export interface TeamPerformanceRow {
   no_perf: boolean;
   no_perf_note: string | null;
   created_at: string;
-  team: { name: string } | null;
+  team: { name: string; team_key: string } | null;
   point: { name: string } | null;
   profile: { name: string } | null;
+  host: { name: string } | null;
 }
 
 /**
@@ -333,7 +340,7 @@ export async function listTeamPerformance(range?: { start?: string; end?: string
   let query = getBrowserSupabase()
     .from("anchor_revenue_records")
     .select(
-      "*, team:teams(name), point:performance_points(name), profile:profiles!anchor_revenue_records_profile_id_fkey(name)",
+      "*, team:teams(name, team_key), point:performance_points(name), profile:profiles!anchor_revenue_records_profile_id_fkey(name), host:profiles!anchor_revenue_records_host_profile_id_fkey(name)",
     )
     .order("perf_date", { ascending: false })
     .order("created_at", { ascending: false });
@@ -372,13 +379,14 @@ export async function createTeamPerformanceRecords(input: {
   const rows = input.items.map((item) => ({
     team_id: input.teamId,
     profile_id: item.profileId,
-    point_id: item.noPerf ? null : item.pointId,
+    point_id: item.noPerf ? null : (item.pointId || null),
     perf_date: input.perfDate,
     broadcast_minutes: input.broadcastMinutes,
     points_amount: item.noPerf ? 0 : item.pointsAmount,
     revenue_cents: item.noPerf ? 0 : item.revenueCents,
     no_perf: item.noPerf,
     no_perf_note: item.noPerf ? (item.noPerfNote?.slice(0, 20) || "停播") : null,
+    host_profile_id: input.hostProfileId,
     updated_at: now,
   }));
   const { error } =await getBrowserSupabase()
@@ -604,9 +612,9 @@ export async function listTeams(): Promise<Team[]> {
   return data as unknown as Team[];
 }
 
-export async function createTeam(input: { name: string; hostProfileId: string; anchorProfileIds?: string[] }) {
+export async function createTeam(input: { name: string; teamKey: string; hostProfileId: string; anchorProfileIds?: string[] }) {
   const supabase = getBrowserSupabase();
-  const { data, error } = await supabase.from("teams").insert({ name: input.name, host_profile_id: input.hostProfileId }).select().single();
+  const { data, error } = await supabase.from("teams").insert({ name: input.name, team_key: input.teamKey.trim(), host_profile_id: input.hostProfileId }).select().single();
   if (error) fail(error);
   if (input.anchorProfileIds?.length) {
     const { error: memberError } = await supabase.from("team_members").insert(input.anchorProfileIds.map((profileId) => ({ team_id: data.id, profile_id: profileId })));

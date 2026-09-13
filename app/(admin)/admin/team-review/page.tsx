@@ -30,16 +30,16 @@ export default function TeamReviewPage() {
     const kw = keyword.trim().toLowerCase();
     if (!kw) return records;
     return records.filter((item) => {
-      const names = `${item.profile?.name ?? ""} ${item.team?.name ?? ""}`.toLowerCase();
+      const names = `${item.profile?.name ?? ""} ${item.team?.name ?? ""} ${item.host?.name ?? ""}`.toLowerCase();
       return names.includes(kw);
     });
   }, [query.data, keyword]);
 
   return (
     <>
-      <PageHeader title="团队绩效记录" description="团队每日绩效明细，重复提交同一（日期 + 成员 + 团队）将直接更新原记录" />
+      <PageHeader title="流水记录" description="团队每日流水明细，重复提交同一（日期 + 成员 + 团队）将直接更新原记录" />
       <Card>
-        <CardHeader title="团队绩效记录" />
+        <CardHeader title="流水记录" />
         <CardContent className="p-0">
           <div className="flex flex-wrap items-end gap-3 p-4">
             <div className="flex flex-col gap-1">
@@ -85,6 +85,7 @@ export default function TeamReviewPage() {
               <TH isRowHeader sticky="left">绩效日期</TH>
               <TH>团队</TH>
               <TH>成员</TH>
+              <TH>主持</TH>
               <TH>绩效点</TH>
               <TH className="text-left">开播时长</TH>
               <TH className="text-left">业绩</TH>
@@ -95,6 +96,7 @@ export default function TeamReviewPage() {
                   <TD sticky="left">{formatDate(item.perf_date)}</TD>
                   <TD>{item.team?.name ?? "—"}</TD>
                   <TD>{item.profile?.name ?? "—"}</TD>
+                  <TD>{item.host?.name ?? "—"}</TD>
                   <TD>{item.no_perf ? (item.no_perf_note || "停播") : (item.point?.name ?? "—")}</TD>
                   <TD className="text-left">{toHours(item.broadcast_minutes)}</TD>
                   <TD className="text-left">{item.no_perf ? "—" : item.points_amount.toLocaleString()}</TD>

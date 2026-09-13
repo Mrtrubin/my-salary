@@ -61,6 +61,7 @@ Deno.serve(async (req: Request) => {
     email?: string;
     hireDate?: string;
     idCard?: string;
+    douyinId?: string;
     status?: string;
     positionIds?: number[];
   };
@@ -138,6 +139,20 @@ Deno.serve(async (req: Request) => {
   if (payload.idCard !== undefined) {
     const idCard = payload.idCard.trim();
     updates.id_card = idCard === "" ? null : idCard;
+  }
+
+  if (payload.douyinId !== undefined) {
+    const douyinId = payload.douyinId.trim();
+    if (douyinId !== "") {
+      const { data: dup } = await admin
+        .from("profiles")
+        .select("id")
+        .eq("douyin_id", douyinId)
+        .neq("id", id)
+        .maybeSingle();
+      if (dup) return json({ code: "INVALID_INPUT", message: "该抖音号已被占用" }, 409);
+    }
+    updates.douyin_id = douyinId === "" ? null : douyinId;
   }
 
   if (payload.status !== undefined) {

@@ -87,6 +87,54 @@ export type Database = {
         }
         Relationships: []
       }
+      stage_names: {
+        Row: {
+          created_at: string
+          douyin_id: string
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          douyin_id: string
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          douyin_id?: string
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      stage_names: {
+        Row: {
+          created_at: string
+          douyin_id: string
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          douyin_id: string
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          douyin_id?: string
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profile_change_requests: {
         Row: {
           batch_id: string
@@ -156,6 +204,7 @@ export type Database = {
          anchor_type: Database["public"]["Enums"]["anchor_type"]
           auth_user_id: string | null
           created_at: string
+          douyin_id: string | null
           email: string | null
           hire_date: string
           id: string
@@ -172,6 +221,7 @@ export type Database = {
           anchor_type?: Database["public"]["Enums"]["anchor_type"]
           auth_user_id?: string | null
           created_at?: string
+          douyin_id?: string | null
           email?: string | null
           hire_date: string
           id?: string
@@ -188,6 +238,7 @@ export type Database = {
           anchor_type?: Database["public"]["Enums"]["anchor_type"]
           auth_user_id?: string | null
           created_at?: string
+          douyin_id?: string | null
           email?: string | null
           hire_date?: string
           id?: string
@@ -482,6 +533,7 @@ export type Database = {
           profile_id: string
           revenue_cents: number
           team_id: string
+          host_profile_id: string | null
           updated_at: string
         }
         Insert: {
@@ -496,6 +548,7 @@ export type Database = {
           profile_id: string
           revenue_cents?: number
           team_id: string
+          host_profile_id?: string | null
           updated_at?: string
         }
         Update: {
@@ -510,9 +563,17 @@ export type Database = {
           profile_id?: string
           revenue_cents?: number
           team_id?: string
+          host_profile_id?: string | null
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "anchor_revenue_records_host_profile_id_fkey"
+            columns: ["host_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "anchor_revenue_records_point_id_fkey"
             columns: ["point_id"]
@@ -611,6 +672,7 @@ export type Database = {
           host_profile_id: string
           id: string
           name: string
+          team_key: string
           status: Database["public"]["Enums"]["employment_status"]
           updated_at: string
           settlement_type: Database["public"]["Enums"]["settlement_type"]
@@ -622,6 +684,7 @@ export type Database = {
           host_profile_id: string
           id?: string
           name: string
+          team_key: string
           status?: Database["public"]["Enums"]["employment_status"]
           updated_at?: string
       settlement_type?: Database["public"]["Enums"]["settlement_type"]
@@ -633,6 +696,7 @@ export type Database = {
           host_profile_id?: string
           id?: string
           name?: string
+          team_key?: string
           status?: Database["public"]["Enums"]["employment_status"]
           updated_at?: string
           settlement_type?: Database["public"]["Enums"]["settlement_type"]
