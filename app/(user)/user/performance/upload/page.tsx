@@ -40,6 +40,7 @@ export default function HostPerformanceUploadPage() {
       memberRows[r.profile_id] = {
         profileId: r.profile_id,
         name: r.profile?.name ?? "",
+        douyinId: "",
         pointId: r.point_id ?? "",
         pointsAmount: r.no_perf ? "" : String(r.points_amount || ""),
         // 提交时已将「业绩 + 调整项」合并存入 points_amount，编辑回填不再拆分调整项。

@@ -600,12 +600,12 @@ export async function markAllNotificationsRead(profileId: string): Promise<void>
   if (error) fail(error);
 }
 
-export type Team = Database["public"]["Tables"]["teams"]["Row"] & { host: Pick<Profile, "id" | "name"> | null; members: { profile: Pick<Profile, "id" | "name"> | null }[]; points: { point: Pick<PerformancePoint, "id" | "name" | "points_per_yuan"> | null }[] };
+export type Team = Database["public"]["Tables"]["teams"]["Row"] & { host: Pick<Profile, "id" | "name"> | null; members: { profile: Pick<Profile, "id" | "name" | "douyin_id"> | null }[]; points: { point: Pick<PerformancePoint, "id" | "name" | "points_per_yuan"> | null }[] };
 
 export async function listTeams(): Promise<Team[]> {
   const { data, error } = await getBrowserSupabase()
     .from("teams")
-    .select("*, host:profiles!teams_host_profile_id_fkey(id, name), members:team_members(profile:profiles(id,name)), points:team_performance_points(point:performance_points(id,name,points_per_yuan))")
+    .select("*, host:profiles!teams_host_profile_id_fkey(id, name), members:team_members(profile:profiles(id,name,douyin_id)), points:team_performance_points(point:performance_points(id,name,points_per_yuan))")
     .is("members.left_at", null)
     .order("name");
   if (error) fail(error);

@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useCreateTeamPerformanceRecords, useReplaceTeamPerformanceRecords, useTeams } from "@/lib/api/hooks";
-import { SummaryCard, today } from "./_shared";
+import { SummaryCard, today, yuan } from "./_shared";
+import { fetchDailyIncome, type DailyIncomeResult } from "./dailyIncome";
 
 type Team = NonNullable<ReturnType<typeof useTeams>["data"]>[number];
 
@@ -21,6 +22,7 @@ export type PerfAdjustment = {
 export type TeamMemberRow = {
   profileId: string;
   name: string;
+  douyinId: string;
   pointId: string;
   pointsAmount: string;
   adjustments: PerfAdjustment[];
@@ -185,19 +187,27 @@ export function TeamUpload({
   // 当前展开调整项面板的成员（null 表示全部收起）。
   const [expandedAdjId, setExpandedAdjId] = useState<string | null>(null);
 
+  // —— 接口流水拉取（daily-income） ——
+  const [fetching, setFetching] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [incomeResult, setIncomeResult] = useState<DailyIncomeResult | null>(null);
+
   const teamMembers = useMemo(() => {
     const list = (selectedTeam?.members ?? []).filter((m) => m.profile).map((m) => m.profile!);
     return list.map((m) => {
       const existing = memberRows[m.id];
-      return existing ?? {
-        profileId: m.id,
-        name: m.name,
-        pointId: teamDefaultPointId,
-        pointsAmount: "",
-        adjustments: [],
-        noPerf: false,
-        noPerfNote: "停播",
-      };
+      return existing
+        ? { ...existing, name: m.name, douyinId: m.douyin_id ?? existing.douyinId ?? "" }
+        : {
+            profileId: m.id,
+            name: m.name,
+            douyinId: m.douyin_id ?? "",
+            pointId: teamDefaultPointId,
+            pointsAmount: "",
+            adjustments: [],
+            noPerf: false,
+            noPerfNote: "停播",
+          };
     });
   }, [selectedTeam, memberRows, teamDefaultPointId]);
 
@@ -249,6 +259,66 @@ export function TeamUpload({
   const broadcastHoursValid = broadcastHours !== "" && broadcastHoursValue > 0 && broadcastHoursValue <= 24;
   const canSubmitTeam =
     !!hostProfileId && !!selectedTeamId && !!teamDate && broadcastHoursValid && teamValidMembers.length > 0 && !(createTeam.isPending || replaceTeam.isPending);
+
+  // —— 拉取接口流水 ——
+  const handleFetchIncome = async () => {
+    if (!selectedTeam) return;
+    setFetching(true);
+    setFetchError(null);
+    setIncomeResult(null);
+    try {
+      const result = await fetchDailyIncome(selectedTeam.team_key);
+      setIncomeResult(result);
+    } catch (err) {
+      setFetchError((err as Error).message || "拉取失败");
+    } finally {
+      setFetching(false);
+    }
+  };
+
+  // 接口结果与成员按抖音号匹配的预览：已匹配（可填充）+ 未匹配。
+  const incomeMatch = useMemo(() => {
+    if (!incomeResult) return null;
+    const byDouyin = new Map(
+      incomeResult.anchors.filter((a) => a.douyinId).map((a) => [a.douyinId, a]),
+    );
+    const matched: { profileId: string; name: string; douyinId: string; nickname: string; income: number }[] = [];
+    const usedDouyin = new Set<string>();
+    teamMembers.forEach((m) => {
+      if (!m.douyinId) return;
+      const hit = byDouyin.get(m.douyinId);
+      if (hit) {
+        matched.push({ profileId: m.profileId, name: m.name, douyinId: m.douyinId, nickname: hit.nickname, income: hit.income });
+        usedDouyin.add(m.douyinId);
+      }
+    });
+    const unmatched = incomeResult.anchors.filter((a) => !a.douyinId || !usedDouyin.has(a.douyinId));
+    return { matched, unmatched };
+  }, [incomeResult, teamMembers]);
+
+  // —— 一键填充：把匹配到的流水填入对应主播的“业绩”栏（不换算） ——
+  const handleApplyIncome = () => {
+    if (!incomeMatch?.matched.length) return;
+    setMemberRows((prev) => {
+      const next = { ...prev };
+      incomeMatch.matched.forEach((row) => {
+        const base = teamMembers.find((m) => m.profileId === row.profileId);
+        if (!base) return;
+        next[row.profileId] = {
+          ...base,
+          ...prev[row.profileId],
+          pointsAmount: String(Math.round(row.income)),
+          noPerf: false,
+        };
+      });
+      return next;
+    });
+    // 若接口带回开播时长且当前未填，则自动带出（分钟 → 小时）。
+    if (incomeResult && incomeResult.liveDuration > 0 && broadcastHours === "") {
+      setBroadcastHours((incomeResult.liveDuration / 60).toFixed(1));
+    }
+  };
+
 
   const handleSubmitTeam = () => {
     if (!hostProfileId || !selectedTeamId) return;
@@ -315,7 +385,7 @@ export function TeamUpload({
                 <FieldLabel>选择团队</FieldLabel>
                 <select
                   value={selectedTeamId}
-                  onChange={(e) => { setTeamId(e.target.value); setMemberRows({}); }}
+                  onChange={(e) => { setTeamId(e.target.value); setMemberRows({}); setIncomeResult(null); setFetchError(null); }}
                   className={controlClass}
                   disabled={isEditMode}
                 >
@@ -359,6 +429,88 @@ export function TeamUpload({
           </CardContent>
         </Card>
       </div>
+
+      {/* 接口流水：拉取当日数据、按抖音号匹配、一键填充 */}
+      {!isEditMode ? (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between px-1">
+            <span className="text-sm font-semibold text-slate-900">主播流水（接口获取）</span>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={!selectedTeam || fetching}
+              onClick={handleFetchIncome}
+            >
+              {fetching ? "获取中…" : incomeResult ? "重新获取" : "获取接口数据"}
+            </Button>
+          </div>
+          <Card>
+            <CardContent className="space-y-2 !px-3 !py-2.5">
+              {fetchError ? (
+                <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-danger">{fetchError}</p>
+              ) : null}
+
+              {!incomeResult && !fetchError ? (
+                <p className="text-xs text-slate-400">
+                  点击「获取接口数据」，按团队 ID（{selectedTeam?.team_key ?? "-"}）拉取当日各房间流水，系统会按抖音号匹配到团队成员。
+                </p>
+              ) : null}
+
+              {incomeResult && !incomeResult.hasLive ? (
+                <p className="text-sm text-slate-500">接口返回当日（{incomeResult.date}）无直播记录。</p>
+              ) : null}
+
+              {incomeResult && incomeResult.hasLive ? (
+                <div className="space-y-2">
+                  <div className="text-xs text-slate-500">
+                    日期 {incomeResult.date} · 开播 {(incomeResult.liveDuration / 60).toFixed(1)} 小时 · 识别 {incomeResult.anchors.length} 位主播
+                  </div>
+
+                  {/* 已匹配 */}
+                  {incomeMatch?.matched.length ? (
+                    <div className="space-y-1 rounded-lg bg-slate-50 p-2">
+                      <div className="text-xs font-medium text-slate-600">可填充（{incomeMatch.matched.length}）</div>
+                      {incomeMatch.matched.map((r) => (
+                        <div key={r.profileId} className="flex items-center justify-between gap-2 text-sm">
+                          <span className="min-w-0 truncate text-slate-800">
+                            {r.name}
+                            <span className="ml-1 text-xs text-slate-400">抖音号 {r.douyinId}</span>
+                          </span>
+                          <span className="shrink-0 tabular-nums font-medium text-indigo-700">{yuan(r.income)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-amber-600">未匹配到任何团队成员（请检查成员抖音号是否填写正确）。</p>
+                  )}
+
+                  {/* 未匹配（接口有但团队无对应抖音号） */}
+                  {incomeMatch?.unmatched.length ? (
+                    <div className="space-y-1 rounded-lg bg-amber-50 p-2">
+                      <div className="text-xs font-medium text-amber-700">未匹配（{incomeMatch.unmatched.length}，接口有数据但无对应成员）</div>
+                      {incomeMatch.unmatched.map((a, i) => (
+                        <div key={a.douyinId || i} className="flex items-center justify-between gap-2 text-xs text-amber-800">
+                          <span className="min-w-0 truncate">{a.nickname || "未知"}{a.douyinId ? `（${a.douyinId}）` : ""}</span>
+                          <span className="shrink-0 tabular-nums">{yuan(a.income)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  <Button
+                    className="w-full"
+                    size="sm"
+                    disabled={!incomeMatch?.matched.length}
+                    onClick={handleApplyIncome}
+                  >
+                    确认无误，一键填充到主播业绩（{incomeMatch?.matched.length ?? 0} 人）
+                  </Button>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
 
       {/* 成员业绩录入 */}
       <div className="space-y-2">
