@@ -1,12 +1,11 @@
 "use client";
 
+import { Button, Card, DatePicker, Flex, Input, Table, Typography } from "antd";
+import type { Dayjs } from "dayjs";
 import { useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { QueryMessage } from "@/components/query-message";
-import { PageHeader } from "@/components/ui/stat-card";
-import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
+import { PageHeader } from "@/components/admin/page-header";
+import { QueryMessage } from "@/components/admin/query-message";
+import { zebraRowClassName } from "@/components/admin/table-zebra";
 import { useTeamPerformance } from "@/lib/api/hooks";
 import { formatDate } from "@/lib/format";
 
@@ -17,13 +16,13 @@ function toHours(minutes: number): string {
 }
 
 export default function TeamReviewPage() {
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const query = useTeamPerformance({
-    start: startDate || undefined,
-    end: endDate || undefined,
-  });
+  const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
   const [keyword, setKeyword] = useState("");
+
+  const query = useTeamPerformance({
+    start: range?.[0] ? range[0].format("YYYY-MM-DD") : undefined,
+    end: range?.[1] ? range[1].format("YYYY-MM-DD") : undefined,
+  });
 
   const filtered = useMemo(() => {
     const records = query.data ?? [];
@@ -35,76 +34,89 @@ export default function TeamReviewPage() {
     });
   }, [query.data, keyword]);
 
+  const hasFilter = Boolean(keyword || range);
+
   return (
     <>
-      <PageHeader title="流水记录" description="团队每日流水明细，重复提交同一（日期 + 成员 + 团队）将直接更新原记录" />
-      <Card>
-        <CardHeader title="流水记录" />
-        <CardContent className="p-0">
-          <div className="flex flex-wrap items-end gap-3 p-4">
-            <div className="flex flex-col gap-1">
-              <span className="text-xs text-muted-foreground">开始日期</span>
-              <Input
-                className="max-w-xs"
-                type="date"
-                value={startDate}
-                onChange={(event) => setStartDate(event.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-xs text-muted-foreground">结束日期</span>
-              <Input
-                className="max-w-xs"
-                type="date"
-                value={endDate}
-                onChange={(event) => setEndDate(event.target.value)}
-              />
-            </div>
-            <Input
-              className="max-w-xs"
+      <PageHeader
+        title="流水记录"
+        description="团队每日流水明细，重复提交同一（日期 + 成员 + 团队）将直接更新原记录"
+      />
+      <Card
+        title="流水记录"
+        extra={
+          <Flex align="center" gap={12} wrap>
+            <DatePicker.RangePicker
+              value={range}
+              onChange={(value) => setRange(value)}
+              allowEmpty={[true, true]}
+            />
+            <Input.Search
+              allowClear
+              style={{ width: 220 }}
               placeholder="搜索成员 / 团队名称"
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
             />
-            {keyword || startDate || endDate ? (
+            {hasFilter ? (
               <Button
-                variant="ghost"
                 onClick={() => {
                   setKeyword("");
-                  setStartDate("");
-                  setEndDate("");
+                  setRange(null);
                 }}
               >
                 重置
               </Button>
             ) : null}
-          </div>
-          <QueryMessage loading={query.isLoading} error={query.error} empty={!filtered.length} />
-          <Table>
-            <THead>
-              <TH isRowHeader sticky="left">绩效日期</TH>
-              <TH>团队</TH>
-              <TH>成员</TH>
-              <TH>主持</TH>
-              <TH>绩效点</TH>
-              <TH className="text-left">开播时长</TH>
-              <TH className="text-left">业绩</TH>
-            </THead>
-            <TBody>
-              {filtered.map((item) => (
-                <TR key={item.id}>
-                  <TD sticky="left">{formatDate(item.perf_date)}</TD>
-                  <TD>{item.team?.name ?? "—"}</TD>
-                  <TD>{item.profile?.name ?? "—"}</TD>
-                  <TD>{item.host?.name ?? "—"}</TD>
-                  <TD>{item.no_perf ? (item.no_perf_note || "停播") : (item.point?.name ?? "—")}</TD>
-                  <TD className="text-left">{toHours(item.broadcast_minutes)}</TD>
-                  <TD className="text-left">{item.no_perf ? "—" : item.points_amount.toLocaleString()}</TD>
-                </TR>
-              ))}
-            </TBody>
-          </Table>
-        </CardContent>
+          </Flex>
+        }
+      >
+        {query.error ? (
+          <QueryMessage loading={false} error={query.error} />
+        ) : (
+          <Table
+            rowClassName={zebraRowClassName}
+            rowKey="id"
+            loading={query.isLoading}
+            dataSource={filtered}
+            pagination={{ showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }}
+            locale={{ emptyText: "暂无流水记录" }}
+            scroll={{ x: "max-content" }}
+            columns={[
+              {
+                title: "绩效日期",
+                dataIndex: "perf_date",
+                fixed: "left",
+                width: 140,
+                render: (value: string) => formatDate(value),
+              },
+              { title: "团队", width: 160, render: (_, record) => record.team?.name ?? "—" },
+              { title: "成员", width: 140, render: (_, record) => record.profile?.name ?? "—" },
+              { title: "主持", width: 140, render: (_, record) => record.host?.name ?? "—" },
+              {
+                title: "绩效点",
+                width: 160,
+                render: (_, record) =>
+                  record.no_perf ? (
+                    <Typography.Text type="warning">{record.no_perf_note || "停播"}</Typography.Text>
+                  ) : (
+                    (record.point?.name ?? "—")
+                  ),
+              },
+              {
+                title: "开播时长",
+                width: 120,
+                render: (_, record) => toHours(record.broadcast_minutes),
+              },
+              {
+                title: "业绩",
+                width: 140,
+                render: (_, record) =>
+                  record.no_perf ? "—" : record.points_amount.toLocaleString(),
+              },
+            ]}
+          />
+        )}
       </Card>
     </>
   );

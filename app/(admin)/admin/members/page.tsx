@@ -1,16 +1,40 @@
 "use client";
 
+import {
+  App,
+  Button,
+  Card,
+  Col,
+  DatePicker,
+  Descriptions,
+  Flex,
+  Form,
+  Input,
+  Modal,
+  Row,
+  Select,
+  Space,
+  Switch,
+  Table,
+  Typography,
+} from "antd";
+import dayjs from "dayjs";
 import { useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { QueryMessage } from "@/components/query-message";
-import { FormField, Input } from "@/components/ui/input";
-import { PageHeader } from "@/components/ui/stat-card";
-import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
+import { Controller, useForm } from "react-hook-form";
+import { FormField } from "@/components/admin/form-field";
+import { PageHeader } from "@/components/admin/page-header";
+import { QueryMessage } from "@/components/admin/query-message";
+import { Badge } from "@/components/admin/status-tag";
+import { zebraRowClassName } from "@/components/admin/table-zebra";
+import { useConfirm } from "@/components/admin/use-confirm";
 import type { Member, Position } from "@/lib/api/data";
-import { useCreateMember, useMembers, usePositions, useSetMemberStatus, useUpdateMember } from "@/lib/api/hooks";
+import {
+  useCreateMember,
+  useMembers,
+  usePositions,
+  useSetMemberStatus,
+  useUpdateMember,
+} from "@/lib/api/hooks";
 
 type FormValues = {
   username: string;
@@ -23,16 +47,26 @@ type FormValues = {
   douyinId: string;
 };
 
-const todayStr = () => {
-  const d = new Date();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
+const todayStr = () => dayjs().format("YYYY-MM-DD");
+
+/**
+ * hireDate 刻意留空：模块作用域求值会分别在服务端与浏览器时区各跑一次，
+ * SSR/CSR 拿到不同日期会导致首帧不一致。改为打开弹窗时现算，见 openCreate。
+ */
+const DEFAULTS: FormValues = {
+  username: "",
+  password: "123456",
+  hireDate: "",
+  name: "",
+  phone: "",
+  email: "",
+  idCard: "",
+  douyinId: "",
 };
 
-const DEFAULTS: FormValues = { username: "", password: "123456", hireDate: todayStr(), name: "", phone: "", email: "", idCard: "", douyinId: "" };
-
 export default function MembersPage() {
+  const { message } = App.useApp();
+  const confirm = useConfirm();
   const members = useMembers();
   const positions = usePositions();
   const create = useCreateMember();
@@ -44,15 +78,18 @@ export default function MembersPage() {
   const [username, setUsername] = useState("");
   const [showPassword, setShowPassword] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const { register, handleSubmit, reset } = useForm<FormValues>({ defaultValues: DEFAULTS });
 
-  const { onChange: onUsernameChange, ...usernameField } = register("username");
+  const {
+    control,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm<FormValues>({ defaultValues: DEFAULTS });
 
   // 编辑态：为 null 表示未打开编辑弹窗
   const [editing, setEditing] = useState<Member | null>(null);
   // 重置密码态：为 null 表示未打开重置密码弹窗
   const [resetting, setResetting] = useState<Member | null>(null);
-
   // 详情弹窗：为 null 表示未打开详情弹窗
   const [detailing, setDetailing] = useState<Member | null>(null);
 
@@ -66,7 +103,10 @@ export default function MembersPage() {
     const kw = keyword.trim().toLowerCase();
     return list.filter((item) => {
       if (statusFilter !== "all" && item.status !== statusFilter) return false;
-      if (positionFilter !== "all" && !item.user_positions.some(({ position }) => position?.id === positionFilter)) {
+      if (
+        positionFilter !== "all" &&
+        !item.user_positions.some(({ position }) => position?.id === positionFilter)
+      ) {
         return false;
       }
       if (kw) {
@@ -86,6 +126,17 @@ export default function MembersPage() {
     setStatusFilter("all");
   };
 
+  /** 打开新增弹窗：入职日期在这里现算，避免模块作用域求值带来的时区不一致。 */
+  function openCreate() {
+    reset({ ...DEFAULTS, hireDate: todayStr() });
+    setSelected([]);
+    setUseUsernameAsName(true);
+    setUsername("");
+    setShowPassword(true);
+    setErrorMsg(null);
+    setShow(true);
+  }
+
   function close() {
     setShow(false);
     reset({ ...DEFAULTS, hireDate: todayStr() });
@@ -94,6 +145,24 @@ export default function MembersPage() {
     setUsername("");
     setShowPassword(true);
     setErrorMsg(null);
+  }
+
+  /** 停用属于破坏性操作，与编辑弹窗里的口径保持一致：停用要确认，启用不需要。 */
+  async function toggleStatus(record: Member) {
+    const next = record.status === "active" ? "disabled" : "active";
+    if (next === "disabled") {
+      const ok = await confirm({
+        title: "确认停用账号",
+        content: `确认停用「${record.name}」的账号？停用后该成员将无法登录。`,
+        okText: "确认停用",
+        okButtonProps: { danger: true },
+      });
+      if (!ok) return;
+    }
+    setStatus.mutate(
+      { id: record.id, status: next },
+      { onError: (err) => message.error(err instanceof Error ? err.message : "操作失败，请稍后重试") },
+    );
   }
 
   async function submit(values: FormValues) {
@@ -122,116 +191,314 @@ export default function MembersPage() {
       <PageHeader
         title="成员管理"
         description="新增成员将同时创建登录账号（用户名 + 密码），并写入 Supabase 成员资料；点击「编辑」可修改全部资料，「重置密码」可单独重置登录密码"
-        action={<Button onClick={() => setShow(true)}>+ 新增成员</Button>}
-    />
+        action={
+          <Button type="primary" onClick={openCreate}>
+            + 新增成员
+          </Button>
+        }
+      />
 
-      {show ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={close}>
-          <Card className="w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-              <h3 className="text-sm font-semibold text-slate-900">新增成员</h3>
-              <button type="button" onClick={close} className="text-muted hover:text-foreground">×</button>
+      <Card style={{ marginBottom: 16 }}>
+        <Form layout="vertical">
+          <Flex align="flex-end" gap={16} wrap>
+            <div style={{ width: 240 }}>
+              <FormField label="搜索" hint="姓名 / 用户名 / 手机号 / 邮箱 / 身份证">
+                <Input
+                  value={keyword}
+                  onChange={(event) => setKeyword(event.target.value)}
+                  placeholder="输入关键词"
+                  allowClear
+                />
+              </FormField>
             </div>
-            <CardContent>
-              <form onSubmit={handleSubmit(submit)} className="grid gap-4 sm:grid-cols-2">
-                <FormField label="用户名 *" hint="登录账号，允许中文，唯一">
-                  <Input
-                    required
-                    maxLength={32}
-                    {...usernameField}
-                    onChange={(e) => {
-                      onUsernameChange(e);
-                      setUsername(e.target.value);
-                    }}
-                  />
-                </FormField>
-                <FormField label="密码 *" hint="6-64 位，默认 123456">
-                  <div className="flex items-center gap-2">
+            <div style={{ width: 180 }}>
+              <FormField label="职位">
+                <Select
+                  value={positionFilter === "all" ? "all" : String(positionFilter)}
+                  onChange={(value) => setPositionFilter(value === "all" ? "all" : Number(value))}
+                  loading={positions.isLoading}
+                  status={positions.error ? "error" : undefined}
+                  options={[
+                    { value: "all", label: "全部职位" },
+                    ...(positions.data ?? []).map((p) => ({ value: String(p.id), label: p.name })),
+                  ]}
+                />
+              </FormField>
+            </div>
+            <div style={{ width: 160 }}>
+              <FormField label="状态">
+                <Select
+                  value={statusFilter}
+                  onChange={(value: "all" | "active" | "disabled") => setStatusFilter(value)}
+                  options={[
+                    { value: "all", label: "全部状态" },
+                    { value: "active", label: "在职" },
+                    { value: "disabled", label: "已停用" },
+                  ]}
+                />
+              </FormField>
+            </div>
+            <Button onClick={resetFilters}>重置筛选</Button>
+            <Typography.Text type="secondary" style={{ marginInlineStart: "auto" }}>
+              共 {filtered.length} / {members.data?.length ?? 0} 人
+            </Typography.Text>
+          </Flex>
+        </Form>
+      </Card>
+
+      <Card>
+        {members.error ? (
+          <QueryMessage loading={false} error={members.error} />
+        ) : (
+          <Table
+            rowClassName={zebraRowClassName}
+            rowKey="id"
+            loading={members.isLoading}
+            dataSource={filtered}
+            pagination={{ showSizeChanger: true, showTotal: (total) => `共 ${total} 人` }}
+            locale={{ emptyText: "暂无成员" }}
+            scroll={{ x: "max-content" }}
+            columns={[
+              { title: "姓名", dataIndex: "name", fixed: "left", width: 140 },
+              {
+                title: "用户名",
+                dataIndex: "username",
+                width: 140,
+                render: (value: string | null) => value ?? "-",
+              },
+              {
+                title: "手机号",
+                width: 140,
+                render: (_, record) => record.phone || "-",
+              },
+              {
+                title: "邮箱",
+                width: 200,
+                render: (_, record) => record.email || "-",
+              },
+              {
+                title: "身份证号",
+                width: 200,
+                render: (_, record) => record.id_card || "-",
+              },
+              {
+                title: "职位",
+                width: 200,
+                render: (_, record) => (
+                  <Space size={4} wrap>
+                    {record.user_positions.map(({ position }) =>
+                      position ? <Badge key={position.id}>{position.name}</Badge> : null,
+                    )}
+                  </Space>
+                ),
+              },
+              { title: "入职日期", dataIndex: "hire_date", width: 130 },
+              {
+                title: "系统角色",
+                width: 120,
+                render: (_, record) => (record.system_role === "admin" ? "管理员" : "普通用户"),
+              },
+              {
+                title: "状态",
+                width: 100,
+                render: (_, record) => (record.status === "active" ? "在职" : "已停用"),
+              },
+              {
+                title: "操作",
+                key: "action",
+                fixed: "right",
+                width: 300,
+                render: (_, record) => (
+                  <Space size={0}>
+                    <Button type="link" size="small" onClick={() => setDetailing(record)}>
+                      详情
+                    </Button>
+                    <Button type="link" size="small" onClick={() => setEditing(record)}>
+                      编辑
+                    </Button>
+                    <Button type="link" size="small" onClick={() => setResetting(record)}>
+                      重置密码
+                    </Button>
+                    <Button
+                      type="link"
+                      size="small"
+                      loading={setStatus.isPending && setStatus.variables?.id === record.id}
+                      onClick={() => toggleStatus(record)}
+                    >
+                      {record.status === "active" ? "停用" : "启用"}
+                    </Button>
+                  </Space>
+                ),
+              },
+            ]}
+          />
+        )}
+      </Card>
+
+      <Modal
+        title="新增成员"
+        open={show}
+        onCancel={close}
+        onOk={handleSubmit(submit)}
+        confirmLoading={create.isPending}
+        okText="保存"
+        cancelText="取消"
+        width={720}
+        destroyOnHidden
+      >
+        <Form layout="vertical" onFinish={handleSubmit(submit)}>
+          <Row gutter={16}>
+            <Col xs={24} md={12}>
+              <FormField
+                label="用户名"
+                hint="登录账号，允许中文，唯一"
+                error={errors.username ? "请填写用户名" : undefined}
+                required
+              >
+                <Controller
+                  control={control}
+                  name="username"
+                  rules={{ required: true }}
+                  render={({ field }) => (
                     <Input
-                      required
-                      type={showPassword ? "text" : "password"}
+                      {...field}
+                      maxLength={32}
+                      onChange={(event) => {
+                        field.onChange(event);
+                        setUsername(event.target.value);
+                      }}
+                    />
+                  )}
+                />
+              </FormField>
+            </Col>
+            <Col xs={24} md={12}>
+              <FormField
+                label="密码"
+                hint="6-64 位，默认 123456"
+                error={errors.password ? "请填写密码" : undefined}
+                required
+              >
+                <Controller
+                  control={control}
+                  name="password"
+                  rules={{ required: true }}
+                  render={({ field }) => (
+                    <Input.Password
+                      {...field}
+                      visibilityToggle={{ visible: showPassword, onVisibleChange: setShowPassword }}
                       minLength={6}
                       maxLength={64}
-                      {...register("password")}
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((v) => !v)}
-                      className="shrink-0 text-xs text-muted hover:text-foreground"
-                    >
-                     {showPassword ? "隐藏" : "显示"}
-                    </button>
-                  </div>
-                </FormField>
-                <FormField label="入职日期 *">
-                  <Input required type="date" {...register("hireDate")} />
-                </FormField>
-                <FormField label="手机号">
-                  <Input {...register("phone")} />
-                </FormField>
-                <div className="sm:col-span-2">
-                  <label className="flex items-center gap-2 text-sm text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={useUsernameAsName}
-                      onChange={(e) => setUseUsernameAsName(e.target.checked)}
+                  )}
+                />
+              </FormField>
+            </Col>
+            <Col xs={24} md={12}>
+              <FormField
+                label="入职日期"
+                error={errors.hireDate ? "请选择入职日期" : undefined}
+                required
+              >
+                <Controller
+                  control={control}
+                  name="hireDate"
+                  rules={{ required: true }}
+                  render={({ field }) => (
+                    <DatePicker
+                      style={{ width: "100%" }}
+                      value={field.value ? dayjs(field.value) : null}
+                      onChange={(date) => field.onChange(date ? date.format("YYYY-MM-DD") : "")}
                     />
-                    将用户名作为姓名
-                  </label>
-                </div>
-                {!useUsernameAsName ? (
-                  <FormField label="姓名">
-                    <Input {...register("name")} />
-                  </FormField>
-                ) : (
-                  <FormField label="姓名">
-                    <Input value={username} disabled readOnly />
-                  </FormField>
-                )}
-                <FormField label="联系邮箱">
-                  <Input type="email" {...register("email")} />
-                </FormField>
-                <FormField label="身份证号">
-                  <Input maxLength={32} {...register("idCard")} />
-                </FormField>
-                <FormField label="抖音号">
-                  <Input maxLength={64} {...register("douyinId")} />
-                </FormField>
-                <div className="sm:col-span-2">
-                  <FormField label="职位">
-                    <div className="flex flex-wrap gap-2">
-                      {positions.data?.map((item) => (
-                        <button
-                          type="button"
-                        key={item.id}
-                          onClick={() =>
-                            setSelected((old) =>
-                              old.includes(item.id) ? old.filter((id) => id !== item.id) : [...old, item.id],
-                            )
-                          }
-                          className={`rounded border px-3 py-1 text-xs ${selected.includes(item.id) ? "border-indigo-600 text-indigo-700" : ""}`}
-                        >
-                          {item.name}
-                        </button>
-                      ))}
-                    </div>
-                  </FormField>
-                </div>
-                {errorMsg ? <p className="sm:col-span-2 text-xs text-danger">{errorMsg}</p> : null}
-                <div className="sm:col-span-2 flex justify-end gap-2">
-                  <Button type="button" variant="ghost" onClick={close}>取消</Button>
-                  <Button type="submit" disabled={create.isPending}>{create.isPending ? "保存中…" : "保存"}</Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-        </div>
-      ) : null}
+                  )}
+                />
+              </FormField>
+            </Col>
+            <Col xs={24} md={12}>
+              <FormField label="手机号">
+                <Controller
+                  control={control}
+                  name="phone"
+                  render={({ field }) => <Input {...field} />}
+                />
+              </FormField>
+            </Col>
+
+            <Col span={24}>
+              <FormField label="姓名">
+                <Flex align="center" gap={12} wrap>
+                  <Switch
+                    checked={useUsernameAsName}
+                    onChange={setUseUsernameAsName}
+                    size="small"
+                  />
+                  <Typography.Text type="secondary">将用户名作为姓名</Typography.Text>
+                  {useUsernameAsName ? (
+                    <Input value={username} disabled readOnly style={{ maxWidth: 240 }} />
+                  ) : (
+                    <Controller
+                      control={control}
+                      name="name"
+                      render={({ field }) => <Input {...field} style={{ maxWidth: 240 }} />}
+                    />
+                  )}
+                </Flex>
+              </FormField>
+            </Col>
+
+            <Col xs={24} md={12}>
+              <FormField label="联系邮箱">
+                <Controller
+                  control={control}
+                  name="email"
+                  render={({ field }) => <Input {...field} type="email" />}
+                />
+              </FormField>
+            </Col>
+            <Col xs={24} md={12}>
+              <FormField label="身份证号">
+                <Controller
+                  control={control}
+                  name="idCard"
+                  render={({ field }) => <Input {...field} maxLength={32} />}
+                />
+              </FormField>
+            </Col>
+            <Col xs={24} md={12}>
+              <FormField label="抖音号">
+                <Controller
+                  control={control}
+                  name="douyinId"
+                  render={({ field }) => <Input {...field} maxLength={64} />}
+                />
+              </FormField>
+            </Col>
+            <Col span={24}>
+              <FormField label="职位">
+                <Select
+                  mode="multiple"
+                  allowClear
+                  placeholder="可多选"
+                  value={selected}
+                  onChange={setSelected}
+                  loading={positions.isLoading}
+                  options={(positions.data ?? []).map((item) => ({
+                    value: item.id,
+                    label: item.name,
+                  }))}
+                />
+              </FormField>
+            </Col>
+          </Row>
+          {errorMsg ? <Typography.Text type="danger">{errorMsg}</Typography.Text> : null}
+        </Form>
+      </Modal>
 
       {editing ? (
         <EditMemberModal
           member={editing}
           positions={positions.data ?? []}
+          positionsLoading={positions.isLoading}
           onClose={() => setEditing(null)}
         />
       ) : null}
@@ -243,102 +510,6 @@ export default function MembersPage() {
       {detailing ? (
         <MemberDetailModal member={detailing} onClose={() => setDetailing(null)} />
       ) : null}
-
-      <Card className="mb-4">
-        <CardContent>
-          <div className="flex flex-wrap items-end gap-3">
-            <FormField label="搜索" hint="姓名 / 用户名 / 手机号 / 邮箱 / 身份证">
-              <Input
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-                placeholder="输入关键词"
-                className="w-56"
-              />
-            </FormField>
-            <FormField label="职位">
-              <select
-                className="h-9 w-40 rounded-md border border-slate-200 bg-white px-3 text-sm"
-                value={positionFilter === "all" ? "all" : String(positionFilter)}
-                onChange={(e) => setPositionFilter(e.target.value === "all" ? "all" : Number(e.target.value))}
-              >
-                <option value="all">全部职位</option>
-                {positions.data?.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            </FormField>
-            <FormField label="状态">
-              <select
-                className="h-9 w-32 rounded-md border border-slate-200 bg-white px-3 text-sm"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as "all" | "active" | "disabled")}
-              >
-                <option value="all">全部状态</option>
-                <option value="active">在职</option>
-                <option value="disabled">已停用</option>
-              </select>
-            </FormField>
-            <Button type="button" variant="ghost" onClick={resetFilters}>重置筛选</Button>
-            <span className="ml-auto text-xs text-muted">共 {filtered.length} / {members.data?.length ?? 0} 人</span>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="p-0">
-          <QueryMessage
-            loading={members.isLoading}
-            error={members.error}
-            empty={!members.isLoading && !filtered.length}
-          />
-          <Table>
-            <THead>
-              <TH isRowHeader sticky="left">姓名</TH>
-              <TH>用户名</TH>
-              <TH>手机号</TH>
-              <TH>邮箱</TH>
-              <TH>身份证号</TH>
-            <TH>职位</TH>
-              <TH>入职日期</TH>
-              <TH>系统角色</TH>
-              <TH>状态</TH>
-              <TH className="text-left" sticky="right">操作</TH>
-            </THead>
-            <TBody>
-              {filtered.map((item) => (
-                <TR key={item.id}>
-                  <TD sticky="left">{item.name}</TD>
-                  <TD>{item.username ?? "-"}</TD>
-                  <TD>{item.phone || "-"}</TD>
-                  <TD>{item.email || "-"}</TD>
-                  <TD>{item.id_card || "-"}</TD>
-                  <TD>
-                    <div className="flex gap-1">
-                      {item.user_positions.map(({ position }) => (position ? <Badge key={position.id}>{position.name}</Badge> : null))}
-                    </div>
-                  </TD>
-                  <TD>{item.hire_date}</TD>
-                  <TD>{item.system_role === "admin" ? "管理员" : "普通用户"}</TD>
-                  <TD>{item.status === "active" ? "在职" : "已停用"}</TD>
-                  <TD className="text-left" sticky="right">
-                    <div className="flex justify-start gap-1">
-                      <Button variant="ghost" onClick={() => setDetailing(item)}>详情</Button>
-                      <Button variant="ghost" onClick={() => setEditing(item)}>编辑</Button>
-                      <Button variant="ghost" onClick={() => setResetting(item)}>重置密码</Button>
-                      <Button
-                        variant="ghost"
-                        onClick={() => setStatus.mutate({ id: item.id, status: item.status === "active" ? "disabled" : "active" })}
-                      >
-                        {item.status === "active" ? "停用" : "启用"}
-                      </Button>
-                    </div>
-                  </TD>
-                </TR>
-              ))}
-            </TBody>
-          </Table>
-        </CardContent>
-      </Card>
     </>
   );
 }
@@ -357,18 +528,28 @@ type EditFormValues = {
 function EditMemberModal({
   member,
   positions,
+  positionsLoading,
   onClose,
 }: {
   member: Member;
   positions: Position[];
+  /** 职位仍在加载时给下拉一个 loading 态，避免已选职位显示成裸 ID */
+  positionsLoading?: boolean;
   onClose: () => void;
 }) {
+  const confirm = useConfirm();
   const update = useUpdateMember();
   const [selected, setSelected] = useState<number[]>(
-    member.user_positions.map(({ position }) => position?.id).filter((id): id is number => typeof id === "number"),
+    member.user_positions
+      .map(({ position }) => position?.id)
+      .filter((id): id is number => typeof id === "number"),
   );
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const { register, handleSubmit } = useForm<EditFormValues>({
+  const {
+    control,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<EditFormValues>({
     defaultValues: {
       username: member.username ?? "",
       name: member.name,
@@ -384,7 +565,13 @@ function EditMemberModal({
   async function submit(values: EditFormValues) {
     setErrorMsg(null);
     if (values.status === "disabled" && member.status === "active") {
-      if (!window.confirm(`确认停用「${member.name}」的账号？停用后该成员将无法登录。`)) return;
+      const ok = await confirm({
+        title: "确认停用账号",
+        content: `确认停用「${member.name}」的账号？停用后该成员将无法登录。`,
+        okText: "确认停用",
+        okButtonProps: { danger: true },
+      });
+      if (!ok) return;
     }
     try {
       await update.mutateAsync({
@@ -406,96 +593,157 @@ function EditMemberModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <Card className="w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <h3 className="text-sm font-semibold text-slate-900">编辑成员 · {member.name}</h3>
-          <button type="button" onClick={onClose} className="text-muted hover:text-foreground">×</button>
-        </div>
-        <CardContent>
-          <form onSubmit={handleSubmit(submit)} className="grid gap-4 sm:grid-cols-2">
-            <FormField label="用户名 *" hint="登录账号，唯一">
-              <Input required maxLength={32} {...register("username")} />
+    <Modal
+      title={`编辑成员 · ${member.name}`}
+      open
+      onCancel={onClose}
+      onOk={handleSubmit(submit)}
+      confirmLoading={update.isPending}
+      okText="保存"
+      cancelText="取消"
+      width={720}
+      destroyOnHidden
+    >
+      <Form layout="vertical" onFinish={handleSubmit(submit)}>
+        <Row gutter={16}>
+          <Col xs={24} md={12}>
+            <FormField
+              label="用户名"
+              hint="登录账号，唯一"
+              error={errors.username ? "请填写用户名" : undefined}
+              required
+            >
+              <Controller
+                control={control}
+                name="username"
+                rules={{ required: true }}
+                render={({ field }) => <Input {...field} maxLength={32} />}
+              />
             </FormField>
-            <FormField label="姓名 *">
-              <Input required {...register("name")} />
+          </Col>
+          <Col xs={24} md={12}>
+            <FormField label="姓名" error={errors.name ? "请填写姓名" : undefined} required>
+              <Controller
+                control={control}
+                name="name"
+                rules={{ required: true }}
+                render={({ field }) => <Input {...field} />}
+              />
             </FormField>
+          </Col>
+          <Col xs={24} md={12}>
             <FormField label="手机号">
-              <Input {...register("phone")} />
+              <Controller
+                control={control}
+                name="phone"
+                render={({ field }) => <Input {...field} />}
+              />
             </FormField>
+          </Col>
+          <Col xs={24} md={12}>
             <FormField label="联系邮箱" hint="留空可清除">
-              <Input type="email" {...register("email")} />
+              <Controller
+                control={control}
+                name="email"
+                render={({ field }) => <Input {...field} type="email" />}
+              />
             </FormField>
-            <FormField label="入职日期 *">
-              <Input required type="date" {...register("hireDate")} />
+          </Col>
+          <Col xs={24} md={12}>
+            <FormField
+              label="入职日期"
+              error={errors.hireDate ? "请选择入职日期" : undefined}
+              required
+            >
+              <Controller
+                control={control}
+                name="hireDate"
+                rules={{ required: true }}
+                render={({ field }) => (
+                  <DatePicker
+                    style={{ width: "100%" }}
+                    value={field.value ? dayjs(field.value) : null}
+                    onChange={(date) => field.onChange(date ? date.format("YYYY-MM-DD") : "")}
+                  />
+                )}
+              />
             </FormField>
+          </Col>
+          <Col xs={24} md={12}>
             <FormField label="身份证号" hint="留空可清除">
-              <Input maxLength={32} {...register("idCard")} />
+              <Controller
+                control={control}
+                name="idCard"
+                render={({ field }) => <Input {...field} maxLength={32} />}
+              />
             </FormField>
+          </Col>
+          <Col xs={24} md={12}>
             <FormField label="抖音号" hint="留空可清除">
-              <Input maxLength={64} {...register("douyinId")} />
+              <Controller
+                control={control}
+                name="douyinId"
+                render={({ field }) => <Input {...field} maxLength={64} />}
+              />
             </FormField>
+          </Col>
+          <Col xs={24} md={12}>
             <FormField label="状态">
-              <select
-                className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
-                {...register("status")}
-              >
-                <option value="active">在职</option>
-                <option value="disabled">已停用</option>
-              </select>
+              <Controller
+                control={control}
+                name="status"
+                render={({ field }) => (
+                  <Select
+                    {...field}
+                    options={[
+                      { value: "active", label: "在职" },
+                      { value: "disabled", label: "已停用" },
+                    ]}
+                  />
+                )}
+              />
             </FormField>
-            <div className="sm:col-span-2">
-              <FormField label="职位">
-                <div className="flex flex-wrap gap-2">
-                  {positions.map((item) => (
-                    <button
-                      type="button"
-                      key={item.id}
-                      onClick={() =>
-                        setSelected((old) =>
-                          old.includes(item.id) ? old.filter((id) => id !== item.id) : [...old, item.id],
-                        )
-                      }
-                      className={`rounded border px-3 py-1 text-xs ${selected.includes(item.id) ? "border-indigo-600 text-indigo-700" : ""}`}
-                    >
-                      {item.name}
-                    </button>
-                  ))}
-                </div>
-              </FormField>
-            </div>
-            {errorMsg ? <p className="sm:col-span-2 text-xs text-danger">{errorMsg}</p> : null}
-            <div className="sm:col-span-2 flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={onClose}>取消</Button>
-              <Button type="submit" disabled={update.isPending}>{update.isPending ? "保存中…" : "保存"}</Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+          </Col>
+          <Col span={24}>
+            <FormField label="职位">
+              <Select
+                mode="multiple"
+                allowClear
+                placeholder="可多选"
+                value={selected}
+                onChange={setSelected}
+                loading={positionsLoading}
+                options={positions.map((item) => ({ value: item.id, label: item.name }))}
+              />
+            </FormField>
+          </Col>
+        </Row>
+        {errorMsg ? <Typography.Text type="danger">{errorMsg}</Typography.Text> : null}
+      </Form>
+    </Modal>
   );
 }
 
-function ResetPasswordModal({
-  member,
-  onClose,
-}: {
-  member: Member;
-  onClose: () => void;
-}) {
+function ResetPasswordModal({ member, onClose }: { member: Member; onClose: () => void }) {
+  const confirm = useConfirm();
   const update = useUpdateMember();
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submit() {
     setErrorMsg(null);
     if (password.length < 6 || password.length > 64) {
       setErrorMsg("密码需为 6-64 位");
       return;
     }
-    if (!window.confirm(`确认将「${member.name}」的登录密码重置为新密码？`)) return;
+    const ok = await confirm({
+      title: "确认重置密码",
+      content: `确认将「${member.name}」的登录密码重置为新密码？`,
+      okText: "确认重置",
+      okButtonProps: { danger: true },
+    });
+    if (!ok) return;
     try {
       await update.mutateAsync({ id: member.id, password });
       onClose();
@@ -505,111 +753,81 @@ function ResetPasswordModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <h3 className="text-sm font-semibold text-slate-900">重置密码 · {member.name}</h3>
-          <button type="button" onClick={onClose} className="text-muted hover:text-foreground">×</button>
-        </div>
-        <CardContent>
-          <form onSubmit={submit} className="grid gap-4">
-            <FormField label="新密码 *" hint="6-64 位">
-              <div className="flex items-center gap-2">
-                <Input
-                  required
-                  type={showPassword ? "text" : "password"}
-                  minLength={6}
-                  maxLength={64}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="请输入新密码"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((v) => !v)}
-                  className="shrink-0 text-xs text-muted hover:text-foreground"
-                >
-                  {showPassword ? "隐藏" : "显示"}
-                </button>
-              </div>
-            </FormField>
-            {errorMsg ? <p className="text-xs text-danger">{errorMsg}</p> : null}
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={onClose}>取消</Button>
-              <Button type="submit" disabled={update.isPending}>{update.isPending ? "重置中…" : "重置密码"}</Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+    <Modal
+      title={`重置密码 · ${member.name}`}
+      open
+      onCancel={onClose}
+      onOk={submit}
+      confirmLoading={update.isPending}
+      okText="重置密码"
+      cancelText="取消"
+      destroyOnHidden
+    >
+      <Form layout="vertical" onFinish={submit}>
+        <FormField label="新密码" hint="6-64 位" error={errorMsg} required>
+          <Input.Password
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            visibilityToggle={{ visible: showPassword, onVisibleChange: setShowPassword }}
+            minLength={6}
+            maxLength={64}
+            placeholder="请输入新密码"
+          />
+        </FormField>
+      </Form>
+    </Modal>
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-0.5 border-b border-slate-100 py-2 last:border-0">
-      <span className="text-xs text-muted">{label}</span>
-      <span className="text-sm text-slate-900">{value}</span>
-    </div>
-  );
-}
-
-function MemberDetailModal({
-  member,
-  onClose,
-}: {
-  member: Member;
-  onClose: () => void;
-}) {
+function MemberDetailModal({ member, onClose }: { member: Member; onClose: () => void }) {
   const positions = member.user_positions
     .map(({ position }) => position?.name)
     .filter((n): n is string => Boolean(n));
 
+  const items = [
+    { key: "name", label: "姓名", children: member.name },
+    { key: "username", label: "用户名", children: member.username ?? "-" },
+    { key: "phone", label: "手机号", children: member.phone || "-" },
+    { key: "email", label: "联系邮箱", children: member.email || "-" },
+    { key: "idCard", label: "身份证号", children: member.id_card || "-" },
+    { key: "douyinId", label: "抖音号", children: member.douyin_id || "-" },
+    { key: "hireDate", label: "入职日期", children: member.hire_date },
+    {
+      key: "role",
+      label: "系统角色",
+      children: member.system_role === "admin" ? "管理员" : "普通用户",
+    },
+    {
+      key: "status",
+      label: "账号状态",
+      children: member.status === "active" ? "在职" : "已停用",
+    },
+    {
+      key: "positions",
+      label: "职位",
+      children: positions.length ? (
+        <Space size={4} wrap>
+          {positions.map((name) => (
+            <Badge key={name}>{name}</Badge>
+          ))}
+        </Space>
+      ) : (
+        "-"
+      ),
+    },
+    { key: "createdAt", label: "创建时间", children: member.created_at ?? "-" },
+    { key: "updatedAt", label: "更新时间", children: member.updated_at ?? "-" },
+  ];
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <Card className="w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <h3 className="text-sm font-semibold text-slate-900">成员详情 · {member.name}</h3>
-          <button type="button" onClick={onClose} className="text-muted hover:text-foreground">×</button>
-        </div>
-        <CardContent>
-          <div className="grid gap-x-6 sm:grid-cols-2">
-            <DetailRow label="姓名" value={member.name} />
-            <DetailRow label="用户名" value={member.username ?? "-"} />
-            <DetailRow label="手机号" value={member.phone || "-"} />
-            <DetailRow label="联系邮箱" value={member.email || "-"} />
-            <DetailRow label="身份证号" value={member.id_card || "-"} />
-            <DetailRow label="抖音号" value={member.douyin_id || "-"} />
-            <DetailRow label="入职日期" value={member.hire_date} />
-            <DetailRow label="系统角色" value={member.system_role === "admin" ? "管理员" : "普通用户"} />
-            <DetailRow
-              label="账号状态"
-              value={<Badge>{member.status === "active" ? "在职" : "已停用"}</Badge>}
-            />
-            <div className="sm:col-span-2">
-              <DetailRow
-                label="职位"
-                value={
-                  positions.length ? (
-                    <div className="flex flex-wrap gap-1">
-                      {positions.map((n) => (
-                        <Badge key={n}>{n}</Badge>
-                      ))}
-                    </div>
-                  ) : (
-                    "-"
-                  )
-                }
-              />
-            </div>
-            <DetailRow label="创建时间" value={member.created_at ?? "-"} />
-            <DetailRow label="更新时间" value={member.updated_at ?? "-"} />
-          </div>
-          <div className="mt-4 flex justify-end">
-            <Button type="button" variant="ghost" onClick={onClose}>关闭</Button>
-       </div>
-        </CardContent>
-      </Card>
-    </div>
+    <Modal
+      title={`成员详情 · ${member.name}`}
+      open
+      onCancel={onClose}
+      footer={<Button onClick={onClose}>关闭</Button>}
+      width={720}
+    >
+      <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }} items={items} />
+    </Modal>
   );
 }

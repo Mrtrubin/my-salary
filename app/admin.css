@@ -1,0 +1,32 @@
+/*
+ * admin 端专属样式，仅由 app/(admin)/layout.tsx 引入。
+ * （user / auth 端用 HeroUI，样式见 app/heroui.css）
+ *
+ * 这里刻意不写 @layer：antd 注入的样式是无层级的，无层级规则之间按
+ * 选择器特异性 + 源顺序决胜；本文件的规则需与 antd 同处无层级才能生效。
+ */
+
+/* 文本链接，由 components/admin/text-link.tsx 渲染的 Next <Link> 使用。
+   色值来自 antd 主题 token，通过内联 CSS 自定义属性传入，故此处不写死颜色。 */
+.admin-text-link {
+  color: var(--admin-text-link-color);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.admin-text-link:hover,
+.admin-text-link:focus-visible {
+  color: var(--admin-text-link-hover-color);
+  text-decoration: underline;
+}
+
+/* --- 表格斑马纹 --- */
+/* 行类名由 components/admin/table-zebra.ts 经 antd 的 rowClassName 注入。
+   刻意使用较高特异性（.ant-table-wrapper + .ant-table-tbody + 行类 + 单元格），
+   以压过 antd 自身的 .ant-table-tbody > tr > td 以及固定列的底色规则 ——
+   否则吸附列（ant-table-cell-fix-start / -fix-end）会保持白色，
+   横向滚动时与所在行的斑马色不一致，出现白块。
+   :not(:hover) 保证悬停时交回 antd 自己的悬停高亮。 */
+.ant-table-wrapper .ant-table-tbody > tr.admin-table-row-alt:not(:hover) > td {
+  background-color: #eee;
+}

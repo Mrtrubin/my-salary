@@ -1,23 +1,26 @@
 "use client";
 
+import { Button, Card, Col, Form, Input, Modal, Row, Space, Table, Typography } from "antd";
 import { useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { QueryMessage } from "@/components/query-message";
-import { PageHeader } from "@/components/ui/stat-card";
-import { FormField, Input } from "@/components/ui/input";
-import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
+import { Controller, useForm } from "react-hook-form";
+import { FormField } from "@/components/admin/form-field";
+import { PageHeader } from "@/components/admin/page-header";
+import { QueryMessage } from "@/components/admin/query-message";
+import { zebraRowClassName } from "@/components/admin/table-zebra";
 import { useCreatePosition, useMembers, usePositions, useUpdatePosition } from "@/lib/api/hooks";
 import type { Position } from "@/lib/api/data";
 
 type FormValues = { code: string; name: string };
 
-/** 编辑职位弹窗（复用 members 页的弹窗模式）。 */
+/** 编辑职位弹窗。 */
 function EditPositionDialog({ position, onClose }: { position: Position; onClose: () => void }) {
   const update = useUpdatePosition();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const { register, handleSubmit } = useForm<FormValues>({
+  const {
+    control,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<FormValues>({
     defaultValues: { code: position.code, name: position.name },
   });
 
@@ -32,31 +35,50 @@ function EditPositionDialog({ position, onClose }: { position: Position; onClose
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <Card className="w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <h3 className="text-sm font-semibold text-slate-900">编辑职位 · {position.name}</h3>
-          <button type="button" onClick={onClose} className="text-muted hover:text-foreground">×</button>
-        </div>
-        <CardContent>
-          <form onSubmit={handleSubmit(submit)} className="grid gap-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FormField label="职位编码 *">
-                <Input required {...register("code")} />
-              </FormField>
-              <FormField label="职位名称 *">
-                <Input required {...register("name")} />
-              </FormField>
-            </div>
-            {errorMsg ? <p className="text-xs text-red-600">{errorMsg}</p> : null}
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={onClose}>取消</Button>
-              <Button type="submit" disabled={update.isPending}>保存</Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+    <Modal
+      title={`编辑职位 · ${position.name}`}
+      open
+      onCancel={onClose}
+      onOk={handleSubmit(submit)}
+      confirmLoading={update.isPending}
+      okText="保存"
+      cancelText="取消"
+      destroyOnHidden
+    >
+      <Form layout="vertical" onFinish={handleSubmit(submit)}>
+        <Row gutter={16}>
+          <Col span={12}>
+            <FormField
+              label="职位编码"
+              error={errors.code ? "请填写职位编码" : undefined}
+              required
+            >
+              <Controller
+                control={control}
+                name="code"
+                rules={{ required: true }}
+                render={({ field }) => <Input {...field} />}
+              />
+            </FormField>
+          </Col>
+          <Col span={12}>
+            <FormField
+              label="职位名称"
+              error={errors.name ? "请填写职位名称" : undefined}
+              required
+            >
+              <Controller
+                control={control}
+                name="name"
+                rules={{ required: true }}
+                render={({ field }) => <Input {...field} />}
+              />
+            </FormField>
+          </Col>
+        </Row>
+        {errorMsg ? <Typography.Text type="danger">{errorMsg}</Typography.Text> : null}
+      </Form>
+    </Modal>
   );
 }
 
@@ -67,7 +89,15 @@ export default function PositionsPage() {
 
   const [show, setShow] = useState(false);
   const [editing, setEditing] = useState<Position | null>(null);
-  const { register, handleSubmit, reset } = useForm<FormValues>();
+  const [createError, setCreateError] = useState<string | null>(null);
+  const {
+    control,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm<FormValues>({
+    defaultValues: { code: "", name: "" },
+  });
 
   const countByPosition = useMemo(() => {
     const map = new Map<number, number>();
@@ -80,9 +110,14 @@ export default function PositionsPage() {
   }, [members.data]);
 
   async function submitCreate(values: FormValues) {
-    await create.mutateAsync({ code: values.code, name: values.name });
-    reset();
-    setShow(false);
+    setCreateError(null);
+    try {
+      await create.mutateAsync({ code: values.code, name: values.name });
+      reset();
+      setShow(false);
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "新建职位失败，请稍后再试");
+    }
   }
 
   return (
@@ -90,58 +125,102 @@ export default function PositionsPage() {
       <PageHeader
         title="职位管理"
         description="管理职位；职位编码与名称需唯一"
-        action={<Button onClick={() => setShow(!show)}>{show ? "收起" : "+ 新建职位"}</Button>}
+        action={
+          <Button
+            type="primary"
+            onClick={() => {
+              setCreateError(null);
+              setShow(!show);
+            }}
+          >
+            {show ? "收起" : "+ 新建职位"}
+          </Button>
+        }
       />
 
       {show ? (
-        <Card className="mb-6">
-          <CardHeader title="新建职位" />
-          <CardContent>
-            <form onSubmit={handleSubmit(submitCreate)} className="grid gap-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <FormField label="职位编码">
-                  <Input required {...register("code")} placeholder="如 host / anchor" />
+        <Card title="新建职位" style={{ marginBottom: 16 }}>
+          <Form layout="vertical" onFinish={handleSubmit(submitCreate)} style={{ maxWidth: 720 }}>
+            <Row gutter={16}>
+              <Col xs={24} md={12}>
+                <FormField
+                  label="职位编码"
+                  error={errors.code ? "请填写职位编码" : undefined}
+                  required
+                >
+                  <Controller
+                    control={control}
+                    name="code"
+                    rules={{ required: true }}
+                    render={({ field }) => <Input {...field} placeholder="如 host / anchor" />}
+                  />
                 </FormField>
-                <FormField label="职位名称">
-                  <Input required {...register("name")} placeholder="如 主持 / 主播" />
+              </Col>
+              <Col xs={24} md={12}>
+                <FormField
+                  label="职位名称"
+                  error={errors.name ? "请填写职位名称" : undefined}
+                  required
+                >
+                  <Controller
+                    control={control}
+                    name="name"
+                    rules={{ required: true }}
+                    render={({ field }) => <Input {...field} placeholder="如 主持 / 主播" />}
+                  />
                 </FormField>
-              </div>
-              <div className="flex gap-2">
-                <Button type="submit" disabled={create.isPending}>保存</Button>
-                <Button type="button" variant="ghost" onClick={() => setShow(false)}>取消</Button>
-              </div>
-            </form>
-          </CardContent>
+              </Col>
+            </Row>
+            <Space>
+              <Button type="primary" htmlType="submit" loading={create.isPending}>
+                保存
+              </Button>
+              <Button onClick={() => setShow(false)}>取消</Button>
+            </Space>
+            {createError ? <Typography.Text type="danger">{createError}</Typography.Text> : null}
+          </Form>
         </Card>
       ) : null}
 
       <Card>
-        <CardContent className="p-0">
-          <QueryMessage loading={positions.isLoading || members.isLoading} error={positions.error || members.error} empty={!positions.data?.length} />
-          <Table>
-            <THead>
-              <TH isRowHeader>职位</TH>
-              <TH>编码</TH>
-              <TH>成员数</TH>
-              <TH className="text-left">操作</TH>
-            </THead>
-            <TBody>
-              {positions.data?.map((position) => {
-                const count = countByPosition.get(position.id) ?? 0;
-                return (
-                  <TR key={position.id}>
-                    <TD><span className="font-medium">{position.name}</span></TD>
-                    <TD><span className="text-muted">{position.code}</span></TD>
-                    <TD>{count} 人</TD>
-                    <TD className="text-left">
-                      <Button size="sm" variant="ghost" onClick={() => setEditing(position)}>编辑</Button>
-                    </TD>
-                  </TR>
-                );
-              })}
-            </TBody>
-          </Table>
-        </CardContent>
+        {positions.error || members.error ? (
+          <QueryMessage loading={false} error={positions.error ?? members.error} />
+        ) : (
+          <Table
+            rowClassName={zebraRowClassName}
+            rowKey="id"
+            loading={positions.isLoading || members.isLoading}
+            dataSource={positions.data ?? []}
+            pagination={false}
+            locale={{ emptyText: "暂无职位" }}
+            columns={[
+              {
+                title: "职位",
+                dataIndex: "name",
+                render: (value: string) => <Typography.Text strong>{value}</Typography.Text>,
+              },
+              {
+                title: "编码",
+                dataIndex: "code",
+                render: (value: string) => <Typography.Text type="secondary">{value}</Typography.Text>,
+              },
+              {
+                title: "成员数",
+                width: 120,
+                render: (_, record) => `${countByPosition.get(record.id) ?? 0} 人`,
+              },
+              {
+                title: "操作",
+                width: 120,
+                render: (_, record) => (
+                  <Button type="link" size="small" onClick={() => setEditing(record)}>
+                    编辑
+                  </Button>
+                ),
+              },
+            ]}
+          />
+        )}
       </Card>
 
       {editing ? <EditPositionDialog position={editing} onClose={() => setEditing(null)} /> : null}

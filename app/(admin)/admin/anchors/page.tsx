@@ -1,11 +1,12 @@
 "use client";
 
+import { Button, Card, Col, Form, InputNumber, Modal, Row, Select, Table, Typography } from "antd";
+import dayjs from "dayjs";
 import { useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { FormField, Input, Select } from "@/components/ui/input";
-import { QueryMessage } from "@/components/query-message";
-import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
+import { FormField } from "@/components/admin/form-field";
+import { PageHeader } from "@/components/admin/page-header";
+import { QueryMessage } from "@/components/admin/query-message";
+import { zebraRowClassName } from "@/components/admin/table-zebra";
 import {
   useCreateScheme,
   useMembers,
@@ -36,9 +37,9 @@ type Editing = {
   id: string;
   name: string;
   anchorType: "new" | "experienced";
-  commissionPercent: string;
-  baseSalary: string;
-  guaranteedSalary: string;
+  commissionPercent: number | null;
+  baseSalary: number | null;
+  guaranteedSalary: number | null;
 };
 
 export default function AnchorsPage() {
@@ -50,12 +51,10 @@ export default function AnchorsPage() {
   const [editing, setEditing] = useState<Editing | null>(null);
   const [error, setError] = useState("");
 
-  const anchors = useMemo(
-    () => members.data?.filter(isAnchor) ?? [],
-    [members.data],
-  );
+  const anchors = useMemo(() => members.data?.filter(isAnchor) ?? [], [members.data]);
   const anchorPositionId = positions.data?.find((position) => position.code === "anchor")?.id;
   const template = latestTemplateScheme(schemes.data, anchorPositionId);
+  const listError = members.error ?? schemes.error;
 
   function openEditor(member: Member) {
     const effective = latestPersonalScheme(schemes.data, member.id) ?? template;
@@ -64,14 +63,21 @@ export default function AnchorsPage() {
       id: member.id,
       name: member.name,
       anchorType: member.anchor_type,
-      commissionPercent: String(member.anchor_base_commission_bps / 100),
-      baseSalary: effective ? String(effective.base_salary_cents / 100) : "",
-      guaranteedSalary: effective ? String(effective.guaranteed_salary_cents / 100) : "",
+      commissionPercent: member.anchor_base_commission_bps / 100,
+      baseSalary: effective ? effective.base_salary_cents / 100 : null,
+      guaranteedSalary: effective ? effective.guaranteed_salary_cents / 100 : null,
     });
   }
 
   async function save() {
-    if (!editing || !anchorPositionId) return;
+    if (!editing) return;
+    // 静默 return 会让「保存」看起来没反应，这里明确告诉用户原因。
+    if (!anchorPositionId) {
+      setError(
+        positions.isLoading ? "职位数据仍在加载，请稍后重试" : "未找到「主播」职位，无法创建个人方案",
+      );
+      return;
+    }
     const commissionBps = Math.round(Number(editing.commissionPercent) * 100);
     const baseSalary = Number(editing.baseSalary);
     const guaranteedSalary = Number(editing.guaranteedSalary);
@@ -79,7 +85,12 @@ export default function AnchorsPage() {
       setError("基础提成率必须在 0.01%～100% 之间，最多两位小数");
       return;
     }
-    if (!Number.isFinite(baseSalary) || !Number.isFinite(guaranteedSalary) || baseSalary <= 0 || guaranteedSalary <= 0) {
+    if (
+      !Number.isFinite(baseSalary) ||
+      !Number.isFinite(guaranteedSalary) ||
+      baseSalary <= 0 ||
+      guaranteedSalary <= 0
+    ) {
       setError("初始保底和降级保底必须大于 0");
       return;
     }
@@ -98,7 +109,8 @@ export default function AnchorsPage() {
         version,
         base_salary_cents: Math.round(baseSalary * 100),
         guaranteed_salary_cents: Math.round(guaranteedSalary * 100),
-        effective_from: new Date().toISOString().slice(0, 10),
+        // 用本地日期而非 toISOString()（UTC）：CST 凌晨会写成前一天
+        effective_from: dayjs().format("YYYY-MM-DD"),
       });
       setEditing(null);
     } catch (cause) {
@@ -107,47 +119,133 @@ export default function AnchorsPage() {
   }
 
   return (
-    <Card>
-      <CardHeader title="主播管理" description="统一管理主播类型、基础提成率、初始保底和降级保底" />
-      <CardContent>
-        <QueryMessage loading={members.isLoading || schemes.isLoading} error={members.error ?? schemes.error} empty={!members.isLoading && anchors.length === 0} />
-        {anchors.length ? (
-          <Table>
-            <THead><TH isRowHeader sticky="left">主播</TH><TH>主播类型</TH><TH>基础提成率</TH><TH>初始保底</TH><TH>降级保底</TH><TH sticky="right">操作</TH></THead>
-            <TBody>
-              {anchors.map((anchor) => {
-                const personal = latestPersonalScheme(schemes.data, anchor.id);
-                const effective = personal ?? template;
-                return (
-                  <TR key={anchor.id}>
-                    <TD sticky="left">{anchor.name}</TD>
-                    <TD>{anchor.anchor_type === "new" ? "新主播" : "老主播"}</TD>
-                    <TD>{anchor.anchor_base_commission_bps / 100}%</TD>
-                    <TD>{effective ? formatCentsToYuan(effective.base_salary_cents) : "—"}</TD>
-                    <TD>{effective ? formatCentsToYuan(effective.guaranteed_salary_cents) : "—"}</TD>
-<TD sticky="right"><Button variant="ghost" onClick={() => openEditor(anchor)}>编辑</Button></TD>
-                  </TR>
-                );
-              })}
-            </TBody>
-          </Table>
-        ) : null}
+    <>
+      <PageHeader
+        title="主播管理"
+        description="统一管理主播类型、基础提成率、初始保底和降级保底"
+      />
+
+      <Card>
+        {listError ? (
+          <QueryMessage loading={false} error={listError} />
+        ) : (
+          <Table
+            rowClassName={zebraRowClassName}
+            rowKey="id"
+            loading={members.isLoading || schemes.isLoading}
+            dataSource={anchors}
+            pagination={false}
+            locale={{ emptyText: "暂无主播" }}
+            scroll={{ x: "max-content" }}
+            columns={[
+              { title: "主播", dataIndex: "name", fixed: "left", width: 180 },
+              {
+                title: "主播类型",
+                width: 140,
+                render: (_, record) => (record.anchor_type === "new" ? "新主播" : "老主播"),
+              },
+              {
+                title: "基础提成率",
+                width: 140,
+                render: (_, record) => `${record.anchor_base_commission_bps / 100}%`,
+              },
+              {
+                title: "初始保底",
+                width: 140,
+                render: (_, record) => {
+                  const effective = latestPersonalScheme(schemes.data, record.id) ?? template;
+                  return effective ? formatCentsToYuan(effective.base_salary_cents) : "—";
+                },
+              },
+              {
+                title: "降级保底",
+                width: 140,
+                render: (_, record) => {
+                  const effective = latestPersonalScheme(schemes.data, record.id) ?? template;
+                  return effective ? formatCentsToYuan(effective.guaranteed_salary_cents) : "—";
+                },
+              },
+              {
+                title: "操作",
+                fixed: "right",
+                width: 100,
+                render: (_, record) => (
+                  <Button type="link" size="small" onClick={() => openEditor(record)}>
+                    编辑
+                  </Button>
+                ),
+              },
+            ]}
+          />
+        )}
+      </Card>
+
+      <Modal
+        title={editing ? `编辑主播 · ${editing.name}` : "编辑主播"}
+        open={Boolean(editing)}
+        onCancel={() => setEditing(null)}
+        onOk={save}
+        okText="保存"
+        cancelText="取消"
+        confirmLoading={updateSettings.isPending || createScheme.isPending}
+        destroyOnHidden
+      >
         {editing ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setEditing(null)}>
-            <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl" onClick={(event) => event.stopPropagation()}>
-              <h3 className="mb-4 text-base font-semibold">编辑主播 · {editing.name}</h3>
-              <div className="grid gap-4">
-                <FormField label="主播类型"><Select value={editing.anchorType} options={[{ id: "new", name: "新主播" }, { id: "experienced", name: "老主播" }]} onChange={(value) => setEditing({ ...editing, anchorType: value as Editing["anchorType"] })} /></FormField>
-                <FormField label="基础提成率（%）"><Input type="number" min="0.01" max="100" step="0.01" value={editing.commissionPercent} onChange={(event) => setEditing({ ...editing, commissionPercent: event.target.value })} /></FormField>
-                <FormField label="初始保底（元）"><Input type="number" min="0.01" step="0.01" value={editing.baseSalary} onChange={(event) => setEditing({ ...editing, baseSalary: event.target.value })} /></FormField>
-                <FormField label="降级保底（元）"><Input type="number" min="0.01" step="0.01" value={editing.guaranteedSalary} onChange={(event) => setEditing({ ...editing, guaranteedSalary: event.target.value })} /></FormField>
-                {error ? <p className="text-sm text-red-600">{error}</p> : null}
-              </div>
-              <div className="mt-6 flex justify-end gap-2"><Button variant="ghost" onClick={() => setEditing(null)}>取消</Button><Button disabled={updateSettings.isPending || createScheme.isPending} onClick={save}>保存</Button></div>
-            </div>
-          </div>
+          <Form layout="vertical">
+            <Row gutter={16}>
+              <Col span={12}>
+                <FormField label="主播类型">
+                  <Select
+                    value={editing.anchorType}
+                    onChange={(value: Editing["anchorType"]) =>
+                      setEditing({ ...editing, anchorType: value })
+                    }
+                    options={[
+                      { value: "new", label: "新主播" },
+                      { value: "experienced", label: "老主播" },
+                    ]}
+                  />
+                </FormField>
+              </Col>
+              <Col span={12}>
+                <FormField label="基础提成率（%）">
+                  <InputNumber
+                    min={0.01}
+                    max={100}
+                    step={0.01}
+                    value={editing.commissionPercent}
+                    onChange={(value) => setEditing({ ...editing, commissionPercent: value })}
+                    style={{ width: "100%" }}
+                  />
+                </FormField>
+              </Col>
+              <Col span={12}>
+                <FormField label="初始保底（元）">
+                  <InputNumber
+                    min={0.01}
+                    step={0.01}
+                    value={editing.baseSalary}
+                    onChange={(value) => setEditing({ ...editing, baseSalary: value })}
+                    style={{ width: "100%" }}
+                  />
+                </FormField>
+              </Col>
+              <Col span={12}>
+                <FormField label="降级保底（元）">
+                  <InputNumber
+                    min={0.01}
+                    step={0.01}
+                    value={editing.guaranteedSalary}
+                    onChange={(value) => setEditing({ ...editing, guaranteedSalary: value })}
+                    style={{ width: "100%" }}
+                  />
+                </FormField>
+              </Col>
+            </Row>
+            {error ? <Typography.Text type="danger">{error}</Typography.Text> : null}
+          </Form>
         ) : null}
-      </CardContent>
-    </Card>
+      </Modal>
+    </>
   );
 }

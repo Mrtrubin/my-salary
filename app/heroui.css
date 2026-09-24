@@ -1,0 +1,10 @@
+/*
+ * HeroUI 样式入口 —— 仅由 (user) / (auth) 两个路由组的 layout 引入。
+ *
+ * 不要把它加回 app/globals.css：@heroui/styles 整包约 400KB（含 calendar、
+ * color-slider、autocomplete 等本项目完全没用到的组件），而 admin 端用的是
+ * antd。放在全局会让每个 admin 页面白背这 400KB。
+ *
+ * 需要新增用到 HeroUI 的页面时，把页面放进 (user) 或 (auth) 路由组即可。
+ */
+@import "@heroui/styles/css";
