@@ -45,3 +45,16 @@ export function formatDateTime(value: string | null | undefined): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
+
+/**
+ * 秒 → 直播时长展示，例如 23786 → "6小时36分"。
+ * 流水接口给的时长单位是秒，展示时换成时长文案，避免把秒当分钟读。
+ */
+export function formatDurationSeconds(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (hours > 0) return minutes > 0 ? `${hours}小时${minutes}分` : `${hours}小时`;
+  if (minutes > 0) return `${minutes}分钟`;
+  return "不足1分钟";
+}

@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useCreateTeamPerformanceRecords, useReplaceTeamPerformanceRecords, useTeams } from "@/lib/api/hooks";
 import { SummaryCard, today, yuan } from "./_shared";
+import { formatDurationSeconds } from "@/lib/format";
 import { fetchDailyIncome, matchIncomeToMembers, type DailyIncomeResult } from "./dailyIncome";
 
 type Team = NonNullable<ReturnType<typeof useTeams>["data"]>[number];
@@ -331,9 +332,11 @@ export function TeamUpload({
       });
       return next;
     });
-    // 若接口带回开播时长且当前未填，则自动带出（分钟 → 小时）。
-    if (incomeResult && incomeResult.liveDuration > 0 && broadcastHours === "") {
-      setBroadcastHours((incomeResult.liveDuration / 60).toFixed(1));
+    // 若接口带回当日总直播时长且当前未填，则自动带出（秒 → 小时）。
+    const liveHours = incomeResult ? incomeResult.liveDurationSeconds / 3600 : 0;
+    // 超过 24 小时会被表单校验拦下，宁可不填也不要塞一个必然报错的数。
+    if (broadcastHours === "" && liveHours > 0 && liveHours <= 24) {
+      setBroadcastHours(liveHours.toFixed(1));
     }
   };
 
@@ -451,18 +454,18 @@ export function TeamUpload({
         </Card>
       </div>
 
-      {/* 接口流水：按日期表单的日期拉取、按抖音号匹配、一键填充 */}
+      {/* 当日信息：按日期拉取主播流水 + 当日总直播时长（所有直播间），按抖音号匹配、一键填充 */}
       {!isEditMode ? (
         <div className="space-y-2">
           <div className="flex items-center justify-between px-1">
-            <span className="text-sm font-semibold text-slate-900">主播流水（接口获取）</span>
+            <span className="text-sm font-semibold text-slate-900">当日信息（接口获取）</span>
             <Button
               variant="secondary"
               size="sm"
               disabled={!selectedTeam || !teamDateValid || fetching}
               onClick={handleFetchIncome}
             >
-              {fetching ? "获取中…" : incomeResult ? "重新获取" : "获取接口数据"}
+              {fetching ? "获取中…" : incomeResult ? "重新获取" : "获取当日信息"}
             </Button>
           </div>
           <Card>
@@ -473,14 +476,15 @@ export function TeamUpload({
 
               {incomeStale ? (
                 <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
-                  日期已改为 {teamDate || "（空）"}，已获取的是 {incomeDate} 的流水，请重新获取后再填充。
+                  日期已改为 {teamDate || "（空）"}，已获取的是 {incomeDate} 的当日信息，请重新获取后再填充。
                 </p>
               ) : null}
 
               {!incomeResult && !fetchError ? (
                 <p className="text-xs text-slate-400">
-                  点击「获取接口数据」，按团队 ID（{selectedTeam?.team_key ?? "-"}）拉取
-                  {teamDate ? ` ${teamDate} ` : "所选日期"}各房间流水，系统会按抖音号匹配到团队成员。
+                  点击「获取当日信息」，按团队 ID（{selectedTeam?.team_key ?? "-"}）拉取
+                  {teamDate ? ` ${teamDate} ` : "所选日期"}的主播流水与当日总直播时长（所有直播间），
+                  系统会按抖音号匹配到团队成员。
                 </p>
               ) : null}
 
@@ -491,7 +495,9 @@ export function TeamUpload({
               {incomeResult && !incomeStale && incomeResult.hasLive ? (
                 <div className="space-y-2">
                   <div className="text-xs text-slate-500">
-                    日期 {incomeResult.date} · 开播 {(incomeResult.liveDuration / 60).toFixed(1)} 小时 · 识别 {incomeResult.anchors.length} 位主播
+                    日期 {incomeResult.date} · 当日总直播时长{" "}
+                    {formatDurationSeconds(incomeResult.liveDurationSeconds)}（所有直播间） · 识别{" "}
+                    {incomeResult.anchors.length} 位主播
                   </div>
 
                   {/* 已匹配 */}

@@ -8,11 +8,12 @@
  * 本模块只负责聚合：
  *   识别主播：以 series[].aweme_display_id（抖音号）或 series[].user_id（数字 uid）
  *   匹配成员的 douyin_id —— 管理员填哪一个都能认出来；
- *   同一主播在多个 room 的 income 直接累加。
+ *   同一主播在多个 room 的 income 直接累加；
+ *   当日总直播时长取顶层 liveDuration（单位秒），不累加各房间（上游重复下发，会翻倍）。
  */
 
 import { ApiError, ApiErrorCode } from "@/lib/api/contracts/errors";
-import { fetchDailyIncomePayload } from "@/lib/api/data";
+import { fetchDailyIncomePayload, type DailyIncomePayload } from "@/lib/api/data";
 
 /** 按抖音号聚合后的主播流水。 */
 export type AggregatedIncome = {
@@ -29,8 +30,8 @@ export type DailyIncomeResult = {
   /** 本次请求的日期（接口返回日期与请求日期一致时两者相同）。 */
   date: string;
   hasLive: boolean;
-  /** 直播总时长（分钟）。 */
-  liveDuration: number;
+  /** 当日总直播时长（秒，所有直播间合计）。注意上游单位是秒，不是分钟。 */
+  liveDurationSeconds: number;
   /** 按抖音号聚合后的主播流水列表。 */
   anchors: AggregatedIncome[];
 };
@@ -41,6 +42,19 @@ const num = (v: unknown) => {
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * 当日总直播时长（秒，所有直播间合计）。
+ *
+ * 上游把「当日总时长」重复下发到每个 room 上（实测同一天 4 个房间都是 23786），
+ * 所以绝不累加各房间——那会把时长翻成数倍；优先用顶层字段，退化时取房间最大值。
+ */
+function dailyLiveSeconds(data: DailyIncomePayload): number {
+  const total = num(data.liveDuration);
+  if (total > 0) return total;
+  const perRoom = (data.rooms ?? []).map((room) => num(room.liveDuration));
+  return perRoom.length ? Math.max(...perRoom) : 0;
+}
 
 /** 归一化接口返回的日期：容忍 2026/09/25、2026.09.25 等写法；无法识别时返回空串。 */
 function normalizeDate(value: unknown): string {
@@ -113,7 +127,7 @@ export async function fetchDailyIncome(anchorId: string, date: string): Promise<
   return {
     date: returned || target,
     hasLive: !!data.hasLive,
-    liveDuration: num(data.liveDuration),
+    liveDurationSeconds: dailyLiveSeconds(data),
     anchors,
   };
 }

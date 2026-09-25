@@ -82,7 +82,7 @@ describe("接口流水：按抖音号聚合", () => {
     const result = await fetchDailyIncome("T-001", "2026-04-10");
 
     expect(result.hasLive).toBe(true);
-    expect(result.liveDuration).toBe(120);
+    expect(result.liveDurationSeconds).toBe(120);
     expect(result.anchors).toEqual([
       { douyinId: "dy-1", userId: "", nickname: "甲", income: 130 },
       { douyinId: "dy-2", userId: "", nickname: "乙", income: 250 },
@@ -130,6 +130,51 @@ describe("接口流水：按抖音号聚合", () => {
     expect(result.anchors).toEqual([
       { douyinId: "qkl1122334", userId: "2686827281788563", nickname: "奶茶", income: 150 },
     ]);
+  });
+});
+
+describe("当日信息：当日总直播时长（所有直播间）", () => {
+  it("取顶层 liveDuration，不把重复下发到每个房间的值累加", async () => {
+    dataApi.fetchDailyIncomePayload.mockResolvedValue(
+      payload({
+        liveDuration: 23786,
+        rooms: [
+          { roomId: "r1", liveDuration: "23786", series: [] },
+          { roomId: "r2", liveDuration: "23786", series: [] },
+          { roomId: "r3", liveDuration: "23786", series: [] },
+          { roomId: "r4", liveDuration: "23786", series: [] },
+        ],
+      }),
+    );
+
+    const result = await fetchDailyIncome("T-001", "2026-04-10");
+
+    // 累加会得到 95144（翻 4 倍），这是必须防住的错。
+    expect(result.liveDurationSeconds).toBe(23786);
+  });
+
+  it("顶层缺失时取房间最大值兜底，仍不累加", async () => {
+    dataApi.fetchDailyIncomePayload.mockResolvedValue(
+      payload({
+        liveDuration: undefined,
+        rooms: [
+          { roomId: "r1", liveDuration: "23972", series: [] },
+          { roomId: "r2", liveDuration: "23972", series: [] },
+        ],
+      }),
+    );
+
+    await expect(fetchDailyIncome("T-001", "2026-04-10")).resolves.toMatchObject({
+      liveDurationSeconds: 23972,
+    });
+  });
+
+  it("没有任何时长字段时为 0", async () => {
+    dataApi.fetchDailyIncomePayload.mockResolvedValue(payload({ liveDuration: undefined, rooms: [] }));
+
+    await expect(fetchDailyIncome("T-001", "2026-04-10")).resolves.toMatchObject({
+      liveDurationSeconds: 0,
+    });
   });
 });
 

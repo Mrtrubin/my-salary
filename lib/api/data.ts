@@ -686,11 +686,13 @@ export type DailyIncomePayload = {
   anchor_id: string;
   date: string;
   hasLive: boolean;
-  liveDuration?: number;
+  /** 当日总直播时长（**秒**，所有直播间合计）。上游对数字字段类型不稳定，按字符串兜底。 */
+  liveDuration?: number | string;
   totalIncome?: number;
   rooms?: {
     roomId: string;
-    liveDuration?: number;
+    /** 当日总时长（秒）：上游把它重复下发到每个房间，聚合时不要累加。 */
+    liveDuration?: number | string;
     series?: {
       /** 抖音号（如 qkl1122334）。 */
       aweme_display_id?: string;
