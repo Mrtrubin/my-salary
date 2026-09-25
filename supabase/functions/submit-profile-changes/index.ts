@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { corsHeaders } from "../_shared/cors.ts";
 
 /**
  * 成员提交自己资料的修改申请（字段级审核）。
@@ -13,12 +14,6 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ALLOWED_FIELDS = ["name", "phone", "email", "id_card"] as const;
 type Field = (typeof ALLOWED_FIELDS)[number];
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });

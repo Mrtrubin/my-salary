@@ -73,6 +73,44 @@ for f in "${functions[@]}"; do
   fi
 done
 
+# ── Step 3.5: 替浏览器打一次 OPTIONS 预检 ──────────────
+# Edge Functions 没有项目级 CORS 开关；未部署(404)或未关 verify_jwt(401) 时，
+# 网关回的是非 2xx 且**不带 CORS 头**的响应，浏览器只会报
+# 「Response to preflight request doesn't pass access control check」，
+# 把真正的 404/401 盖住。这里把状态码直接摊开，免得再靠猜。
+# 需要跳过时：SKIP_PREFLIGHT=1 ./scripts/deploy-all.sh
+preflight_failed=()
+if [[ "${SKIP_PREFLIGHT:-}" == "1" ]]; then
+  echo ""
+  echo "⏭️  跳过预检自检（SKIP_PREFLIGHT=1）"
+else
+  echo ""
+  echo "━━━ 附加校验：浏览器预检（CORS） ━━━"
+  API_URL="https://${PROJECT_REF}.supabase.co"
+  for f in "${functions[@]}"; do
+    status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X OPTIONS \
+      "$API_URL/functions/v1/$f" \
+      -H 'Origin: http://localhost:3000' \
+      -H 'Access-Control-Request-Method: POST' \
+      -H 'Access-Control-Request-Headers: apikey,authorization,content-type' || true)"
+    # 连不上时 curl 已通过 -w 输出 000，这里只兜底空串，避免重复拼接成 000000。
+    status="${status:-000}"
+    if [[ "$status" == "200" ]]; then
+      echo "  ✅ $f 预检 200"
+      continue
+    fi
+    case "$status" in
+      401) hint="verify_jwt 没关：重发时带 --no-verify-jwt" ;;
+      404) hint="函数未部署（网关找不到该函数）" ;;
+      000) hint="请求发不出去（网络 / DNS / 代理）" ;;
+      5*)  hint="函数启动或执行失败：看 Dashboard → Edge Functions → $f → Logs" ;;
+      *)   hint="函数未处理 OPTIONS 预检" ;;
+    esac
+    echo "  ❌ $f 预检 HTTP $status —— $hint"
+    preflight_failed+=("$f")
+  done
+fi
+
 echo ""
 echo "══════════════════════════════════════════════"
 echo "📊 部署结果汇总"
@@ -81,7 +119,12 @@ total=${#functions[@]}
 success=$((total - ${#failed[@]}))
 echo "Edge Functions: 成功 $success / $total"
 if [[ ${#failed[@]} -gt 0 ]]; then
-  echo "失败: ${failed[*]}"
+  echo "部署失败: ${failed[*]}"
+fi
+if [[ ${#preflight_failed[@]} -gt 0 ]]; then
+  echo "预检未通过: ${preflight_failed[*]}"
+fi
+if [[ ${#failed[@]} -gt 0 || ${#preflight_failed[@]} -gt 0 ]]; then
   exit 1
 fi
 echo ""

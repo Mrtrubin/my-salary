@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { corsHeaders } from "../_shared/cors.ts";
 
 /**
  * 自助注册：用户名 + 密码 + 选填邮箱。
@@ -10,12 +11,6 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 const SYNTHETIC_DOMAIN = "users.noreply.mysalary.app";
 const USERNAME_RE = /^[a-z0-9_-]{3,32}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {

@@ -1,44 +1,16 @@
 /**
- * 主播流水接口（daily-income）调用与聚合。
+ * 主播当日流水：取数与聚合。
  *
- * 数据源为外部服务（参考 github.com/linbeinb66/jiulu 的 /api/daily-income）：
- *   GET {base}/api/daily-income?anchor_id={团队 team_key}
- * 返回体结构：
- *   { success, data: { anchor_id, date, hasLive, liveDuration,
- *       totalIncome, ..., rooms: [{ roomId, liveDuration,
- *         series: [{ aweme_display_id, nickname, avatar, income, ... }] }] } }
+ * 取数改由 Edge Function `daily-income` 代取（适配层：lib/api/data.ts 的
+ * fetchDailyIncomePayload）——外部服务是 http 明文且无 CORS 头，https 页面直连会被浏览器
+ * 以混合内容拦掉，上游地址也不该下发到客户端。
  *
- * 识别主播：以 series[].aweme_display_id（抖音号）匹配成员的 douyin_id；
- * 同一主播在多个 room 的 income 直接累加。
+ * 本模块只负责聚合：
+ *   识别主播：以 series[].aweme_display_id（抖音号）匹配成员的 douyin_id；
+ *   同一主播在多个 room 的 income 直接累加。
  */
 
-/** 接口基址，可用环境变量覆盖，默认指向已部署的服务。 */
-const DAILY_INCOME_BASE =
-  process.env.NEXT_PUBLIC_DAILY_INCOME_BASE?.replace(/\/$/, "") || "http://47.121.31.8:3000";
-
-/** 接口返回的单条主播明细。 */
-type IncomeSeries = {
-  aweme_display_id?: string;
-  nickname?: string;
-  avatar?: string;
-  income?: number | string;
-  star_guard_income?: number | string;
-  other_income?: number | string;
-  increase_fans?: number | string;
-};
-
-type DailyIncomeResponse = {
-  success: boolean;
-  message?: string;
-  data?: {
-    anchor_id: string;
-    date: string;
-    hasLive: boolean;
-    liveDuration?: number;
-    totalIncome?: number;
-    rooms?: { roomId: string; liveDuration?: number; series?: IncomeSeries[] }[];
-  };
-};
+import { fetchDailyIncomePayload } from "@/lib/api/data";
 
 /** 按抖音号聚合后的主播流水。 */
 export type AggregatedIncome = {
@@ -54,7 +26,7 @@ export type DailyIncomeResult = {
   hasLive: boolean;
   /** 直播总时长（分钟）。 */
   liveDuration: number;
-  /** 按抖音号聚合的主播流水列表。 */
+  /** 按抖音号聚合后的主播流水列表。 */
   anchors: AggregatedIncome[];
 };
 
@@ -65,18 +37,11 @@ const num = (v: unknown) => {
 
 /**
  * 拉取并聚合某团队（anchorId = 团队 team_key）当日的主播流水。
- * @throws 请求失败或接口返回 success=false 时抛出错误。
+ * @throws 未登录/无权访问/上游失败时抛出 ApiError（message 可直接展示）。
  */
 export async function fetchDailyIncome(anchorId: string): Promise<DailyIncomeResult> {
-  const url = `${DAILY_INCOME_BASE}/api/daily-income?anchor_id=${encodeURIComponent(anchorId)}`;
-  const res = await fetch(url, { headers: { accept: "application/json" } });
-  if (!res.ok) throw new Error(`接口请求失败（HTTP ${res.status}）`);
-  const body = (await res.json()) as DailyIncomeResponse;
-  if (!body.success || !body.data) {
-    throw new Error(body.message || "接口返回失败");
-  }
+  const data = await fetchDailyIncomePayload(anchorId);
 
-  const data = body.data;
   // 按抖音号聚合，同一主播多个 room 的 income 累加。
   const map = new Map<string, AggregatedIncome>();
   for (const room of data.rooms ?? []) {

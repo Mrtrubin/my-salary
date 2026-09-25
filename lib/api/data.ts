@@ -659,6 +659,72 @@ export async function removeTeamMember(teamId: string, profileId: string) {
   if (error) fail(error);
 }
 
+// ==================== 当日主播流水（外部接口经 Edge Function 代取）====================
+
+/**
+ * 上游 `/api/daily-income` 的 data 字段（由边缘函数原样透传，见 supabase/functions/daily-income）。
+ * 识别主播：`rooms[].series[].aweme_display_id`（抖音号）对应成员的 `douyin_id`。
+ */
+export type DailyIncomePayload = {
+  anchor_id: string;
+  date: string;
+  hasLive: boolean;
+  liveDuration?: number;
+  totalIncome?: number;
+  rooms?: {
+    roomId: string;
+    liveDuration?: number;
+    series?: {
+      aweme_display_id?: string;
+      nickname?: string;
+      avatar?: string;
+      income?: number | string;
+      star_guard_income?: number | string;
+      other_income?: number | string;
+      increase_fans?: number | string;
+    }[];
+  }[];
+};
+
+/**
+ * 拉取某团队（anchorId = 团队 team_key）当日的主播流水明细。
+ * 经 daily-income Edge Function 代取：浏览器不再直连外部 http 服务（混合内容/CORS 拦截），
+ * 上游地址与调用凭据也留在服务端；上游报错统一归一化为 ApiError。
+ */
+export async function fetchDailyIncomePayload(anchorId: string): Promise<DailyIncomePayload> {
+  const { url, anonKey } = getPublicSupabaseEnv();
+  const supabase = getBrowserSupabase();
+  const { data: sessionData } = await supabase.auth.getSession();
+
+  const response = await fetch(`${url}/functions/v1/daily-income`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: anonKey,
+      Authorization: `Bearer ${sessionData.session?.access_token ?? anonKey}`,
+    },
+    body: JSON.stringify({ anchorId }),
+  });
+
+  let body: { code?: string; message?: string; data?: DailyIncomePayload } = {};
+  try {
+    body = await response.json();
+  } catch {
+    throw new ApiError(ApiErrorCode.UNKNOWN, "流水服务响应异常", response.status);
+  }
+
+  if (!response.ok || !body.data) {
+    const code = body.code === "FORBIDDEN"
+      ? ApiErrorCode.FORBIDDEN
+      : body.code === "TEAM_NOT_FOUND"
+        ? ApiErrorCode.NOT_FOUND
+        : ApiErrorCode.UNKNOWN;
+    throw new ApiError(code, body.message ?? "拉取流水失败，请稍后再试", response.status);
+  }
+
+  return body.data;
+}
+
 // ==================== 绩效点类型（全局字典:名称 + 换算率）====================
 
 export type PerformancePoint = Database["public"]["Tables"]["performance_points"]["Row"];

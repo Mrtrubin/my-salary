@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { encryptSecret } from "../_shared/crypto.ts";
+import { corsHeaders } from "../_shared/cors.ts";
 
 /**
  * 成员提交「修改密码」申请（走管理员审核，与资料修改一致）。
@@ -12,12 +13,6 @@ import { encryptSecret } from "../_shared/crypto.ts";
  */
 const PASSWORD_MIN_LENGTH = 6;
 const MASK = "••••••";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
