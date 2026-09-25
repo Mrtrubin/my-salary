@@ -215,6 +215,11 @@ export interface UpdateAnchorSettingsInput {
   id: string;
   anchorType: Database["public"]["Enums"]["anchor_type"];
   baseCommissionRateBps: number;
+  /**
+   * 抖音号：填接口返回的 `user_id`（数字 uid）或 `aweme_display_id`（抖音号）都可以，
+   * 用于拉取流水后自动识别主播。空串 / null 表示清除。
+   */
+  douyinId?: string | null;
 }
 
 /** 管理员更新主播资料级配置；保底方案由版本化 salary_schemes 单独保存。 */
@@ -224,12 +229,23 @@ export async function updateAnchorSettings(input: UpdateAnchorSettingsInput): Pr
     || input.baseCommissionRateBps > 10000) {
     throw new ApiError(ApiErrorCode.INVALID_INPUT, "基础提成率必须在 0.01%～100% 之间");
   }
-  const { data, error } = await getBrowserSupabase().from("profiles").update({
+  const patch: Database["public"]["Tables"]["profiles"]["Update"] = {
     anchor_type: input.anchorType,
     anchor_base_commission_bps: input.baseCommissionRateBps,
     updated_at: new Date().toISOString(),
-  }).eq("id", input.id).select("id").maybeSingle();
-  if (error) fail(error);
+  };
+  if (input.douyinId !== undefined) {
+    patch.douyin_id = (input.douyinId ?? "").trim() || null;
+  }
+  const { data, error } = await getBrowserSupabase().from("profiles")
+    .update(patch).eq("id", input.id).select("id").maybeSingle();
+  if (error) {
+    // profiles_douyin_id_key 唯一索引：抖音号被别的成员占用时给出可读提示。
+    if (error.code === "23505") {
+      throw new ApiError(ApiErrorCode.INVALID_INPUT, "该抖音号已被其他成员使用，请核对后重试", error);
+    }
+    fail(error);
+  }
   if (!data) throw new ApiError(ApiErrorCode.FORBIDDEN, "主播配置未更新，请检查管理员权限");
   return data;
 }
@@ -663,7 +679,8 @@ export async function removeTeamMember(teamId: string, profileId: string) {
 
 /**
  * 上游 `/api/daily-income` 的 data 字段（由边缘函数原样透传，见 supabase/functions/daily-income）。
- * 识别主播：`rooms[].series[].aweme_display_id`（抖音号）对应成员的 `douyin_id`。
+ * 识别主播：`rooms[].series[].aweme_display_id`（抖音号）或 `user_id`（数字 uid）
+ * 对应成员资料里的 `douyin_id` —— 两者都算「抖音号」，填哪个都能匹配。
  */
 export type DailyIncomePayload = {
   anchor_id: string;
@@ -675,7 +692,10 @@ export type DailyIncomePayload = {
     roomId: string;
     liveDuration?: number;
     series?: {
+      /** 抖音号（如 qkl1122334）。 */
       aweme_display_id?: string;
+      /** 抖音数字 uid（如 2686827281788563）。 */
+      user_id?: string;
       nickname?: string;
       avatar?: string;
       income?: number | string;

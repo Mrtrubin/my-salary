@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useCreateTeamPerformanceRecords, useReplaceTeamPerformanceRecords, useTeams } from "@/lib/api/hooks";
 import { SummaryCard, today, yuan } from "./_shared";
-import { fetchDailyIncome, type DailyIncomeResult } from "./dailyIncome";
+import { fetchDailyIncome, matchIncomeToMembers, type DailyIncomeResult } from "./dailyIncome";
 
 type Team = NonNullable<ReturnType<typeof useTeams>["data"]>[number];
 
@@ -300,21 +300,17 @@ export function TeamUpload({
   // 接口结果与成员按抖音号匹配的预览：已匹配（可填充）+ 未匹配。
   const incomeMatch = useMemo(() => {
     if (!incomeResult) return null;
-    const byDouyin = new Map(
-      incomeResult.anchors.filter((a) => a.douyinId).map((a) => [a.douyinId, a]),
-    );
-    const matched: { profileId: string; name: string; douyinId: string; nickname: string; income: number }[] = [];
-    const usedDouyin = new Set<string>();
-    teamMembers.forEach((m) => {
-      if (!m.douyinId) return;
-      const hit = byDouyin.get(m.douyinId);
-      if (hit) {
-        matched.push({ profileId: m.profileId, name: m.name, douyinId: m.douyinId, nickname: hit.nickname, income: hit.income });
-        usedDouyin.add(m.douyinId);
-      }
-    });
-    const unmatched = incomeResult.anchors.filter((a) => !a.douyinId || !usedDouyin.has(a.douyinId));
-    return { matched, unmatched };
+    const { matched, unmatched } = matchIncomeToMembers(incomeResult.anchors, teamMembers);
+    return {
+      matched: matched.map(({ member, anchor }) => ({
+        profileId: member.profileId,
+        name: member.name,
+        douyinId: member.douyinId,
+        nickname: anchor.nickname,
+        income: anchor.income,
+      })),
+      unmatched,
+    };
   }, [incomeResult, teamMembers]);
 
   // —— 一键填充：把匹配到的流水填入对应主播的“业绩”栏（不换算） ——
@@ -513,7 +509,7 @@ export function TeamUpload({
                       ))}
                     </div>
                   ) : (
-                    <p className="text-xs text-amber-600">未匹配到任何团队成员（请检查成员抖音号是否填写正确）。</p>
+                    <p className="text-xs text-amber-600">未匹配到任何团队成员（请到「主播管理」为成员填写接口返回的抖音号 / user_id）。</p>
                   )}
 
                   {/* 未匹配（接口有但团队无对应抖音号） */}
@@ -521,8 +517,8 @@ export function TeamUpload({
                     <div className="space-y-1 rounded-lg bg-amber-50 p-2">
                       <div className="text-xs font-medium text-amber-700">未匹配（{incomeMatch.unmatched.length}，接口有数据但无对应成员）</div>
                       {incomeMatch.unmatched.map((a, i) => (
-                        <div key={a.douyinId || i} className="flex items-center justify-between gap-2 text-xs text-amber-800">
-                          <span className="min-w-0 truncate">{a.nickname || "未知"}{a.douyinId ? `（${a.douyinId}）` : ""}</span>
+                        <div key={a.douyinId || a.userId || i} className="flex items-center justify-between gap-2 text-xs text-amber-800">
+                          <span className="min-w-0 truncate">{a.nickname || "未知"}{a.douyinId || a.userId ? `（${a.douyinId || a.userId}）` : ""}</span>
                           <span className="shrink-0 tabular-nums">{yuan(a.income)}</span>
                         </div>
                       ))}

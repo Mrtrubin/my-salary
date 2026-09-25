@@ -6,7 +6,8 @@
  * 以混合内容拦掉，上游地址也不该下发到客户端。
  *
  * 本模块只负责聚合：
- *   识别主播：以 series[].aweme_display_id（抖音号）匹配成员的 douyin_id；
+ *   识别主播：以 series[].aweme_display_id（抖音号）或 series[].user_id（数字 uid）
+ *   匹配成员的 douyin_id —— 管理员填哪一个都能认出来；
  *   同一主播在多个 room 的 income 直接累加。
  */
 
@@ -15,8 +16,10 @@ import { fetchDailyIncomePayload } from "@/lib/api/data";
 
 /** 按抖音号聚合后的主播流水。 */
 export type AggregatedIncome = {
-  /** 抖音号（aweme_display_id）。 */
+  /** 抖音号（aweme_display_id）；接口未返回时为空串。 */
   douyinId: string;
+  /** 抖音数字 uid（user_id）；接口未返回时为空串。 */
+  userId: string;
   nickname: string;
   /** 各 room 累加后的总流水（元）。 */
   income: number;
@@ -72,18 +75,38 @@ export async function fetchDailyIncome(anchorId: string, date: string): Promise<
   }
 
   // 按抖音号聚合，同一主播多个 room 的 income 累加。
-  const map = new Map<string, AggregatedIncome>();
+  // 同一主播可能在不同房间分别只带 aweme_display_id 或只带 user_id，
+  // 因此两个标识都要能命中同一个聚合项，否则同一笔流水会被拆成两条。
+  const byIdentifier = new Map<string, AggregatedIncome>();
+  const byNickname = new Map<string, AggregatedIncome>();
+  const anchors: AggregatedIncome[] = [];
+
+  const ensure = (douyinId: string, userId: string, nickname: string, fallbackKey: string) => {
+    const existing =
+      (douyinId ? byIdentifier.get(douyinId) : undefined) ??
+      (userId ? byIdentifier.get(userId) : undefined) ??
+      (fallbackKey ? byNickname.get(fallbackKey) : undefined);
+    if (existing) return existing;
+    const created: AggregatedIncome = { douyinId, userId, nickname, income: 0 };
+    anchors.push(created);
+    if (fallbackKey) byNickname.set(fallbackKey, created);
+    return created;
+  };
+
   for (const room of data.rooms ?? []) {
     for (const item of room.series ?? []) {
-      const key = item.aweme_display_id || item.nickname || "_unknown";
-      const cur = map.get(key) ?? {
-        douyinId: item.aweme_display_id || "",
-        nickname: item.nickname || "",
-        income: 0,
-      };
+      const douyinId = item.aweme_display_id || "";
+      const userId = item.user_id || "";
+      const nickname = item.nickname || "";
+      // 两个标识都没有时只能按昵称兜底合并。
+      const fallbackKey = douyinId || userId ? "" : nickname || "_unknown";
+      const cur = ensure(douyinId, userId, nickname, fallbackKey);
       cur.income += num(item.income);
-      if (!cur.nickname && item.nickname) cur.nickname = item.nickname;
-      map.set(key, cur);
+      if (!cur.nickname && nickname) cur.nickname = nickname;
+      if (!cur.douyinId && douyinId) cur.douyinId = douyinId;
+      if (!cur.userId && userId) cur.userId = userId;
+      if (douyinId) byIdentifier.set(douyinId, cur);
+      if (userId) byIdentifier.set(userId, cur);
     }
   }
 
@@ -91,6 +114,46 @@ export async function fetchDailyIncome(anchorId: string, date: string): Promise<
     date: returned || target,
     hasLive: !!data.hasLive,
     liveDuration: num(data.liveDuration),
-    anchors: Array.from(map.values()),
+    anchors,
   };
+}
+
+/** 参与匹配的成员：只要有 douyin_id 就能被认出来。 */
+export type MatchableMember = { douyinId: string };
+
+export type IncomeMatch<T extends MatchableMember> = {
+  matched: { member: T; anchor: AggregatedIncome }[];
+  /** 接口返回了、但团队里没有对应抖音号的主播。 */
+  unmatched: AggregatedIncome[];
+};
+
+/**
+ * 按抖音号把接口流水对应到团队成员。
+ *
+ * 接口的 `aweme_display_id`（抖音号）和 `user_id`（数字 uid）都算「抖音号」，
+ * 成员资料里填哪一个都能匹配上；一个接口主播只会被一个成员认领（先到先得，
+ * 避免两个成员填了同一个号时把同一笔流水填两次）。
+ */
+export function matchIncomeToMembers<T extends MatchableMember>(
+  anchors: AggregatedIncome[],
+  members: T[],
+): IncomeMatch<T> {
+  const index = new Map<string, AggregatedIncome>();
+  for (const anchor of anchors) {
+    if (anchor.douyinId) index.set(anchor.douyinId, anchor);
+    if (anchor.userId) index.set(anchor.userId, anchor);
+  }
+
+  const matched: { member: T; anchor: AggregatedIncome }[] = [];
+  const used = new Set<AggregatedIncome>();
+  for (const member of members) {
+    const key = (member.douyinId ?? "").trim();
+    if (!key) continue;
+    const anchor = index.get(key);
+    if (!anchor || used.has(anchor)) continue;
+    used.add(anchor);
+    matched.push({ member, anchor });
+  }
+
+  return { matched, unmatched: anchors.filter((anchor) => !used.has(anchor)) };
 }

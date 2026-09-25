@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Card, Col, Form, InputNumber, Modal, Row, Select, Table, Typography } from "antd";
+import { Button, Card, Col, Form, Input, InputNumber, Modal, Row, Select, Table, Typography } from "antd";
 import dayjs from "dayjs";
 import { useMemo, useState } from "react";
 import { FormField } from "@/components/admin/form-field";
@@ -36,6 +36,8 @@ function latestTemplateScheme(schemes: SalaryScheme[] | undefined, positionId?: 
 type Editing = {
   id: string;
   name: string;
+  /** 抖音号：接口返回的 user_id（数字 uid）或 aweme_display_id 都能填。 */
+  douyinId: string;
   anchorType: "new" | "experienced";
   commissionPercent: number | null;
   baseSalary: number | null;
@@ -62,6 +64,7 @@ export default function AnchorsPage() {
     setEditing({
       id: member.id,
       name: member.name,
+      douyinId: member.douyin_id ?? "",
       anchorType: member.anchor_type,
       commissionPercent: member.anchor_base_commission_bps / 100,
       baseSalary: effective ? effective.base_salary_cents / 100 : null,
@@ -101,6 +104,7 @@ export default function AnchorsPage() {
         id: editing.id,
         anchorType: editing.anchorType,
         baseCommissionRateBps: commissionBps,
+        douyinId: editing.douyinId,
       });
       await createScheme.mutateAsync({
         name: `${editing.name}个人方案`,
@@ -122,7 +126,7 @@ export default function AnchorsPage() {
     <>
       <PageHeader
         title="主播管理"
-        description="统一管理主播类型、基础提成率、初始保底和降级保底"
+        description="统一管理主播抖音号、主播类型、基础提成率、初始保底和降级保底"
       />
 
       <Card>
@@ -139,6 +143,12 @@ export default function AnchorsPage() {
             scroll={{ x: "max-content" }}
             columns={[
               { title: "主播", dataIndex: "name", fixed: "left", width: 180 },
+              {
+                title: "抖音号",
+                width: 200,
+                render: (_, record) =>
+                  record.douyin_id ? record.douyin_id : <Typography.Text type="secondary">未填写</Typography.Text>,
+              },
               {
                 title: "主播类型",
                 width: 140,
@@ -192,6 +202,22 @@ export default function AnchorsPage() {
       >
         {editing ? (
           <Form layout="vertical">
+            <Row gutter={16}>
+              <Col span={24}>
+                <FormField
+                  label="抖音号"
+                  hint="填接口返回的 user_id（如 2686827281788563）或抖音号（如 qkl1122334）；拉取流水后会按此自动识别该主播。留空表示不参与识别。"
+                >
+                  <Input
+                    value={editing.douyinId}
+                    maxLength={64}
+                    allowClear
+                    placeholder="user_id 或抖音号"
+                    onChange={(e) => setEditing({ ...editing, douyinId: e.target.value })}
+                  />
+                </FormField>
+              </Col>
+            </Row>
             <Row gutter={16}>
               <Col span={12}>
                 <FormField label="主播类型">
