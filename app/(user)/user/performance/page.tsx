@@ -38,7 +38,7 @@ export default function UserPerformancePage() {
         {
           key,
           teamName: r.team?.name ?? "团队",
-          teamKey: r.team?.team_key ?? "",
+          teamCode: r.team?.team_code ?? "",
           perfDate: r.perf_date,
           broadcastMinutes: r.broadcast_minutes,
           rows: [],

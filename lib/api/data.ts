@@ -342,7 +342,7 @@ export interface TeamPerformanceRow {
   no_perf: boolean;
   no_perf_note: string | null;
   created_at: string;
-  team: { name: string; team_key: string } | null;
+  team: { name: string; team_code: string } | null;
   point: { name: string } | null;
   profile: { name: string } | null;
   host: { name: string } | null;
@@ -356,7 +356,7 @@ export async function listTeamPerformance(range?: { start?: string; end?: string
   let query = getBrowserSupabase()
     .from("anchor_revenue_records")
     .select(
-      "*, team:teams(name, team_key), point:performance_points(name), profile:profiles!anchor_revenue_records_profile_id_fkey(name), host:profiles!anchor_revenue_records_host_profile_id_fkey(name)",
+      "*, team:teams(name, team_code), point:performance_points(name), profile:profiles!anchor_revenue_records_profile_id_fkey(name), host:profiles!anchor_revenue_records_host_profile_id_fkey(name)",
     )
     .order("perf_date", { ascending: false })
     .order("created_at", { ascending: false });
@@ -628,9 +628,9 @@ export async function listTeams(): Promise<Team[]> {
   return data as unknown as Team[];
 }
 
-export async function createTeam(input: { name: string; teamKey: string; hostProfileId: string; anchorProfileIds?: string[] }) {
+export async function createTeam(input: { name: string; teamCode: string; hostProfileId: string; anchorProfileIds?: string[] }) {
   const supabase = getBrowserSupabase();
-  const { data, error } = await supabase.from("teams").insert({ name: input.name, team_key: input.teamKey.trim(), host_profile_id: input.hostProfileId }).select().single();
+  const { data, error } = await supabase.from("teams").insert({ name: input.name, team_code: input.teamCode.trim(), host_profile_id: input.hostProfileId }).select().single();
   if (error) fail(error);
   if (input.anchorProfileIds?.length) {
     const { error: memberError } = await supabase.from("team_members").insert(input.anchorProfileIds.map((profileId) => ({ team_id: data.id, profile_id: profileId })));
@@ -640,15 +640,20 @@ export async function createTeam(input: { name: string; teamKey: string; hostPro
 }
 
 /**
- * 更新团队。teamKey 仅管理员可改:RLS 的 teams_update 策略只放行 is_admin(),
+ * 更新团队。团队 ID 与名称均仅管理员可改:RLS 的 teams_update 策略只放行 is_admin(),
  * 非管理员提交会被策略拦掉(0 行更新)。未传的字段不下发,避免覆盖既有值。
+ *
+ * 团队 ID 的唯一性口径是「(团队 ID, 主持人) 组合唯一」（见迁移 20261002000000）：
+ * 同一主持人名下不能有两个相同团队 ID 的团，不同主持人之间可以重复；
+ * 改后若撞上该组合，Postgres 会报 23505（teams_team_code_host_profile_id_key），
+ * 由管理端页面转成可读提示。
  */
-export async function updateTeam(id: string, input: { name?: string; teamKey?: string; hostProfileId?: string; status?: "active" | "disabled" }) {
+export async function updateTeam(id: string, input: { name?: string; teamCode?: string; hostProfileId?: string; status?: "active" | "disabled" }) {
   const { error } = await getBrowserSupabase()
     .from("teams")
     .update({
       name: input.name,
-      team_key: input.teamKey?.trim(),
+      team_code: input.teamCode?.trim(),
       host_profile_id: input.hostProfileId,
       status: input.status,
       updated_at: new Date().toISOString(),
@@ -714,13 +719,16 @@ export type DailyIncomePayload = {
 };
 
 /**
- * 拉取某团队（anchorId = 团队 team_key）指定日期的主播流水明细。
+ * 拉取某团队指定日期的主播流水明细。
  * 经 daily-income Edge Function 代取：浏览器不再直连外部 http 服务（混合内容/CORS 拦截），
  * 上游地址与调用凭据也留在服务端；上游报错统一归一化为 ApiError。
  *
+ * 同时下发 teamId（teams.id，uuid）与团队 ID（team_code）：团队 ID 允许重复，
+ * 后端用 teamId 精确定位团队并校验可见性，团队 ID 仅作旧客户端兼容的兜底定位。
+ *
  * @param date 目标日期 `YYYY-MM-DD`（由日期表单决定），透传给上游 `date` 参数。
  */
-export async function fetchDailyIncomePayload(anchorId: string, date: string): Promise<DailyIncomePayload> {
+export async function fetchDailyIncomePayload(team: { teamId: string; teamCode: string }, date: string): Promise<DailyIncomePayload> {
   const { url, anonKey } = getPublicSupabaseEnv();
   const supabase = getBrowserSupabase();
 
@@ -742,7 +750,7 @@ export async function fetchDailyIncomePayload(anchorId: string, date: string): P
         apikey: anonKey,
         Authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({ anchorId, date }),
+      body: JSON.stringify({ teamId: team.teamId, anchorId: team.teamCode, date }),
     });
   } catch (err) {
     // fetch 只在网络层失败（断网/DNS/被拦）时抛错，此时没有 HTTP 状态可参考。

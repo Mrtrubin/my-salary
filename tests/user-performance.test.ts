@@ -21,7 +21,7 @@ const row = (id: string, extra: Partial<TeamPerformanceRow> = {}): TeamPerforman
   id, team_id: "t1", profile_id: "p1", point_id: "point1", perf_date: "2026-04-10",
   broadcast_minutes: 60, points_amount: 111, revenue_cents: 10000,
   no_perf: false, no_perf_note: null, created_at: "2026-04-10T12:00:00Z",
-  team: { name: "甲团", team_key: "T-001" }, point: { name: "音浪" }, profile: { name: "主播甲" }, host: { name: "主持甲" }, ...extra,
+  team: { name: "甲团", team_code: "T-001" }, point: { name: "音浪" }, profile: { name: "主播甲" }, host: { name: "主持甲" }, ...extra,
 });
 
 // 渲染真实页面及绩效卡片，只隔离数据、路由和基础 UI；不代替浏览器交互验收。
@@ -41,7 +41,7 @@ describe("用户绩效页跨团队卡片回归", () => {
   it("同一主播同日的两个团队分别展示个人业绩与团队总量", () => {
     const cards = renderCards([
       row("a"),
-      row("b", { team_id: "t2", team: { name: "乙团", team_key: "T-002" }, points_amount: 222 }),
+      row("b", { team_id: "t2", team: { name: "乙团", team_code: "T-002" }, points_amount: 222 }),
     ]);
     expect(cards).toHaveLength(2);
     expect(cards[0]).toContain("甲团");
@@ -56,7 +56,7 @@ describe("用户绩效页跨团队卡片回归", () => {
   it("同团同人同日只保留查询返回的最新记录，不误删同日跨团记录", () => {
     const cards = renderCards([
       row("new"),
-      row("other-team", { team_id: "t2", team: { name: "乙团", team_key: "T-002" }, points_amount: 222 }),
+      row("other-team", { team_id: "t2", team: { name: "乙团", team_code: "T-002" }, points_amount: 222 }),
       row("old", { points_amount: 999, created_at: "2026-04-10T11:00:00Z" }),
     ]);
     expect(cards).toHaveLength(2);

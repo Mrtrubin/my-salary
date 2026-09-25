@@ -286,7 +286,10 @@ export function TeamUpload({
     setIncomeResult(null);
     setIncomeDate(null);
     try {
-      const result = await fetchDailyIncome(selectedTeam.team_key, requestDate);
+      const result = await fetchDailyIncome(
+        { teamId: selectedTeam.id, teamCode: selectedTeam.team_code },
+        requestDate,
+      );
       if (seq !== fetchSeqRef.current) return; // 期间又发起了新请求，丢弃本次结果
       setIncomeResult(result);
       setIncomeDate(requestDate);
@@ -410,14 +413,14 @@ export function TeamUpload({
                   className={controlClass}
                   disabled={isEditMode}
                 >
-                  {myTeams.map((t) => <option key={t.id} value={t.id}>{t.name}（ID：{t.team_key}）</option>)}
+                  {myTeams.map((t) => <option key={t.id} value={t.id}>{t.name}（ID：{t.team_code}）</option>)}
                 </select>
               </label>
             ) : null}
             {selectedTeam ? (
               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-lg bg-slate-50 px-3 py-2">
                 <span className="text-sm font-medium text-slate-900">{selectedTeam.name}</span>
-                <span className="text-xs text-slate-400">ID：{selectedTeam.team_key}</span>
+                <span className="text-xs text-slate-400">ID：{selectedTeam.team_code}</span>
               </div>
             ) : null}
             <div className="grid grid-cols-2 gap-3">
@@ -482,7 +485,7 @@ export function TeamUpload({
 
               {!incomeResult && !fetchError ? (
                 <p className="text-xs text-slate-400">
-                  点击「获取当日信息」，按团队 ID（{selectedTeam?.team_key ?? "-"}）拉取
+                  点击「获取当日信息」，按团队 ID（{selectedTeam?.team_code ?? "-"}）拉取
                   {teamDate ? ` ${teamDate} ` : "所选日期"}的主播流水与当日总直播时长（所有直播间），
                   系统会按抖音号匹配到团队成员。
                 </p>

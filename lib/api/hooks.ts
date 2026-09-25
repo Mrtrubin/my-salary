@@ -258,7 +258,7 @@ export function useCreateTeam() {
 }
 export function useUpdateTeam() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: ({ id, ...input }: { id: string; name?: string; teamKey?: string; hostProfileId?: string; status?: "active" | "disabled" }) => updateTeam(id, input), onSuccess: () => invalidateRelatedQueries(client, keys.teams) });
+  return useMutation({ mutationFn: ({ id, ...input }: { id: string; name?: string; teamCode?: string; hostProfileId?: string; status?: "active" | "disabled" }) => updateTeam(id, input), onSuccess: () => invalidateRelatedQueries(client, keys.teams) });
 }
 export function useDeleteTeam() {
   const client = useQueryClient();

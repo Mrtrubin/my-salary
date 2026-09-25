@@ -11,15 +11,27 @@ import { TextLink } from "@/components/admin/text-link";
 import { useConfirm } from "@/components/admin/use-confirm";
 import { useCreateTeam, useDeleteTeam, useMembers, useTeams, useUpdateTeam } from "@/lib/api/hooks";
 
-type FormValues = { name: string; teamKey: string; hostProfileId: string; anchorProfileIds: string[] };
+type FormValues = { name: string; teamCode: string; hostProfileId: string; anchorProfileIds: string[] };
 
-const DEFAULTS: FormValues = { name: "", teamKey: "", hostProfileId: "", anchorProfileIds: [] };
+const DEFAULTS: FormValues = { name: "", teamCode: "", hostProfileId: "", anchorProfileIds: [] };
 
-/** 团队 Key 的唯一约束名写在 Postgres 报错里，转成可读提示；其它错误原样返回。 */
+/** 行内可编辑的字段：团队名称、团队 ID。 */
+type EditField = "name" | "teamCode";
+type Editing = { id: string; field: EditField; value: string };
+
+/**
+ * 把 DB 约束名转成可读提示：
+ *   - teams_team_code_host_profile_id_key：(团队 ID, 主持人) 组合重复（23505）；
+ *   - teams_team_code_not_blank：团队 ID 去空白后为空。
+ * 其它错误原样返回。
+ */
 function teamErrorMessage(error: unknown): string | null {
   if (!error) return null;
   if (!(error instanceof Error)) return "请稍后再试";
-  return error.message.includes("teams_team_key_key") ? "团队 Key 已存在，请更换" : error.message;
+  if (error.message.includes("teams_team_code_host_profile_id_key")) {
+    return "该主持人名下已有相同团队 ID 的团队，请更换团队 ID（不同主持人之间可以重复）";
+  }
+  return error.message.includes("teams_team_code_not_blank") ? "团队 ID 不能为空" : error.message;
 }
 
 /** 团队详情页地址，避免同一路径在列定义里重复拼接。 */
@@ -31,6 +43,50 @@ function hasPosition(emp: { user_positions: { position: { code: string } | null 
   return emp.user_positions.some(({ position }) => position?.code === code);
 }
 
+/** 行内编辑：输入 + 保存/取消，错误就地展示（团队名称与团队 ID 两列共用）。 */
+function InlineTextEdit({
+  value,
+  onChange,
+  onSave,
+  onCancel,
+  pending,
+  error,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+  pending: boolean;
+  error: string | null;
+}) {
+  return (
+    <Space direction="vertical" size={4} style={{ display: "flex" }}>
+      <Input
+        autoFocus
+        value={value}
+        disabled={pending}
+        onChange={(event) => onChange(event.target.value)}
+        onPressEnter={onSave}
+      />
+      <Space size={8}>
+        <Button
+          type="primary"
+          size="small"
+          loading={pending}
+          disabled={!value.trim()}
+          onClick={onSave}
+        >
+          保存
+        </Button>
+        <Button size="small" disabled={pending} onClick={onCancel}>
+          取消
+        </Button>
+      </Space>
+      {error ? <Typography.Text type="danger">{error}</Typography.Text> : null}
+    </Space>
+  );
+}
+
 export default function TeamsPage() {
   const confirm = useConfirm();
   const teams = useTeams();
@@ -39,8 +95,8 @@ export default function TeamsPage() {
   const update = useUpdateTeam();
   const remove = useDeleteTeam();
   const [show, setShow] = useState(false);
-  /** 行内编辑中的团队 Key；非空即代表该行处于编辑态。 */
-  const [editingKey, setEditingKey] = useState<{ id: string; value: string } | null>(null);
+  /** 行内编辑态：非空即代表该行的某个字段正在编辑。 */
+  const [editing, setEditing] = useState<Editing | null>(null);
   const {
     control,
     handleSubmit,
@@ -55,21 +111,35 @@ export default function TeamsPage() {
   );
 
   const createErrorMessage = teamErrorMessage(create.error);
+  const updateErrorMessage = teamErrorMessage(update.error);
 
-  /** 保存行内编辑的团队 Key；成功后关闭编辑态，失败原因由单元格内的 update.error 渲染。 */
-  async function saveTeamKey() {
-    if (!editingKey) return;
-    const next = editingKey.value.trim();
-    if (!next) return;
-    if (next === teams.data?.find((team) => team.id === editingKey.id)?.team_key) {
-      setEditingKey(null);
+  /** 进入某行的行内编辑态；顺带清掉上一次的提交错误。 */
+  function startEdit(id: string, field: EditField, value: string) {
+    update.reset();
+    setEditing({ id, field, value });
+  }
+
+  /**
+   * 保存行内编辑（团队名称或团队 ID）；成功后关闭编辑态，失败原因由单元格内的 update.error 渲染。
+   * 值未变化时直接退出，不产生无意义的 update。
+   */
+  async function saveEdit() {
+    if (!editing) return;
+    const next = editing.value.trim();
+    const team = teams.data?.find((item) => item.id === editing.id);
+    if (!next || !team) return;
+    const current = editing.field === "name" ? team.name : team.team_code;
+    if (next === current) {
+      setEditing(null);
       return;
     }
     try {
-      await update.mutateAsync({ id: editingKey.id, teamKey: next });
-      setEditingKey(null);
+      await update.mutateAsync(
+        editing.field === "name" ? { id: editing.id, name: next } : { id: editing.id, teamCode: next },
+      );
+      setEditing(null);
     } catch {
-      // 失败原因由下方 update.error 渲染，这里只是避免未处理的 rejection
+      // 失败原因由单元格内的 update.error 渲染，这里只是避免未处理的 rejection
     }
   }
 
@@ -77,7 +147,7 @@ export default function TeamsPage() {
     try {
       await create.mutateAsync({
         name: values.name,
-        teamKey: values.teamKey,
+        teamCode: values.teamCode,
         hostProfileId: values.hostProfileId,
         anchorProfileIds: values.anchorProfileIds,
       });
@@ -103,7 +173,7 @@ export default function TeamsPage() {
     <>
       <PageHeader
         title="团队管理"
-        description="每个团队含 1 名主持人与若干主播；点击团队进入详情，可分别管理成员与绩效"
+        description="每个团队含 1 名主持人与若干主播；一个主持人可带多个团队。团队名称可重复；团队 ID 在同一主持人名下不可重复（不同主持人之间可重复）。两者均可在列表中直接修改"
         action={
           <Button
             type="primary"
@@ -137,13 +207,13 @@ export default function TeamsPage() {
               </Col>
               <Col xs={24} md={12}>
                 <FormField
-                  label="团队 Key（唯一，创建后可在列表中修改）"
-                  error={errors.teamKey ? "请填写团队 Key" : undefined}
+                  label="团队 ID（同一主持人下不可重复，创建后可在列表中修改）"
+                  error={errors.teamCode ? "请填写团队 ID" : undefined}
                   required
                 >
                   <Controller
                     control={control}
-                    name="teamKey"
+                    name="teamCode"
                     rules={{ required: true }}
                     render={({ field }) => <Input {...field} placeholder="如：TEAM-001" />}
                   />
@@ -219,68 +289,63 @@ export default function TeamsPage() {
                 title: "团队",
                 dataIndex: "name",
                 fixed: "left",
-                width: 200,
-                render: (name: string, record) => (
-                  <TextLink href={teamDetailHref(record.id, "members")}>{name}</TextLink>
-                ),
-              },
-              {
-                title: "Key",
-                dataIndex: "team_key",
-                width: 240,
-                render: (value: string, record) => {
-                  if (editingKey?.id !== record.id) {
+                width: 260,
+                render: (name: string, record) => {
+                  if (editing?.id === record.id && editing.field === "name") {
                     return (
-                      <Space size={8}>
-                        <Typography.Text code>{value}</Typography.Text>
-                        <Button
-                          type="link"
-                          size="small"
-                          style={{ padding: 0 }}
-                          onClick={() => {
-                            update.reset();
-                            setEditingKey({ id: record.id, value });
-                          }}
-                        >
-                          修改
-                        </Button>
-                      </Space>
+                      <InlineTextEdit
+                        value={editing.value}
+                        onChange={(value) => setEditing({ ...editing, value })}
+                        onSave={() => void saveEdit()}
+                        onCancel={() => setEditing(null)}
+                        pending={update.isPending}
+                        error={updateErrorMessage}
+                      />
                     );
                   }
                   return (
-                    <Space direction="vertical" size={4} style={{ display: "flex" }}>
-                      <Input
-                        autoFocus
-                        value={editingKey.value}
-                        disabled={update.isPending}
-                        onChange={(event) =>
-                          setEditingKey({ id: record.id, value: event.target.value })
-                        }
-                        onPressEnter={() => void saveTeamKey()}
+                    <Space size={8}>
+                      <TextLink href={teamDetailHref(record.id, "members")}>{name}</TextLink>
+                      <Button
+                        type="link"
+                        size="small"
+                        style={{ padding: 0 }}
+                        onClick={() => startEdit(record.id, "name", name)}
+                      >
+                        改名
+                      </Button>
+                    </Space>
+                  );
+                },
+              },
+              {
+                title: "ID",
+                dataIndex: "team_code",
+                width: 240,
+                render: (value: string, record) => {
+                  if (editing?.id === record.id && editing.field === "teamCode") {
+                    return (
+                      <InlineTextEdit
+                        value={editing.value}
+                        onChange={(next) => setEditing({ ...editing, value: next })}
+                        onSave={() => void saveEdit()}
+                        onCancel={() => setEditing(null)}
+                        pending={update.isPending}
+                        error={updateErrorMessage}
                       />
-                      <Space size={8}>
-                        <Button
-                          type="primary"
-                          size="small"
-                          loading={update.isPending}
-                          disabled={!editingKey.value.trim()}
-                          onClick={() => void saveTeamKey()}
-                        >
-                          保存
-                        </Button>
-                        <Button
-                          size="small"
-                          disabled={update.isPending}
-                          onClick={() => setEditingKey(null)}
-                        >
-                          取消
-                        </Button>
-                      </Space>
-                      {update.error ? (
-                        <Typography.Text type="danger">
-                          {teamErrorMessage(update.error)}
-                        </Typography.Text>
-                      ) : null}
+                    );
+                  }
+                  return (
+                    <Space size={8}>
+                      <Typography.Text code>{value}</Typography.Text>
+                      <Button
+                        type="link"
+                        size="small"
+                        style={{ padding: 0 }}
+                        onClick={() => startEdit(record.id, "teamCode", value)}
+                      >
+                        修改
+                      </Button>
                     </Space>
                   );
                 },

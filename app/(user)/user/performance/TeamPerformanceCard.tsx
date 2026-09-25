@@ -9,7 +9,8 @@ import type { TeamPerformanceRow } from "@/lib/api/data";
 export interface DailyGroup {
   key: string;
   teamName: string;
-  teamKey: string;
+  /** 团队 ID（teams.team_code）；多个团可重复。 */
+  teamCode: string;
   perfDate: string;
   broadcastMinutes: number;
   rows: TeamPerformanceRow[];
@@ -110,8 +111,8 @@ export function TeamPerformanceCard({
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-2 text-sm font-semibold text-slate-900">
           {shortDate(group.perfDate)} {group.teamName}
-          {group.teamKey ? (
-            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-normal text-slate-400">ID：{group.teamKey}</span>
+          {group.teamCode ? (
+            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-normal text-slate-400">ID：{group.teamCode}</span>
           ) : null}
         </span>
         <div className="flex items-center gap-2">

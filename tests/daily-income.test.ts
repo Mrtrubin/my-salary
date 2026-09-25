@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DailyIncomePayload } from "@/lib/api/data";
 import { fetchDailyIncome, matchIncomeToMembers, type AggregatedIncome } from "@/app/(user)/user/performance/upload/dailyIncome";
 
+/** 取数入参：teamId（uuid）精确定位团队；teamCode 是允许重复的团队 ID。 */
+const TEAM = { teamId: "11111111-1111-4111-8111-111111111111", teamCode: "T-001" };
+
 const dataApi = vi.hoisted(() => ({ fetchDailyIncomePayload: vi.fn() }));
 vi.mock("@/lib/api/data", () => dataApi);
 
@@ -22,22 +25,22 @@ describe("接口流水：按日期表单的日期取数", () => {
   it("把表单日期原样透传给取数层", async () => {
     dataApi.fetchDailyIncomePayload.mockResolvedValue(payload());
 
-    const result = await fetchDailyIncome("T-001", "2026-04-10");
+    const result = await fetchDailyIncome(TEAM, "2026-04-10");
 
-    expect(dataApi.fetchDailyIncomePayload).toHaveBeenCalledWith("T-001", "2026-04-10");
+    expect(dataApi.fetchDailyIncomePayload).toHaveBeenCalledWith(TEAM, "2026-04-10");
     expect(result.date).toBe("2026-04-10");
   });
 
   it("日期非法时直接报错，不打接口", async () => {
-    await expect(fetchDailyIncome("T-001", "")).rejects.toThrow("请先选择要拉取的日期");
-    await expect(fetchDailyIncome("T-001", "2026/04/10")).rejects.toThrow("请先选择要拉取的日期");
+    await expect(fetchDailyIncome(TEAM, "")).rejects.toThrow("请先选择要拉取的日期");
+    await expect(fetchDailyIncome(TEAM, "2026/04/10")).rejects.toThrow("请先选择要拉取的日期");
     expect(dataApi.fetchDailyIncomePayload).not.toHaveBeenCalled();
   });
 
   it("接口返回的日期与所选日期不一致时抛错，避免填错日期的流水", async () => {
     dataApi.fetchDailyIncomePayload.mockResolvedValue(payload({ date: "2026-04-11" }));
 
-    await expect(fetchDailyIncome("T-001", "2026-04-10")).rejects.toThrow(
+    await expect(fetchDailyIncome(TEAM, "2026-04-10")).rejects.toThrow(
       "接口返回的是 2026-04-11 的流水，与所选日期 2026-04-10 不一致，已停止填充；请核对日期后重试",
     );
   });
@@ -45,13 +48,13 @@ describe("接口流水：按日期表单的日期取数", () => {
   it("接口日期写法不同但同一天时不算不一致（2026/04/10）", async () => {
     dataApi.fetchDailyIncomePayload.mockResolvedValue(payload({ date: "2026/04/10" }));
 
-    await expect(fetchDailyIncome("T-001", "2026-04-10")).resolves.toMatchObject({ date: "2026-04-10" });
+    await expect(fetchDailyIncome(TEAM, "2026-04-10")).resolves.toMatchObject({ date: "2026-04-10" });
   });
 
   it("接口没给日期时不误判，回落到请求日期", async () => {
     dataApi.fetchDailyIncomePayload.mockResolvedValue(payload({ date: "" }));
 
-    await expect(fetchDailyIncome("T-001", "2026-04-10")).resolves.toMatchObject({ date: "2026-04-10" });
+    await expect(fetchDailyIncome(TEAM, "2026-04-10")).resolves.toMatchObject({ date: "2026-04-10" });
   });
 });
 
@@ -79,7 +82,7 @@ describe("接口流水：按抖音号聚合", () => {
       }),
     );
 
-    const result = await fetchDailyIncome("T-001", "2026-04-10");
+    const result = await fetchDailyIncome(TEAM, "2026-04-10");
 
     expect(result.hasLive).toBe(true);
     expect(result.liveDurationSeconds).toBe(120);
@@ -95,7 +98,7 @@ describe("接口流水：按抖音号聚合", () => {
       payload({ hasLive: false, rooms: [{ roomId: "r1", series: [{ nickname: "无号", income: 5 }] }] }),
     );
 
-    const result = await fetchDailyIncome("T-001", "2026-04-10");
+    const result = await fetchDailyIncome(TEAM, "2026-04-10");
 
     expect(result.hasLive).toBe(false);
     expect(result.anchors).toEqual([{ douyinId: "", userId: "", nickname: "无号", income: 5 }]);
@@ -104,7 +107,7 @@ describe("接口流水：按抖音号聚合", () => {
   it("rooms 缺失时按空列表处理", async () => {
     dataApi.fetchDailyIncomePayload.mockResolvedValue(payload({ rooms: undefined }));
 
-    await expect(fetchDailyIncome("T-001", "2026-04-10")).resolves.toMatchObject({ anchors: [] });
+    await expect(fetchDailyIncome(TEAM, "2026-04-10")).resolves.toMatchObject({ anchors: [] });
   });
 
   it("同时带回 user_id 时两个标识都保留，只有 user_id 也能聚合同一主播", async () => {
@@ -125,7 +128,7 @@ describe("接口流水：按抖音号聚合", () => {
       }),
     );
 
-    const result = await fetchDailyIncome("T-001", "2026-04-10");
+    const result = await fetchDailyIncome(TEAM, "2026-04-10");
 
     expect(result.anchors).toEqual([
       { douyinId: "qkl1122334", userId: "2686827281788563", nickname: "奶茶", income: 150 },
@@ -147,7 +150,7 @@ describe("当日信息：当日总直播时长（所有直播间）", () => {
       }),
     );
 
-    const result = await fetchDailyIncome("T-001", "2026-04-10");
+    const result = await fetchDailyIncome(TEAM, "2026-04-10");
 
     // 累加会得到 95144（翻 4 倍），这是必须防住的错。
     expect(result.liveDurationSeconds).toBe(23786);
@@ -164,7 +167,7 @@ describe("当日信息：当日总直播时长（所有直播间）", () => {
       }),
     );
 
-    await expect(fetchDailyIncome("T-001", "2026-04-10")).resolves.toMatchObject({
+    await expect(fetchDailyIncome(TEAM, "2026-04-10")).resolves.toMatchObject({
       liveDurationSeconds: 23972,
     });
   });
@@ -172,7 +175,7 @@ describe("当日信息：当日总直播时长（所有直播间）", () => {
   it("没有任何时长字段时为 0", async () => {
     dataApi.fetchDailyIncomePayload.mockResolvedValue(payload({ liveDuration: undefined, rooms: [] }));
 
-    await expect(fetchDailyIncome("T-001", "2026-04-10")).resolves.toMatchObject({
+    await expect(fetchDailyIncome(TEAM, "2026-04-10")).resolves.toMatchObject({
       liveDurationSeconds: 0,
     });
   });

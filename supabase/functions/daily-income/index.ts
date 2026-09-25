@@ -11,8 +11,13 @@ import { corsHeaders } from "../_shared/cors.ts";
  *   2. 上游地址属于内网/运维信息，不应打进客户端 bundle；
  *   3. 顺带把「谁能拉哪个团队的流水」收敛到服务端校验。
  *
- * 请求：POST { anchorId, date }（anchorId 即团队的 team_key；date 为 YYYY-MM-DD，缺省取当天）
- * 上游：GET {DAILY_INCOME_BASE}/api/daily-income?anchor_id={anchorId}&date={date}
+ * 请求：POST { teamId?, anchorId?, date? }
+ *   - teamId：teams.id（uuid）。团队 ID（team_code）允许重复，故首选它精确定位团队；
+ *   - anchorId：团队 ID（team_code），仅为旧客户端兼容的兜底定位。
+ *     团队 ID 的唯一性是「(团队 ID, 主持人) 组合唯一」，同一 ID 仍可能挂在多个主持名下，
+ *     故兜底定位会命中多行，这里取创建最早的一个，新客户端一律带 teamId 精确定位。
+ *   - date：YYYY-MM-DD，缺省取当天。
+ * 上游：GET {DAILY_INCOME_BASE}/api/daily-income?anchor_id={team_code}&date={date}
  *      返回体 { success, data: { anchor_id, date, hasLive, liveDuration, rooms: [...] } }
  * 响应：{ code: "OK", message, data } —— data 为上游 data 字段**原样透传**，
  *      「按抖音号聚合」仍在前端做（见 app/(user)/user/performance/upload/dailyIncome.ts）。
@@ -27,6 +32,8 @@ const DEFAULT_DAILY_INCOME_BASE = "http://47.121.31.8:3000";
 const UPSTREAM_TIMEOUT_MS = 10_000;
 /** 流水上游按北京时间的「日历日」取数。 */
 const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
+/** teams.id 是 uuid：先校验格式，避免非法值打到 Postgres 变成 500。 */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -74,15 +81,20 @@ Deno.serve(async (req: Request) => {
     return json({ code: "UNAUTHENTICATED", message: "登录状态无效" }, 401);
   }
 
-  let payload: { anchorId?: unknown; date?: unknown };
+  let payload: { teamId?: unknown; anchorId?: unknown; date?: unknown };
   try {
     payload = await req.json();
   } catch {
     return json({ code: "INVALID_INPUT", message: "请求体必须是 JSON" }, 400);
   }
 
+  const teamId = typeof payload.teamId === "string" ? payload.teamId.trim() : "";
   const anchorId = typeof payload.anchorId === "string" ? payload.anchorId.trim() : "";
-  if (!anchorId) return json({ code: "INVALID_INPUT", message: "缺少团队 ID" }, 400);
+  if (!teamId && !anchorId) return json({ code: "INVALID_INPUT", message: "缺少团队标识" }, 400);
+  // teamId 直接进 uuid 比较，格式不对会让 Postgres 报 22P02，这里提前归一化成 400。
+  if (teamId && !UUID_RE.test(teamId)) {
+    return json({ code: "INVALID_INPUT", message: "团队 ID 参数格式不正确" }, 400);
+  }
 
   // 目标日期：缺省取北京时间当天（兼容旧客户端），显式传入时必须是真实存在的日历日，且不能是未来。
   const rawDate = typeof payload.date === "string" ? payload.date.trim() : "";
@@ -102,13 +114,27 @@ Deno.serve(async (req: Request) => {
   if (profileError) return json({ code: "UNKNOWN", message: "读取调用者资料失败，请稍后再试" }, 500);
   if (!callerProfile) return json({ code: "FORBIDDEN", message: "当前账号没有成员资料" }, 403);
 
-  // anchor_id 就是 teams.team_key：先定位团队，再按 teams_select 的口径校验可见性。
-  const { data: team, error: teamError } = await admin
-    .from("teams")
-    .select("id, host_profile_id")
-    .eq("team_key", anchorId)
-    .maybeSingle();
-  if (teamError) return json({ code: "UNKNOWN", message: "查询团队失败，请稍后再试" }, 500);
+  // 定位团队：团队 ID 只在「同一主持人」下唯一，跨主持人可重复，
+  // 故首选 teamId（teams.id）精确定位；旧客户端只传 anchorId 时按 team_code 兜底取最早创建的一个。
+  let team: { id: string; host_profile_id: string; team_code: string } | null = null;
+  if (teamId) {
+    const { data, error } = await admin
+      .from("teams")
+      .select("id, host_profile_id, team_code")
+      .eq("id", teamId)
+      .maybeSingle();
+    if (error) return json({ code: "UNKNOWN", message: "查询团队失败，请稍后再试" }, 500);
+    team = data;
+  } else {
+    const { data, error } = await admin
+      .from("teams")
+      .select("id, host_profile_id, team_code")
+      .eq("team_code", anchorId)
+      .order("created_at", { ascending: true })
+      .limit(1);
+    if (error) return json({ code: "UNKNOWN", message: "查询团队失败，请稍后再试" }, 500);
+    team = data?.[0] ?? null;
+  }
   if (!team) return json({ code: "TEAM_NOT_FOUND", message: "团队不存在，请核对团队 ID" }, 404);
 
   if (callerProfile.system_role !== "admin" && team.host_profile_id !== callerProfile.id) {
@@ -124,7 +150,8 @@ Deno.serve(async (req: Request) => {
   }
 
   const base = (Deno.env.get("DAILY_INCOME_BASE") ?? DEFAULT_DAILY_INCOME_BASE).replace(/\/+$/, "");
-  const upstreamUrl = `${base}/api/daily-income?anchor_id=${encodeURIComponent(anchorId)}&date=${encodeURIComponent(date)}`;
+  // 上游按 anchor_id = 团队 ID 取数；以库里的 team_code 为准，忽略客户端可能拼错的透传值。
+  const upstreamUrl = `${base}/api/daily-income?anchor_id=${encodeURIComponent(team.team_code)}&date=${encodeURIComponent(date)}`;
 
   let upstream: Response;
   try {
@@ -133,12 +160,12 @@ Deno.serve(async (req: Request) => {
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
   } catch (err) {
-    console.error("daily-income upstream unreachable", anchorId, date, err);
+    console.error("daily-income upstream unreachable", team.team_code, date, err);
     return json({ code: "UPSTREAM_FAILED", message: "流水接口不可达，请稍后再试" }, 502);
   }
 
   if (!upstream.ok) {
-    console.error("daily-income upstream status", anchorId, date, upstream.status);
+    console.error("daily-income upstream status", team.team_code, date, upstream.status);
     return json({ code: "UPSTREAM_FAILED", message: `流水接口请求失败（HTTP ${upstream.status}）` }, 502);
   }
 
@@ -150,7 +177,7 @@ Deno.serve(async (req: Request) => {
   }
 
   if (!body || !body.success || !body.data || typeof body.data !== "object") {
-    console.error("daily-income upstream payload invalid", anchorId, date, body?.message);
+    console.error("daily-income upstream payload invalid", team.team_code, date, body?.message);
     return json({ code: "UPSTREAM_FAILED", message: body?.message || "流水接口返回失败" }, 502);
   }
 

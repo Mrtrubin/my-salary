@@ -65,18 +65,24 @@ function normalizeDate(value: unknown): string {
 }
 
 /**
- * 拉取并聚合某团队（anchorId = 团队 team_key）指定日期的主播流水。
+ * 拉取并聚合某团队指定日期的主播流水。
+ *
+ * 团队 ID（team_code）允许重复，故定位团队用 teamId（teams.id，uuid），
+ * teamCode 只作展示与旧接口兜底。
  *
  * @param date 目标日期 `YYYY-MM-DD`，由日期表单决定。
  * @throws ApiError 日期非法、未登录/无权访问、上游失败，或上游返回的日期与请求日期不一致
  *         （说明接口没有按日期取数）时抛出，message 可直接展示。
  */
-export async function fetchDailyIncome(anchorId: string, date: string): Promise<DailyIncomeResult> {
+export async function fetchDailyIncome(
+  team: { teamId: string; teamCode: string },
+  date: string,
+): Promise<DailyIncomeResult> {
   const target = (date ?? "").trim();
   if (!DATE_RE.test(target)) {
     throw new ApiError(ApiErrorCode.INVALID_INPUT, "请先选择要拉取的日期");
   }
-  const data = await fetchDailyIncomePayload(anchorId, target);
+  const data = await fetchDailyIncomePayload(team, target);
 
   // 上游若忽略日期参数，会把别的日期（历史上恒为当天）的数据当成结果返回；
   // 流水直接换算成钱，宁可报错也不能把错误日期的数据填进业绩。

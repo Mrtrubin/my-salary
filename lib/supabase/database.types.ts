@@ -648,7 +648,7 @@ export type Database = {
           host_profile_id: string
           id: string
           name: string
-          team_key: string
+          team_code: string
           status: Database["public"]["Enums"]["employment_status"]
           updated_at: string
           settlement_type: Database["public"]["Enums"]["settlement_type"]
@@ -660,7 +660,7 @@ export type Database = {
           host_profile_id: string
           id?: string
           name: string
-          team_key: string
+          team_code: string
           status?: Database["public"]["Enums"]["employment_status"]
           updated_at?: string
       settlement_type?: Database["public"]["Enums"]["settlement_type"]
@@ -672,7 +672,7 @@ export type Database = {
           host_profile_id?: string
           id?: string
           name?: string
-          team_key?: string
+          team_code?: string
           status?: Database["public"]["Enums"]["employment_status"]
           updated_at?: string
           settlement_type?: Database["public"]["Enums"]["settlement_type"]
@@ -683,7 +683,7 @@ export type Database = {
           {
             foreignKeyName: "teams_host_profile_id_fkey"
             columns: ["host_profile_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
