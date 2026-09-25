@@ -191,6 +191,15 @@ export function TeamUpload({
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [incomeResult, setIncomeResult] = useState<DailyIncomeResult | null>(null);
+  /** incomeResult 对应的请求日期：与表单日期不一致即视为过期，禁止填充。 */
+  const [incomeDate, setIncomeDate] = useState<string | null>(null);
+  /** 请求序号：只认最后一次请求的结果，避免并发响应乱序覆盖。 */
+  const fetchSeqRef = useRef(0);
+
+  // 表单日期必须合法且不能晚于今天（未来日期不可能有流水）。
+  const teamDateValid = /^\d{4}-\d{2}-\d{2}$/.test(teamDate) && teamDate <= today();
+  // 拉取后用户又改了日期：旧数据不能填，也不能冒充新日期的数据。
+  const incomeStale = !!incomeResult && incomeDate !== teamDate;
 
   const teamMembers = useMemo(() => {
     const list = (selectedTeam?.members ?? []).filter((m) => m.profile).map((m) => m.profile!);
@@ -260,19 +269,31 @@ export function TeamUpload({
   const canSubmitTeam =
     !!hostProfileId && !!selectedTeamId && !!teamDate && broadcastHoursValid && teamValidMembers.length > 0 && !(createTeam.isPending || replaceTeam.isPending);
 
-  // —— 拉取接口流水 ——
+  // —— 拉取接口流水（按日期表单的日期取数） ——
   const handleFetchIncome = async () => {
-    if (!selectedTeam) return;
+    if (!selectedTeam || fetching) return;
+    if (!teamDateValid) {
+      setIncomeResult(null);
+      setIncomeDate(null);
+      setFetchError("请先选择有效日期（不能晚于今天）");
+      return;
+    }
+    const requestDate = teamDate;
+    const seq = ++fetchSeqRef.current;
     setFetching(true);
     setFetchError(null);
     setIncomeResult(null);
+    setIncomeDate(null);
     try {
-      const result = await fetchDailyIncome(selectedTeam.team_key);
+      const result = await fetchDailyIncome(selectedTeam.team_key, requestDate);
+      if (seq !== fetchSeqRef.current) return; // 期间又发起了新请求，丢弃本次结果
       setIncomeResult(result);
+      setIncomeDate(requestDate);
     } catch (err) {
-      setFetchError((err as Error).message || "拉取失败");
+      if (seq !== fetchSeqRef.current) return;
+      setFetchError((err as Error).message || "拉取失败，请稍后再试");
     } finally {
-      setFetching(false);
+      if (seq === fetchSeqRef.current) setFetching(false);
     }
   };
 
@@ -298,7 +319,8 @@ export function TeamUpload({
 
   // —— 一键填充：把匹配到的流水填入对应主播的“业绩”栏（不换算） ——
   const handleApplyIncome = () => {
-    if (!incomeMatch?.matched.length) return;
+    // 日期已被改动时结果作废，避免把旧日期的流水填进新日期。
+    if (incomeStale || !incomeMatch?.matched.length) return;
     setMemberRows((prev) => {
       const next = { ...prev };
       incomeMatch.matched.forEach((row) => {
@@ -385,7 +407,7 @@ export function TeamUpload({
                 <FieldLabel>选择团队</FieldLabel>
                 <select
                   value={selectedTeamId}
-                  onChange={(e) => { setTeamId(e.target.value); setMemberRows({}); setIncomeResult(null); setFetchError(null); }}
+                  onChange={(e) => { setTeamId(e.target.value); setMemberRows({}); setIncomeResult(null); setIncomeDate(null); setFetchError(null); }}
                   className={controlClass}
                   disabled={isEditMode}
                 >
@@ -409,6 +431,9 @@ export function TeamUpload({
                   className={controlClass}
                   disabled={isEditMode}
                 />
+                {teamDate && !teamDateValid ? (
+                  <span className="mt-1 block text-xs text-danger">日期不能晚于今天</span>
+                ) : null}
               </label>
               <label className="block">
                 <FieldLabel>开播时长（小时）</FieldLabel>
@@ -430,7 +455,7 @@ export function TeamUpload({
         </Card>
       </div>
 
-      {/* 接口流水：拉取当日数据、按抖音号匹配、一键填充 */}
+      {/* 接口流水：按日期表单的日期拉取、按抖音号匹配、一键填充 */}
       {!isEditMode ? (
         <div className="space-y-2">
           <div className="flex items-center justify-between px-1">
@@ -438,7 +463,7 @@ export function TeamUpload({
             <Button
               variant="secondary"
               size="sm"
-              disabled={!selectedTeam || fetching}
+              disabled={!selectedTeam || !teamDateValid || fetching}
               onClick={handleFetchIncome}
             >
               {fetching ? "获取中…" : incomeResult ? "重新获取" : "获取接口数据"}
@@ -450,17 +475,24 @@ export function TeamUpload({
                 <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-danger">{fetchError}</p>
               ) : null}
 
-              {!incomeResult && !fetchError ? (
-                <p className="text-xs text-slate-400">
-                  点击「获取接口数据」，按团队 ID（{selectedTeam?.team_key ?? "-"}）拉取当日各房间流水，系统会按抖音号匹配到团队成员。
+              {incomeStale ? (
+                <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                  日期已改为 {teamDate || "（空）"}，已获取的是 {incomeDate} 的流水，请重新获取后再填充。
                 </p>
               ) : null}
 
-              {incomeResult && !incomeResult.hasLive ? (
-                <p className="text-sm text-slate-500">接口返回当日（{incomeResult.date}）无直播记录。</p>
+              {!incomeResult && !fetchError ? (
+                <p className="text-xs text-slate-400">
+                  点击「获取接口数据」，按团队 ID（{selectedTeam?.team_key ?? "-"}）拉取
+                  {teamDate ? ` ${teamDate} ` : "所选日期"}各房间流水，系统会按抖音号匹配到团队成员。
+                </p>
               ) : null}
 
-              {incomeResult && incomeResult.hasLive ? (
+              {incomeResult && !incomeStale && !incomeResult.hasLive ? (
+                <p className="text-sm text-slate-500">接口返回 {incomeResult.date} 无直播记录。</p>
+              ) : null}
+
+              {incomeResult && !incomeStale && incomeResult.hasLive ? (
                 <div className="space-y-2">
                   <div className="text-xs text-slate-500">
                     日期 {incomeResult.date} · 开播 {(incomeResult.liveDuration / 60).toFixed(1)} 小时 · 识别 {incomeResult.anchors.length} 位主播

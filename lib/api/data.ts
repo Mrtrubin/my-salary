@@ -687,38 +687,63 @@ export type DailyIncomePayload = {
 };
 
 /**
- * 拉取某团队（anchorId = 团队 team_key）当日的主播流水明细。
+ * 拉取某团队（anchorId = 团队 team_key）指定日期的主播流水明细。
  * 经 daily-income Edge Function 代取：浏览器不再直连外部 http 服务（混合内容/CORS 拦截），
  * 上游地址与调用凭据也留在服务端；上游报错统一归一化为 ApiError。
+ *
+ * @param date 目标日期 `YYYY-MM-DD`（由日期表单决定），透传给上游 `date` 参数。
  */
-export async function fetchDailyIncomePayload(anchorId: string): Promise<DailyIncomePayload> {
+export async function fetchDailyIncomePayload(anchorId: string, date: string): Promise<DailyIncomePayload> {
   const { url, anonKey } = getPublicSupabaseEnv();
   const supabase = getBrowserSupabase();
-  const { data: sessionData } = await supabase.auth.getSession();
 
-  const response = await fetch(`${url}/functions/v1/daily-income`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: anonKey,
-      Authorization: `Bearer ${sessionData.session?.access_token ?? anonKey}`,
-    },
-    body: JSON.stringify({ anchorId }),
-  });
+  // 会话读取失败不致命：退回 anon key，由边缘函数按 401 归一化。
+  let accessToken = anonKey;
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    accessToken = sessionData.session?.access_token ?? anonKey;
+  } catch {
+    accessToken = anonKey;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${url}/functions/v1/daily-income`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: anonKey,
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ anchorId, date }),
+    });
+  } catch (err) {
+    // fetch 只在网络层失败（断网/DNS/被拦）时抛错，此时没有 HTTP 状态可参考。
+    throw new ApiError(ApiErrorCode.UNKNOWN, "网络异常，流水服务不可达，请检查网络后重试", err);
+  }
 
   let body: { code?: string; message?: string; data?: DailyIncomePayload } = {};
   try {
     body = await response.json();
   } catch {
-    throw new ApiError(ApiErrorCode.UNKNOWN, "流水服务响应异常", response.status);
+    throw new ApiError(
+      ApiErrorCode.UNKNOWN,
+      response.ok ? "流水服务响应异常" : `流水服务响应异常（HTTP ${response.status}）`,
+      response.status,
+    );
   }
 
   if (!response.ok || !body.data) {
-    const code = body.code === "FORBIDDEN"
-      ? ApiErrorCode.FORBIDDEN
-      : body.code === "TEAM_NOT_FOUND"
-        ? ApiErrorCode.NOT_FOUND
-        : ApiErrorCode.UNKNOWN;
+    const code =
+      body.code === "UNAUTHENTICATED"
+        ? ApiErrorCode.UNAUTHENTICATED
+        : body.code === "FORBIDDEN"
+          ? ApiErrorCode.FORBIDDEN
+          : body.code === "TEAM_NOT_FOUND"
+            ? ApiErrorCode.NOT_FOUND
+            : body.code === "INVALID_INPUT"
+              ? ApiErrorCode.INVALID_INPUT
+              : ApiErrorCode.UNKNOWN;
     throw new ApiError(code, body.message ?? "拉取流水失败，请稍后再试", response.status);
   }
 

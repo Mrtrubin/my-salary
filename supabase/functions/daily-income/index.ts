@@ -3,7 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 
 /**
- * 当日主播流水代理：浏览器不再直连外部流水服务，改由边缘函数代取。
+ * 主播流水代理（按日期）：浏览器不再直连外部流水服务，改由边缘函数代取。
  *
  * 为什么要有这一层：
  *   1. 上游是 http 明文且不带 CORS 头，页面部署到 https（GitHub Pages）后浏览器会以
@@ -11,8 +11,8 @@ import { corsHeaders } from "../_shared/cors.ts";
  *   2. 上游地址属于内网/运维信息，不应打进客户端 bundle；
  *   3. 顺带把「谁能拉哪个团队的流水」收敛到服务端校验。
  *
- * 请求：POST { anchorId }（anchorId 即团队的 team_key）
- * 上游：GET {DAILY_INCOME_BASE}/api/daily-income?anchor_id={anchorId}
+ * 请求：POST { anchorId, date }（anchorId 即团队的 team_key；date 为 YYYY-MM-DD，缺省取当天）
+ * 上游：GET {DAILY_INCOME_BASE}/api/daily-income?anchor_id={anchorId}&date={date}
  *      返回体 { success, data: { anchor_id, date, hasLive, liveDuration, rooms: [...] } }
  * 响应：{ code: "OK", message, data } —— data 为上游 data 字段**原样透传**，
  *      「按抖音号聚合」仍在前端做（见 app/(user)/user/performance/upload/dailyIncome.ts）。
@@ -25,12 +25,34 @@ import { corsHeaders } from "../_shared/cors.ts";
 const DEFAULT_DAILY_INCOME_BASE = "http://47.121.31.8:3000";
 /** 上游超时（毫秒）：外部接口偶发挂死时不要一直占着边缘函数连接。 */
 const UPSTREAM_TIMEOUT_MS = 10_000;
+/** 流水上游按北京时间的「日历日」取数。 */
+const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+/** 北京时间当天（YYYY-MM-DD）。 */
+function todayInShanghai(): string {
+  return new Date(Date.now() + SHANGHAI_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/** 严格校验 YYYY-MM-DD：格式正确且是真实存在的日历日（拒绝 2026-02-30）。 */
+function isValidDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
 }
 
 Deno.serve(async (req: Request) => {
@@ -52,15 +74,25 @@ Deno.serve(async (req: Request) => {
     return json({ code: "UNAUTHENTICATED", message: "登录状态无效" }, 401);
   }
 
-  let payload: { anchorId?: string };
+  let payload: { anchorId?: unknown; date?: unknown };
   try {
     payload = await req.json();
   } catch {
     return json({ code: "INVALID_INPUT", message: "请求体必须是 JSON" }, 400);
   }
 
-  const anchorId = (payload.anchorId ?? "").trim();
+  const anchorId = typeof payload.anchorId === "string" ? payload.anchorId.trim() : "";
   if (!anchorId) return json({ code: "INVALID_INPUT", message: "缺少团队 ID" }, 400);
+
+  // 目标日期：缺省取北京时间当天（兼容旧客户端），显式传入时必须是真实存在的日历日，且不能是未来。
+  const rawDate = typeof payload.date === "string" ? payload.date.trim() : "";
+  const date = rawDate || todayInShanghai();
+  if (!isValidDate(date)) {
+    return json({ code: "INVALID_INPUT", message: "日期格式不正确，应为 YYYY-MM-DD" }, 400);
+  }
+  if (date > todayInShanghai()) {
+    return json({ code: "INVALID_INPUT", message: "不能查询未来日期的流水" }, 400);
+  }
 
   const { data: callerProfile, error: profileError } = await admin
     .from("profiles")
@@ -92,7 +124,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const base = (Deno.env.get("DAILY_INCOME_BASE") ?? DEFAULT_DAILY_INCOME_BASE).replace(/\/+$/, "");
-  const upstreamUrl = `${base}/api/daily-income?anchor_id=${encodeURIComponent(anchorId)}`;
+  const upstreamUrl = `${base}/api/daily-income?anchor_id=${encodeURIComponent(anchorId)}&date=${encodeURIComponent(date)}`;
 
   let upstream: Response;
   try {
@@ -101,12 +133,12 @@ Deno.serve(async (req: Request) => {
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
   } catch (err) {
-    console.error("daily-income upstream unreachable", anchorId, err);
+    console.error("daily-income upstream unreachable", anchorId, date, err);
     return json({ code: "UPSTREAM_FAILED", message: "流水接口不可达，请稍后再试" }, 502);
   }
 
   if (!upstream.ok) {
-    console.error("daily-income upstream status", anchorId, upstream.status);
+    console.error("daily-income upstream status", anchorId, date, upstream.status);
     return json({ code: "UPSTREAM_FAILED", message: `流水接口请求失败（HTTP ${upstream.status}）` }, 502);
   }
 
@@ -117,8 +149,8 @@ Deno.serve(async (req: Request) => {
     body = null;
   }
 
-  if (!body || !body.success || !body.data) {
-    console.error("daily-income upstream payload invalid", anchorId, body?.message);
+  if (!body || !body.success || !body.data || typeof body.data !== "object") {
+    console.error("daily-income upstream payload invalid", anchorId, date, body?.message);
     return json({ code: "UPSTREAM_FAILED", message: body?.message || "流水接口返回失败" }, 502);
   }
 
