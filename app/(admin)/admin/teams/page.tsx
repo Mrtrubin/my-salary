@@ -9,11 +9,18 @@ import { QueryMessage } from "@/components/admin/query-message";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
 import { TextLink } from "@/components/admin/text-link";
 import { useConfirm } from "@/components/admin/use-confirm";
-import { useCreateTeam, useDeleteTeam, useMembers, useTeams } from "@/lib/api/hooks";
+import { useCreateTeam, useDeleteTeam, useMembers, useTeams, useUpdateTeam } from "@/lib/api/hooks";
 
 type FormValues = { name: string; teamKey: string; hostProfileId: string; anchorProfileIds: string[] };
 
 const DEFAULTS: FormValues = { name: "", teamKey: "", hostProfileId: "", anchorProfileIds: [] };
+
+/** 团队 Key 的唯一约束名写在 Postgres 报错里，转成可读提示；其它错误原样返回。 */
+function teamErrorMessage(error: unknown): string | null {
+  if (!error) return null;
+  if (!(error instanceof Error)) return "请稍后再试";
+  return error.message.includes("teams_team_key_key") ? "团队 Key 已存在，请更换" : error.message;
+}
 
 /** 团队详情页地址，避免同一路径在列定义里重复拼接。 */
 function teamDetailHref(teamId: string, tab: "members" | "points") {
@@ -29,8 +36,11 @@ export default function TeamsPage() {
   const teams = useTeams();
   const members = useMembers();
   const create = useCreateTeam();
+  const update = useUpdateTeam();
   const remove = useDeleteTeam();
   const [show, setShow] = useState(false);
+  /** 行内编辑中的团队 Key；非空即代表该行处于编辑态。 */
+  const [editingKey, setEditingKey] = useState<{ id: string; value: string } | null>(null);
   const {
     control,
     handleSubmit,
@@ -44,14 +54,24 @@ export default function TeamsPage() {
     [members.data],
   );
 
-  /** create.error 是 unknown，直接当 Error 用会在抛出非 Error 时崩掉。 */
-  const createErrorMessage = !create.error
-    ? null
-    : !(create.error instanceof Error)
-      ? "请稍后再试"
-      : create.error.message.includes("teams_team_key_key")
-        ? "团队 Key 已存在，请更换"
-        : create.error.message;
+  const createErrorMessage = teamErrorMessage(create.error);
+
+  /** 保存行内编辑的团队 Key；成功后关闭编辑态，失败原因由单元格内的 update.error 渲染。 */
+  async function saveTeamKey() {
+    if (!editingKey) return;
+    const next = editingKey.value.trim();
+    if (!next) return;
+    if (next === teams.data?.find((team) => team.id === editingKey.id)?.team_key) {
+      setEditingKey(null);
+      return;
+    }
+    try {
+      await update.mutateAsync({ id: editingKey.id, teamKey: next });
+      setEditingKey(null);
+    } catch {
+      // 失败原因由下方 update.error 渲染，这里只是避免未处理的 rejection
+    }
+  }
 
   async function submit(values: FormValues) {
     try {
@@ -117,7 +137,7 @@ export default function TeamsPage() {
               </Col>
               <Col xs={24} md={12}>
                 <FormField
-                  label="团队 Key（唯一，创建后不可修改）"
+                  label="团队 Key（唯一，创建后可在列表中修改）"
                   error={errors.teamKey ? "请填写团队 Key" : undefined}
                   required
                 >
@@ -207,8 +227,63 @@ export default function TeamsPage() {
               {
                 title: "Key",
                 dataIndex: "team_key",
-                width: 160,
-                render: (value: string) => <Typography.Text code>{value}</Typography.Text>,
+                width: 240,
+                render: (value: string, record) => {
+                  if (editingKey?.id !== record.id) {
+                    return (
+                      <Space size={8}>
+                        <Typography.Text code>{value}</Typography.Text>
+                        <Button
+                          type="link"
+                          size="small"
+                          style={{ padding: 0 }}
+                          onClick={() => {
+                            update.reset();
+                            setEditingKey({ id: record.id, value });
+                          }}
+                        >
+                          修改
+                        </Button>
+                      </Space>
+                    );
+                  }
+                  return (
+                    <Space direction="vertical" size={4} style={{ display: "flex" }}>
+                      <Input
+                        autoFocus
+                        value={editingKey.value}
+                        disabled={update.isPending}
+                        onChange={(event) =>
+                          setEditingKey({ id: record.id, value: event.target.value })
+                        }
+                        onPressEnter={() => void saveTeamKey()}
+                      />
+                      <Space size={8}>
+                        <Button
+                          type="primary"
+                          size="small"
+                          loading={update.isPending}
+                          disabled={!editingKey.value.trim()}
+                          onClick={() => void saveTeamKey()}
+                        >
+                          保存
+                        </Button>
+                        <Button
+                          size="small"
+                          disabled={update.isPending}
+                          onClick={() => setEditingKey(null)}
+                        >
+                          取消
+                        </Button>
+                      </Space>
+                      {update.error ? (
+                        <Typography.Text type="danger">
+                          {teamErrorMessage(update.error)}
+                        </Typography.Text>
+                      ) : null}
+                    </Space>
+                  );
+                },
               },
               {
                 title: "主持人",

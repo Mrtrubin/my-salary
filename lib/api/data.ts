@@ -639,11 +639,16 @@ export async function createTeam(input: { name: string; teamKey: string; hostPro
   return data;
 }
 
-export async function updateTeam(id: string, input: { name?: string; hostProfileId?: string; status?: "active" | "disabled" }) {
+/**
+ * 更新团队。teamKey 仅管理员可改:RLS 的 teams_update 策略只放行 is_admin(),
+ * 非管理员提交会被策略拦掉(0 行更新)。未传的字段不下发,避免覆盖既有值。
+ */
+export async function updateTeam(id: string, input: { name?: string; teamKey?: string; hostProfileId?: string; status?: "active" | "disabled" }) {
   const { error } = await getBrowserSupabase()
     .from("teams")
     .update({
       name: input.name,
+      team_key: input.teamKey?.trim(),
       host_profile_id: input.hostProfileId,
       status: input.status,
       updated_at: new Date().toISOString(),
