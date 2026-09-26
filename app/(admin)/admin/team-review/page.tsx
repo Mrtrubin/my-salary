@@ -98,7 +98,7 @@ export default function TeamReviewPage() {
                 width: 160,
                 render: (_, record) =>
                   record.no_perf ? (
-                    <Typography.Text type="warning">{record.no_perf_note || "停播"}</Typography.Text>
+                    <Typography.Text type="warning">{record.no_perf_note || "休息"}</Typography.Text>
                   ) : (
                     (record.point?.name ?? "—")
                   ),

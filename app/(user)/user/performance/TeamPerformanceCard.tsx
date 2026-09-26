@@ -30,14 +30,14 @@ function toHours(minutes: number): string {
 
 /** 某成员单条业绩的展示文本（不含名字）。 */
 function memberValueText(r: TeamPerformanceRow, showUnit: boolean): string {
-  if (r.no_perf) return r.no_perf_note || "停播";
+  if (r.no_perf) return r.no_perf_note || "休息";
   const amount = r.points_amount.toLocaleString();
   return showUnit && r.point ? `${amount}（${r.point.name}）` : amount;
 }
 
 /**
  * 按绩效点分类统计：判断是否只有单一绩效点（决定是否显示单位），
- * 并按点分别汇总总量。停播记录不计入。
+ * 并按点分别汇总总量。休息记录不计入。
  */
 function analyze(rows: TeamPerformanceRow[]) {
   const byPoint = new Map<string, { name: string; total: number }>();
@@ -63,7 +63,7 @@ function buildCopyText(group: DailyGroup): string {
   group.rows.forEach((r) => {
     const name = r.profile?.name ?? "";
     if (r.no_perf) {
-      lines.push(`${name}：${r.no_perf_note || "停播"}`);
+      lines.push(`${name}：${r.no_perf_note || "休息"}`);
     } else {
       const amount = r.points_amount.toLocaleString();
       const val = singleUnit ? amount : `${amount}（${r.point?.name ?? ""}）`;

@@ -19,7 +19,7 @@ export type PerfAdjustment = {
   amount: string;
 };
 
-/** 团队版单成员行：绩效点 + 业绩 + 调整项 + 无绩效勾选 + 停播文本。 */
+/** 团队版单成员行：绩效点 + 业绩 + 调整项 + 无绩效勾选 + 休息文本。 */
 export type TeamMemberRow = {
   profileId: string;
   name: string;
@@ -216,7 +216,7 @@ export function TeamUpload({
             pointsAmount: "",
             adjustments: [],
             noPerf: false,
-            noPerfNote: "停播",
+            noPerfNote: "休息",
           };
     });
   }, [selectedTeam, memberRows, teamDefaultPointId]);
@@ -573,7 +573,7 @@ export function TeamUpload({
               return (
                 <Card key={m.profileId} className={m.noPerf ? "bg-amber-50/60" : ""}>
                   <CardContent className="space-y-2 !px-3 !py-2.5">
-                    {/* 头部：姓名 + 停播开关 */}
+                    {/* 头部：姓名 + 休息开关 */}
                     <div className="flex items-center justify-between gap-2">
                       <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-900">{m.name}</span>
                       <label className="flex shrink-0 items-center gap-1 text-xs text-slate-500">
@@ -582,9 +582,9 @@ export function TeamUpload({
                           checked={m.noPerf}
                           onChange={(e) => updateMember(m.profileId, { noPerf: e.target.checked })}
                           className="size-4 accent-amber-500"
-                          aria-label={`${m.name} 停播`}
+                          aria-label={`${m.name} 休息`}
                         />
-                        停播
+                        休息
                       </label>
                     </div>
 
@@ -592,7 +592,7 @@ export function TeamUpload({
                       <Input
                         size="sm"
                         maxLength={20}
-                        placeholder="停播备注"
+                        placeholder="休息备注"
                         value={m.noPerfNote}
                         onChange={(e) => updateMember(m.profileId, { noPerfNote: e.target.value.slice(0, 20) })}
                       />

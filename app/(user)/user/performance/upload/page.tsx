@@ -46,7 +46,7 @@ export default function HostPerformanceUploadPage() {
         // 提交时已将「业绩 + 调整项」合并存入 points_amount，编辑回填不再拆分调整项。
         adjustments: [],
         noPerf: r.no_perf,
-        noPerfNote: r.no_perf_note ?? "停播",
+        noPerfNote: r.no_perf_note ?? "休息",
       };
     });
     return {

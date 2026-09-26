@@ -359,7 +359,7 @@ export async function createTeamPerformanceRecords(input: {
     points_amount: item.noPerf ? 0 : item.pointsAmount,
     revenue_cents: item.noPerf ? 0 : item.revenueCents,
     no_perf: item.noPerf,
-    no_perf_note: item.noPerf ? (item.noPerfNote?.slice(0, 20) || "停播") : null,
+    no_perf_note: item.noPerf ? (item.noPerfNote?.slice(0, 20) || "休息") : null,
     host_profile_id: input.hostProfileId,
     updated_at: now,
   }));
@@ -407,7 +407,7 @@ export async function replaceTeamPerformanceRecords(input: {
     const nextPointId = item.noPerf ? null : item.pointId;
     const nextPointsAmount = item.noPerf ? 0 : item.pointsAmount;
     const nextRevenueCents = item.noPerf ? 0 : item.revenueCents;
-    const nextNote = item.noPerf ? (item.noPerfNote?.slice(0, 20) || "停播") : null;
+    const nextNote = item.noPerf ? (item.noPerfNote?.slice(0, 20) || "休息") : null;
     const same =
       prev &&
       prev.point_id === nextPointId &&
