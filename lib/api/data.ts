@@ -1,5 +1,6 @@
 import { ApiError, ApiErrorCode } from "@/lib/api/contracts/errors";
 import { invokeEdgeFunction, isNetworkFailure, toNetworkError, type EdgeFunctionBody } from "@/lib/api/client";
+import { REST_NOTE } from "@/lib/domain/performance/status";
 import { getBrowserSupabase } from "@/lib/supabase/client";
 import type { Database, Json } from "@/lib/supabase/database.types";
 import type { SettlementMemberContext } from "@/lib/domain/settlement/aggregate";
@@ -331,12 +332,14 @@ export interface TeamPerformanceUploadItem {
   pointId: string;
   pointsAmount: number;
   revenueCents: number;
+  /** 该成员当日直播时长（分钟），按主播单独记录。 */
+  broadcastMinutes: number;
   noPerf: boolean;
   noPerfNote?: string;
 }
 /**
- * 主持人团队绩效批量上传：以「团队 + 单日 + 总开播时长」为一次批次，
- * 为团队内每名成员各录一条当日绩效记录。
+ * 主持人团队绩效批量上传：以「团队 + 单日」为一次批次，
+ * 为团队内每名成员各录一条当日绩效记录（含各自直播时长）。
  *
  * 唯一 key 为 (team_id, perf_date, profile_id)：重新提交同一天同一成员时直接更新（upsert），
  * 不再新建记录、也没有审核状态与作废概念。
@@ -345,7 +348,6 @@ export async function createTeamPerformanceRecords(input: {
   teamId: string;
   hostProfileId: string;
   perfDate: string;
-  broadcastMinutes: number;
   items: TeamPerformanceUploadItem[];
 }) {
   if (!input.items.length) return;
@@ -355,11 +357,11 @@ export async function createTeamPerformanceRecords(input: {
     profile_id: item.profileId,
     point_id: item.noPerf ? null : (item.pointId || null),
     perf_date: input.perfDate,
-    broadcast_minutes: input.broadcastMinutes,
+    broadcast_minutes: item.noPerf ? 0 : item.broadcastMinutes,
     points_amount: item.noPerf ? 0 : item.pointsAmount,
     revenue_cents: item.noPerf ? 0 : item.revenueCents,
     no_perf: item.noPerf,
-    no_perf_note: item.noPerf ? (item.noPerfNote?.slice(0, 20) || "休息") : null,
+    no_perf_note: item.noPerf ? (item.noPerfNote?.slice(0, 20) || REST_NOTE) : null,
     host_profile_id: input.hostProfileId,
     updated_at: now,
   }));
@@ -381,7 +383,6 @@ export async function replaceTeamPerformanceRecords(input: {
   teamId: string;
   hostProfileId: string;
   perfDate: string;
-  broadcastMinutes: number;
   items: TeamPerformanceUploadItem[];
 }) {
   const supabase = getBrowserSupabase();
@@ -407,7 +408,8 @@ export async function replaceTeamPerformanceRecords(input: {
     const nextPointId = item.noPerf ? null : item.pointId;
     const nextPointsAmount = item.noPerf ? 0 : item.pointsAmount;
     const nextRevenueCents = item.noPerf ? 0 : item.revenueCents;
-    const nextNote = item.noPerf ? (item.noPerfNote?.slice(0, 20) || "休息") : null;
+    const nextNote = item.noPerf ? (item.noPerfNote?.slice(0, 20) || REST_NOTE) : null;
+    const nextBroadcastMinutes = item.noPerf ? 0 : item.broadcastMinutes;
     const same =
       prev &&
       prev.point_id === nextPointId &&
@@ -415,7 +417,7 @@ export async function replaceTeamPerformanceRecords(input: {
       prev.revenue_cents === nextRevenueCents &&
       prev.no_perf === item.noPerf &&
       prev.no_perf_note === nextNote &&
-      prev.broadcast_minutes === input.broadcastMinutes;
+      prev.broadcast_minutes === nextBroadcastMinutes;
     if (!same) changedItems.push(item);
   }
 

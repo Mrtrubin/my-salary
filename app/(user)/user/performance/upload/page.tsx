@@ -8,6 +8,7 @@ import { QueryMessage } from "@/components/query-message";
 import { useCurrentProfile, useTeamPerformance, useTeams } from "@/lib/api/hooks";
 import { TeamUpload } from "./TeamUpload";
 import type { TeamMemberRow } from "./TeamUpload";
+import { REST_NOTE, statusFromRecord } from "@/lib/domain/performance/status";
 
 export default function HostPerformanceUploadPage() {
   const searchParams = useSearchParams();
@@ -37,22 +38,23 @@ export default function HostPerformanceUploadPage() {
     if (!rows.length) return null;
     const memberRows: Record<string, TeamMemberRow> = {};
     rows.forEach((r) => {
+      const status = statusFromRecord(r.no_perf, r.no_perf_note);
       memberRows[r.profile_id] = {
         profileId: r.profile_id,
         name: r.profile?.name ?? "",
         douyinId: "",
         pointId: r.point_id ?? "",
-        pointsAmount: r.no_perf ? "" : String(r.points_amount || ""),
+        pointsAmount: status === "normal" ? String(r.points_amount || "") : "",
         // 提交时已将「业绩 + 调整项」合并存入 points_amount，编辑回填不再拆分调整项。
         adjustments: [],
-        noPerf: r.no_perf,
-        noPerfNote: r.no_perf_note ?? "休息",
+        status,
+        restNote: status === "rest" ? (r.no_perf_note ?? REST_NOTE) : REST_NOTE,
+        broadcastHours: r.broadcast_minutes > 0 ? String((r.broadcast_minutes / 60).toFixed(2)) : "",
       };
     });
     return {
       teamId: editTeamId,
       perfDate: editDate,
-      broadcastMinutes: rows[0]?.broadcast_minutes ?? 0,
       memberRows,
     };
   }, [isEditMode, editTeamId, editDate, teamQuery.data]);

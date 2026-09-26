@@ -7,7 +7,7 @@ import { QueryMessage } from "@/components/query-message";
 import { useSalaryStatusLogs } from "@/lib/api/hooks";
 import type { SalaryRecord } from "@/lib/api/data";
 import type { PayrollAdjustment } from "@/lib/domain/payroll/adjustment";
-import { formatBpsAsPercent, formatCentsToYuan, formatDate, formatDateTime, formatMonth } from "@/lib/format";
+import { formatBpsAsPercent, formatCentsToYuan, formatDate, formatDateTime, formatDurationSeconds, formatMonth } from "@/lib/format";
 
 const STATUS_LABELS: Record<string, string> = {
   pending_review: "待审核",
@@ -210,6 +210,11 @@ export function PayslipDetail({
           <Section title="流水与门槛">
             {isAnchor ? <Row label="总音浪" value={soundWaves} hint="按总流水 × 10 折算，非原始录入音浪" /> : null}
             <Row label="周期流水" value={formatCentsToYuan(item.revenue_cents)} />
+            <Row
+              label="直播时长"
+              value={item.broadcast_minutes > 0 ? formatDurationSeconds(item.broadcast_minutes * 60) : "—"}
+              hint="本周期该主播每日直播时长汇总"
+            />
             <Row label="拿提点门槛" value={formatCentsToYuan(item.commission_start_cents)} hint="达到该流水才开始计提成" />
             <Row label="拿保底门槛" value={formatCentsToYuan(item.threshold_cents)} />
             <Row label="是否达标" value={item.is_qualified ? "达标" : "未达标"} tone={item.is_qualified ? "success" : "danger"} />

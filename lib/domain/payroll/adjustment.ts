@@ -13,6 +13,7 @@
  * 结果之上做外层组合，不改动核心工资引擎。
  */
 import { ApiError, ApiErrorCode } from "@/lib/api/contracts/errors";
+import { OFF_AIR_NOTE } from "@/lib/domain/performance/status";
 import { applyRateCeil } from "./money";
 import type { AmountInCents } from "@/lib/api/contracts/common";
 import {
@@ -35,7 +36,7 @@ export function getAdjustmentPresets(guaranteeInCents: AmountInCents): PayrollAd
   }
   return [
     { name: "延误", amountCents: -Math.round(guaranteeInCents / 260) || 0 },
-    { name: "停播", amountCents: -Math.round(guaranteeInCents / 26) || 0 },
+    { name: OFF_AIR_NOTE, amountCents: -Math.round(guaranteeInCents / 26) || 0 },
     { name: "奖励", amountCents: 0 },
   ];
 }

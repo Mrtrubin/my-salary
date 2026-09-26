@@ -234,6 +234,7 @@ export type Database = {
           attendance_bonus_bps: number
           dy_task_bonus_bps: number
           base_guarantee_cents: number
+          broadcast_minutes: number
           commission_rate_bps: number
           base_commission_rate_bps: number
           commission_start_cents: number
@@ -271,6 +272,7 @@ export type Database = {
           attendance_bonus_bps?: number
           dy_task_bonus_bps?: number
           base_guarantee_cents?: number
+          broadcast_minutes?: number
           commission_rate_bps: number
           base_commission_rate_bps?: number
           commission_start_cents?: number
@@ -308,6 +310,7 @@ export type Database = {
           attendance_bonus_bps?: number
           dy_task_bonus_bps?: number
           base_guarantee_cents?: number
+          broadcast_minutes?: number
           commission_rate_bps?: number
           base_commission_rate_bps?: number
           commission_start_cents?: number

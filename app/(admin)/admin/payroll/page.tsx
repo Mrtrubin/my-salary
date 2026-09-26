@@ -18,7 +18,7 @@ import {
   useTransitionSalaryStatus,
 } from "@/lib/api/hooks";
 import type { SalaryRecord } from "@/lib/api/data";
-import { formatBpsAsPercent, formatCentsToYuan, formatDateTime } from "@/lib/format";
+import { formatBpsAsPercent, formatCentsToYuan, formatDateTime, formatDurationSeconds } from "@/lib/format";
 
 /** 状态变更历史时间轴（展开某条工资条时按需加载，精确到秒）。 */
 function StatusTimeline({ recordId }: { recordId: string }) {
@@ -400,6 +400,15 @@ export default function PayrollPage() {
                         width: 110,
                         align: "right",
                         render: (_, record) => formatCentsToYuan(record.revenue_cents),
+                      },
+                      {
+                        title: "直播时长",
+                        width: 110,
+                        align: "right",
+                        render: (_, record) =>
+                          record.broadcast_minutes > 0
+                            ? formatDurationSeconds(record.broadcast_minutes * 60)
+                            : "—",
                       },
                       {
                         title: "拿提点门槛",

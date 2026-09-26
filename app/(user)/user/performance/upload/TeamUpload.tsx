@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useCreateTeamPerformanceRecords, useReplaceTeamPerformanceRecords, useTeams } from "@/lib/api/hooks";
-import { SummaryCard, today, yuan } from "./_shared";
+import { today, yuan } from "./_shared";
 import { formatDurationSeconds } from "@/lib/format";
+import { OFF_AIR_NOTE, REST_NOTE, recordFromStatus, type MemberPerfStatus } from "@/lib/domain/performance/status";
+import { buildPerformanceCopyText, type PerfCopyMember } from "../performanceCopy";
 import { fetchDailyIncome, matchIncomeToMembers, type DailyIncomeResult } from "./dailyIncome";
 
 type Team = NonNullable<ReturnType<typeof useTeams>["data"]>[number];
@@ -19,7 +21,7 @@ export type PerfAdjustment = {
   amount: string;
 };
 
-/** 团队版单成员行：绩效点 + 业绩 + 调整项 + 无绩效勾选 + 休息文本。 */
+/** 团队版单成员行：绩效点 + 业绩 + 调整项 + 三种情况（正常 / 休息 / 停播）。 */
 export type TeamMemberRow = {
   profileId: string;
   name: string;
@@ -27,9 +29,30 @@ export type TeamMemberRow = {
   pointId: string;
   pointsAmount: string;
   adjustments: PerfAdjustment[];
-  noPerf: boolean;
-  noPerfNote: string;
+  /** 当日情况：正常流水 / 休息（不扣薪）/ 停播（结算按 初始保底/26 扣款）。 */
+  status: MemberPerfStatus;
+  /** 休息备注（仅休息情况使用）。 */
+  restNote: string;
+  /** 该主播当日直播时长（小时，字符串便于输入）。 */
+  broadcastHours: string;
 };
+
+/** 非正常流水（休息 / 停播）均不录入业绩。 */
+const isNoPerf = (status: MemberPerfStatus) => status !== "normal";
+
+/** 直播时长合法性：0 不含，且不超过 24 小时。 */
+function isBroadcastHoursValid(value: string): boolean {
+  if (value.trim() === "") return false;
+  const hours = Number(value);
+  return Number.isFinite(hours) && hours > 0 && hours <= 24;
+}
+
+/** 单成员「情况」切换项。 */
+const STATUS_OPTIONS: { value: MemberPerfStatus; label: string; activeClass: string }[] = [
+  { value: "normal", label: "正常", activeClass: "bg-indigo-600 text-white" },
+  { value: "rest", label: "休息", activeClass: "bg-amber-500 text-white" },
+  { value: "offair", label: "停播", activeClass: "bg-red-600 text-white" },
+];
 
 /** 生成调整项唯一 id。 */
 function makeAdjId() {
@@ -162,7 +185,6 @@ export function TeamUpload({
   initialData?: {
     teamId: string;
     perfDate: string;
-    broadcastMinutes: number;
     memberRows: Record<string, TeamMemberRow>;
   } | null;
   isEditMode?: boolean;
@@ -181,9 +203,6 @@ export function TeamUpload({
   }, [selectedTeam]);
   const teamDefaultPointId = teamPoints[0]?.id ?? "";
   const [teamDate, setTeamDate] = useState(initialData?.perfDate ?? today());
-  const [broadcastHours, setBroadcastHours] = useState(
-    initialData ? String((initialData.broadcastMinutes / 60).toFixed(1)) : "",
-  );
   const [memberRows, setMemberRows] = useState<Record<string, TeamMemberRow>>(initialData?.memberRows ?? {});
   // 当前展开调整项面板的成员（null 表示全部收起）。
   const [expandedAdjId, setExpandedAdjId] = useState<string | null>(null);
@@ -204,7 +223,7 @@ export function TeamUpload({
 
   const teamMembers = useMemo(() => {
     const list = (selectedTeam?.members ?? []).filter((m) => m.profile).map((m) => m.profile!);
-    return list.map((m) => {
+    return list.map((m): TeamMemberRow => {
       const existing = memberRows[m.id];
       return existing
         ? { ...existing, name: m.name, douyinId: m.douyin_id ?? existing.douyinId ?? "" }
@@ -215,8 +234,9 @@ export function TeamUpload({
             pointId: teamDefaultPointId,
             pointsAmount: "",
             adjustments: [],
-            noPerf: false,
-            noPerfNote: "休息",
+            status: "normal",
+            restNote: REST_NOTE,
+            broadcastHours: "",
           };
     });
   }, [selectedTeam, memberRows, teamDefaultPointId]);
@@ -250,25 +270,28 @@ export function TeamUpload({
     updateMember(profileId, { adjustments: current.filter((a) => a.id !== id) });
   };
 
-  // 总业绩 = 业绩 + 调整项累加（无绩效行为 0）。
+  // 总业绩 = 业绩 + 调整项累加（休息/停播行为 0）。
   const totalPointsOf = (m: TeamMemberRow): number => {
-    if (m.noPerf) return 0;
+    if (isNoPerf(m.status)) return 0;
     return (Number(m.pointsAmount) || 0) + sumAdjustments(m.adjustments);
   };
 
   const teamRateOf = (pointId: string) => teamPoints.find((p) => p.id === pointId)?.rate ?? 0;
   const teamRevenueYuanOf = (m: TeamMemberRow): number => {
-    if (m.noPerf) return 0;
+    if (isNoPerf(m.status)) return 0;
     const rate = teamRateOf(m.pointId || teamDefaultPointId);
     const amount = totalPointsOf(m);
     return rate > 0 ? amount / rate : 0;
   };
-  const teamValidMembers = teamMembers.filter((m) => m.noPerf || Number(m.pointsAmount) > 0 || m.adjustments.length > 0);
-  // 开播时长必须在 (0, 24] 区间内。
-  const broadcastHoursValue = Number(broadcastHours);
-  const broadcastHoursValid = broadcastHours !== "" && broadcastHoursValue > 0 && broadcastHoursValue <= 24;
+  // 只有「信息填全」的主播才会被上传：休息/停播一定记录；正常流水需填合法直播时长且有业绩或调整项。
+  // 没填全的视为「本次不需要上传」——提交时跳过、不更新其记录，也不阻塞其他人的提交。
+  const membersToSubmit = teamMembers.filter((m) =>
+    isNoPerf(m.status)
+      ? true
+      : isBroadcastHoursValid(m.broadcastHours) && (Number(m.pointsAmount) > 0 || m.adjustments.length > 0),
+  );
   const canSubmitTeam =
-    !!hostProfileId && !!selectedTeamId && !!teamDate && broadcastHoursValid && teamValidMembers.length > 0 && !(createTeam.isPending || replaceTeam.isPending);
+    !!hostProfileId && !!selectedTeamId && !!teamDate && membersToSubmit.length > 0 && !(createTeam.isPending || replaceTeam.isPending);
 
   // —— 拉取接口流水（按日期表单的日期取数） ——
   const handleFetchIncome = async () => {
@@ -317,52 +340,52 @@ export function TeamUpload({
     };
   }, [incomeResult, teamMembers]);
 
-  // —— 一键填充：把匹配到的流水填入对应主播的“业绩”栏（不换算） ——
+  // —— 一键填充：把匹配到的流水填入对应主播的“业绩”栏（不换算），
+  //    并把匹配到的主播直播时长统一改为接口返回的当日时长（秒 → 小时，正数）。
+  //    接口流水为 0 的主播视为停播（无流水、按初始保底/26 扣款）。 ——
   const handleApplyIncome = () => {
     // 日期已被改动时结果作废，避免把旧日期的流水填进新日期。
     if (incomeStale || !incomeMatch?.matched.length) return;
+    const liveSeconds = incomeResult?.liveDurationSeconds ?? 0;
+    const liveHoursText = liveSeconds > 0 ? (liveSeconds / 3600).toFixed(2) : null;
     setMemberRows((prev) => {
       const next = { ...prev };
       incomeMatch.matched.forEach((row) => {
         const base = teamMembers.find((m) => m.profileId === row.profileId);
         if (!base) return;
+        const offAir = !(row.income > 0);
         next[row.profileId] = {
           ...base,
           ...prev[row.profileId],
-          pointsAmount: String(Math.round(row.income)),
-          noPerf: false,
+          pointsAmount: offAir ? "" : String(Math.round(row.income)),
+          status: offAir ? "offair" : "normal",
+          broadcastHours: offAir ? "" : (liveHoursText ?? base.broadcastHours),
         };
       });
       return next;
     });
-    // 若接口带回当日总直播时长且当前未填，则自动带出（秒 → 小时）。
-    const liveHours = incomeResult ? incomeResult.liveDurationSeconds / 3600 : 0;
-    // 超过 24 小时会被表单校验拦下，宁可不填也不要塞一个必然报错的数。
-    if (broadcastHours === "" && liveHours > 0 && liveHours <= 24) {
-      setBroadcastHours(liveHours.toFixed(1));
-    }
   };
 
 
   const handleSubmitTeam = () => {
     if (!hostProfileId || !selectedTeamId) return;
-    if (!broadcastHoursValid) return;
-    const items = teamValidMembers.map((m) => {
+    const items = membersToSubmit.map((m) => {
       const pointId = m.pointId || teamDefaultPointId;
+      const record = recordFromStatus(m.status, m.restNote);
       return {
         profileId: m.profileId,
         pointId,
-        pointsAmount: m.noPerf ? 0 : totalPointsOf(m),
+        pointsAmount: record.noPerf ? 0 : totalPointsOf(m),
         revenueCents: Math.round(teamRevenueYuanOf(m) * 100),
-        noPerf: m.noPerf,
-      noPerfNote: m.noPerf ? m.noPerfNote : undefined,
+        broadcastMinutes: record.noPerf ? 0 : Math.round((Number(m.broadcastHours) || 0) * 60),
+        noPerf: record.noPerf,
+        noPerfNote: record.noPerfNote ?? undefined,
       };
     });
     const input = {
       teamId: selectedTeamId,
       hostProfileId,
       perfDate: teamDate,
-      broadcastMinutes: Math.round((Number(broadcastHours) || 0) * 60),
       items,
     };
     const onSuccess = () => {
@@ -375,27 +398,52 @@ export function TeamUpload({
     }
   };
 
-  const summary = useMemo(() => {
-    const byPoint = new Map<string, { name: string; amount: number; revenue: number }>();
-    let totalRevenue = 0;
-    teamMembers.forEach((m) => {
-      if (m.noPerf) return;
-      // 汇总口径为「总业绩 = 业绩 + 调整项」。
-      const amount = totalPointsOf(m);
-      if (amount === 0 && !(Number(m.pointsAmount) > 0) && !m.adjustments.length) return;
-      const pid = m.pointId || teamDefaultPointId;
-      const p = teamPoints.find((x) => x.id === pid);
-      if (!p) return;
-      const rev = teamRevenueYuanOf(m);
-      const cur = byPoint.get(pid) ?? { name: p.name, amount: 0, revenue: 0 };
-      cur.amount += amount;
-      cur.revenue += rev;
-      byPoint.set(pid, cur);
-      totalRevenue += rev;
+  // —— 提交汇总（与业绩卡片复制格式一致，可复制） ——
+  const [summaryCopied, setSummaryCopied] = useState(false);
+  const summaryText = useMemo(() => {
+    const members: PerfCopyMember[] = membersToSubmit.map((m) => {
+      const pointId = m.pointId || teamDefaultPointId;
+      return {
+        name: m.name,
+        noPerf: isNoPerf(m.status),
+        note:
+          m.status === "offair"
+            ? OFF_AIR_NOTE
+            : m.status === "rest"
+              ? (m.restNote.trim() || REST_NOTE)
+              : null,
+        pointsAmount: totalPointsOf(m),
+        pointId,
+        pointName: teamPoints.find((p) => p.id === pointId)?.name ?? null,
+      };
     });
-    return { rows: Array.from(byPoint.values()), totalRevenue };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teamMembers, teamPoints, teamDefaultPointId]);
+    // 卡片口径：当日「总开播时」取各主播时长的最大值。
+    const broadcastMinutes = membersToSubmit.reduce(
+      (max, m) => (isNoPerf(m.status) ? max : Math.max(max, Math.round((Number(m.broadcastHours) || 0) * 60))),
+      0,
+    );
+    return buildPerformanceCopyText({
+      perfDate: teamDate,
+      teamName: selectedTeam?.name ?? "",
+      broadcastMinutes,
+      members,
+    });
+  }, [membersToSubmit, teamDate, selectedTeam, teamPoints, teamDefaultPointId]);
+
+  const handleCopySummary = async () => {
+    try {
+      await navigator.clipboard.writeText(summaryText);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = summaryText;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    setSummaryCopied(true);
+    setTimeout(() => setSummaryCopied(false), 1500);
+  };
 
   return (
     <div className="space-y-4">
@@ -423,43 +471,25 @@ export function TeamUpload({
                 <span className="text-xs text-slate-400">ID：{selectedTeam.team_code}</span>
               </div>
             ) : null}
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <FieldLabel>日期</FieldLabel>
-                <input
-                  type="date"
-                  value={teamDate}
-                  onChange={(e) => setTeamDate(e.target.value)}
-                  className={controlClass}
-                  disabled={isEditMode}
-                />
-                {teamDate && !teamDateValid ? (
-                  <span className="mt-1 block text-xs text-danger">日期不能晚于今天</span>
-                ) : null}
-              </label>
-              <label className="block">
-                <FieldLabel>开播时长（小时）</FieldLabel>
-                <Input
-                  type="number"
-                  min={0.1}
-                  max={24}
-                  step="0.5"
-                  placeholder="0~24"
-                  value={broadcastHours}
-                  onChange={(e) => setBroadcastHours(e.target.value)}
-                />
-                {broadcastHours !== "" && !broadcastHoursValid ? (
-                  <span className="mt-1 block text-xs text-danger">开播时长需大于 0 且不超过 24 小时</span>
-                ) : null}
-              </label>
-            </div>
+            <label className="block">
+              <FieldLabel>日期</FieldLabel>
+              <input
+                type="date"
+                value={teamDate}
+                onChange={(e) => setTeamDate(e.target.value)}
+                className={controlClass}
+                disabled={isEditMode}
+              />
+              {teamDate && !teamDateValid ? (
+                <span className="mt-1 block text-xs text-danger">日期不能晚于今天</span>
+              ) : null}
+            </label>
           </CardContent>
         </Card>
       </div>
 
-      {/* 当日信息：按日期拉取主播流水 + 当日总直播时长（所有直播间），按抖音号匹配、一键填充 */}
-      {!isEditMode ? (
-        <div className="space-y-2">
+      {/* 当日信息：按日期拉取主播流水 + 当日总直播时长（所有直播间），按抖音号匹配、一键填充（新增/编辑均可用） */}
+      <div className="space-y-2">
           <div className="flex items-center justify-between px-1">
             <span className="text-sm font-semibold text-slate-900">当日信息（接口获取）</span>
             <Button
@@ -547,14 +577,13 @@ export function TeamUpload({
             </CardContent>
           </Card>
         </div>
-      ) : null}
 
       {/* 成员业绩录入 */}
       <div className="space-y-2">
         <div className="flex items-center justify-between px-1">
           <span className="text-sm font-semibold text-slate-900">成员业绩</span>
           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
-            共 {teamMembers.length} 人 · 已填 {teamValidMembers.length} 人
+            共 {teamMembers.length} 人 · 已填 {membersToSubmit.length} 人
           </span>
         </div>
 
@@ -571,34 +600,49 @@ export function TeamUpload({
               const total = totalPointsOf(m);
               const expanded = expandedAdjId === m.profileId;
               return (
-                <Card key={m.profileId} className={m.noPerf ? "bg-amber-50/60" : ""}>
+                <Card key={m.profileId} className={m.status === "offair" ? "bg-red-50/60" : m.status === "rest" ? "bg-amber-50/60" : ""}>
                   <CardContent className="space-y-2 !px-3 !py-2.5">
-                    {/* 头部：姓名 + 休息开关 */}
+                    {/* 头部：姓名 + 三种情况切换 */}
                     <div className="flex items-center justify-between gap-2">
                       <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-900">{m.name}</span>
-                      <label className="flex shrink-0 items-center gap-1 text-xs text-slate-500">
-                        <input
-                          type="checkbox"
-                          checked={m.noPerf}
-                          onChange={(e) => updateMember(m.profileId, { noPerf: e.target.checked })}
-                          className="size-4 accent-amber-500"
-                          aria-label={`${m.name} 休息`}
-                        />
-                        休息
-                      </label>
+                      <div
+                        role="group"
+                        aria-label={`${m.name} 情况`}
+                        className="flex shrink-0 overflow-hidden rounded-lg border border-slate-200"
+                      >
+                        {STATUS_OPTIONS.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            aria-pressed={m.status === option.value}
+                            onClick={() => updateMember(m.profileId, { status: option.value })}
+                            className={`px-2.5 py-1 text-xs transition ${
+                              m.status === option.value
+                                ? option.activeClass
+                                : "bg-white text-slate-500 hover:bg-slate-50"
+                            }`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
 
-                    {m.noPerf ? (
+                    {m.status === "rest" ? (
                       <Input
                         size="sm"
                         maxLength={20}
                         placeholder="休息备注"
-                        value={m.noPerfNote}
-                        onChange={(e) => updateMember(m.profileId, { noPerfNote: e.target.value.slice(0, 20) })}
+                        value={m.restNote}
+                        onChange={(e) => updateMember(m.profileId, { restNote: e.target.value.slice(0, 20) })}
                       />
+                    ) : m.status === "offair" ? (
+                      <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
+                        无流水，结算时按初始保底 ÷ 26 自动生成「停播」扣款。
+                      </p>
                     ) : (
                      <>
-                        {/* 种类 / 业绩 / 总业绩 一行紧凑排布 */}
+                        {/* 种类 / 业绩 一行紧凑排布 */}
                         <div className="grid grid-cols-2 items-end gap-2">
                           <label className="min-w-0 block">
                             <span className="mb-1 block text-xs text-slate-400">种类</span>
@@ -621,6 +665,24 @@ export function TeamUpload({
                             />
                           </label>
                         </div>
+
+                        {/* 直播时长（每主播单独） */}
+                        <label className="block">
+                          <span className="mb-1 block text-xs text-slate-400">直播时长（小时）</span>
+                          <Input
+                            size="sm"
+                            type="number"
+                            min={0.1}
+                            max={24}
+                            step="0.5"
+                            placeholder="0~24"
+                            value={m.broadcastHours}
+                            onChange={(e) => updateMember(m.profileId, { broadcastHours: e.target.value })}
+                          />
+                          {m.broadcastHours !== "" && !isBroadcastHoursValid(m.broadcastHours) ? (
+                            <span className="mt-1 block text-xs text-danger">需大于 0 且不超过 24 小时</span>
+                          ) : null}
+                        </label>
 
                         {/* 调整项 + 总业绩 */}
                         <div className="flex items-center justify-between gap-2">
@@ -716,7 +778,31 @@ export function TeamUpload({
         )}
       </div>
 
-      <SummaryCard rows={summary.rows} totalRevenue={summary.totalRevenue} />
+      {/* 提交汇总：与业绩卡片复制格式一致，提交前可复制核对 */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between px-1">
+          <span className="text-sm font-semibold text-slate-900">提交汇总</span>
+          <Button size="sm" variant="secondary" onClick={handleCopySummary} disabled={!membersToSubmit.length}>
+            {summaryCopied ? "已复制" : "复制"}
+          </Button>
+        </div>
+        <Card>
+          <CardContent className="space-y-2 !px-3 !py-3">
+            {membersToSubmit.length ? (
+              <pre className="whitespace-pre-wrap break-words rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-700">
+                {summaryText}
+              </pre>
+            ) : (
+              <p className="text-xs text-slate-400">
+                暂无可提交内容：请填写业绩与直播时长，或标记为休息 / 停播。
+              </p>
+            )}
+            <p className="text-xs text-slate-400">
+              未填全信息的主播视为「本次不需要上传」，提交时会被跳过、不更新其记录。
+            </p>
+          </CardContent>
+        </Card>
+      </div>
 
       {(createTeam.error || replaceTeam.error) ? (
         <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-danger">
@@ -725,7 +811,7 @@ export function TeamUpload({
       ) : null}
 
       <Button className="w-full" disabled={!canSubmitTeam} onClick={handleSubmitTeam}>
-        {createTeam.isPending || replaceTeam.isPending ? "提交中…" : `${isEditMode ? "重新提交" : "提交主播流水"}${teamValidMembers.length ? `（${teamValidMembers.length} 人）` : ""}`}
+        {createTeam.isPending || replaceTeam.isPending ? "提交中…" : `${isEditMode ? "重新提交" : "提交主播流水"}${membersToSubmit.length ? `（${membersToSubmit.length} 人）` : ""}`}
       </Button>
     </div>
   );

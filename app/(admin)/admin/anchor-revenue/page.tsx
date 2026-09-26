@@ -15,7 +15,7 @@ import {
   Typography,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/admin/page-header";
 import { QueryMessage } from "@/components/admin/query-message";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
@@ -43,8 +43,9 @@ import {
   parseAdjustmentAmountYuan,
 } from "@/lib/domain/payroll/adjustment";
 import type { PayrollAdjustment } from "@/lib/domain/payroll/adjustment";
+import { OFF_AIR_NOTE, statusFromRecord } from "@/lib/domain/performance/status";
 import { calculateAnchorPayroll, parseCommissionBonusPoints } from "@/lib/domain/payroll/anchor";
-import { formatCentsToYuan, formatDate } from "@/lib/format";
+import { formatCentsToYuan, formatDate, formatDurationSeconds } from "@/lib/format";
 
 /** 周期下拉可选的历史周期数量（含当前周期）。 */
 const PERIOD_OPTION_COUNT = 12;
@@ -91,6 +92,10 @@ interface AnchorRow {
   commissionRateBps: number;
   performanceComponentCents: number;
   guaranteedComponentCents: number;
+  /** 方案里的初始保底（分）：停播扣款按「初始保底 ÷ 26」，与是否达标签约无关。 */
+  initialGuaranteeCents: number;
+  /** 本周期直播时长（分钟，按主播逐日汇总）。 */
+  broadcastMinutes: number;
   adjustmentTotalCents: number;
   grossCents: number;
   netCents: number;
@@ -145,6 +150,8 @@ function AnchorRevenueWorkspace({
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [keyword, setKeyword] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
+  // 已自动预填过「停播」扣款的 (memberKey:周期) 集合，避免重复追加或覆盖手动编辑。
+  const seededKeysRef = useRef<Set<string>>(new Set());
 
   const period = useMemo(
     () =>
@@ -177,6 +184,17 @@ function AnchorRevenueWorkspace({
   const contextsQuery = useAnchorSettlementContexts(teamId, period);
   const settleMutation = useSettleAnchorRevenue();
 
+  // 每名主播在本周期内的「停播」次数：上传时标记停播 → 结算按次数预填扣款。
+  const offAirCountByProfile = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const row of perfQuery.data ?? []) {
+      if (statusFromRecord(row.noPerf, row.noPerfNote) === "offair") {
+        map[row.profileId] = (map[row.profileId] ?? 0) + 1;
+      }
+    }
+    return map;
+  }, [perfQuery.data]);
+
   // 实时聚合 + 调整项叠加（不落库）。
   const rows: AnchorRow[] = useMemo(() => {
     if (!period || !contextsQuery.data) return [];
@@ -190,9 +208,18 @@ function AnchorRevenueWorkspace({
         createdAt: r.createdAt,
       }));
     const drafts = aggregateSettlement(period, members, perfRows);
+    // 本周期每位主播的直播时长（分钟，含休息/停播的 0 时长）。
+    const broadcastByProfile = new Map<string, number>();
+    for (const row of perfQuery.data ?? []) {
+      broadcastByProfile.set(
+        row.profileId,
+        (broadcastByProfile.get(row.profileId) ?? 0) + row.broadcastMinutes,
+      );
+    }
     return drafts.map((draft) => {
       const memberKey = settlementMemberKey(draft);
       const ctx = members.find((m) => settlementMemberKey(m) === memberKey)!;
+      const broadcastMinutes = broadcastByProfile.get(draft.profileId) ?? 0;
       // 无生效方案：仅展示流水，不计算工资，工资相关列置 0，行标记 hasScheme=false。
       if (!ctx.scheme) {
         return {
@@ -204,6 +231,8 @@ function AnchorRevenueWorkspace({
           commissionRateBps: 0,
           performanceComponentCents: 0,
           guaranteedComponentCents: 0,
+          initialGuaranteeCents: 0,
+          broadcastMinutes,
           adjustmentTotalCents: 0,
           grossCents: 0,
           netCents: 0,
@@ -240,6 +269,8 @@ function AnchorRevenueWorkspace({
         commissionRateBps: adjusted.commissionRateBps,
         performanceComponentCents: adjusted.performanceComponentInCents,
         guaranteedComponentCents: adjusted.guaranteedComponentInCents,
+        initialGuaranteeCents: ctx.scheme.baseSalaryInCents,
+        broadcastMinutes,
         adjustmentTotalCents: adjusted.adjustmentTotalInCents,
         grossCents: adjusted.grossSalaryInCents,
         netCents: adjusted.netSalaryInCents,
@@ -248,6 +279,33 @@ function AnchorRevenueWorkspace({
       };
     });
   }, [period, contextsQuery.data, perfQuery.data, adjustments, bonuses]);
+
+  // 结算草稿自动预填：把本周期「停播」按次数折算为「停播」扣款，每条 = 本期保底 ÷ 26。
+  // 每个 (memberKey, 周期) 只预填一次，之后可手动增删，不覆盖编辑。
+  useEffect(() => {
+    setAdjustments((prev) => {
+      let next: Record<string, AdjustmentDraft[]> | null = null;
+      for (const row of rows) {
+        if (!row.hasScheme) continue;
+        const count = offAirCountByProfile[row.profileId] ?? 0;
+        if (count <= 0) continue;
+        const seedKey = `${row.memberKey}:${period?.start ?? ""}:${period?.end ?? ""}`;
+        if (seededKeysRef.current.has(seedKey)) continue;
+        seededKeysRef.current.add(seedKey);
+        // 停播扣款固定按「初始保底 ÷ 26」，与当期是否达标签约无关。
+        const perDayYuan = (Math.round(row.initialGuaranteeCents / 26) / 100).toFixed(2);
+        const drafts: AdjustmentDraft[] = Array.from({ length: count }, () => ({
+          id: crypto.randomUUID(),
+          name: OFF_AIR_NOTE,
+          direction: "deduction" as const,
+          amountYuan: perDayYuan,
+        }));
+        next = next ?? { ...prev };
+        next[row.memberKey] = [...(next[row.memberKey] ?? []), ...drafts];
+      }
+      return next ?? prev;
+    });
+  }, [rows, offAirCountByProfile, period]);
 
   // 预设常驻，自定义项按名称排序；搜索主播不改变列顺序。
   const adjustmentColumns = useMemo(() => {
@@ -302,6 +360,7 @@ function AnchorRevenueWorkspace({
     setAdjustments({});
     setBonuses({});
     setExpandedKeys([]);
+    seededKeysRef.current.clear();
     clearFeedback();
   }
 
@@ -560,6 +619,14 @@ function AnchorRevenueWorkspace({
           {row.hasScheme ? null : <Tag color="orange">未配置方案</Tag>}
         </Flex>
       ),
+    },
+    {
+      title: "直播时长",
+      key: "broadcastMinutes",
+      width: 110,
+      align: "right" as const,
+      render: (_: unknown, row: AnchorRow) =>
+        row.broadcastMinutes > 0 ? formatDurationSeconds(row.broadcastMinutes * 60) : "—",
     },
     {
       title: "总流水",

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import type { TeamPerformanceRow } from "@/lib/api/data";
+import { buildPerformanceCopyText, toHoursText, type PerfCopyMember } from "./performanceCopy";
 
 /** 单张团队每日绩效卡片的聚合数据。 */
 export interface DailyGroup {
@@ -24,8 +25,7 @@ function shortDate(value: string): string {
 
 /** 开播分钟 → 小时展示（整除去小数）。 */
 function toHours(minutes: number): string {
-  const h = minutes / 60;
-  return Number.isInteger(h) ? String(h) : h.toFixed(1);
+  return toHoursText(minutes);
 }
 
 /** 某成员单条业绩的展示文本（不含名字）。 */
@@ -52,31 +52,22 @@ function analyze(rows: TeamPerformanceRow[]) {
   return { points, singleUnit };
 }
 
-/** 构造复制到剪贴板的纯文本。 */
+/** 构造复制到剪贴板的纯文本（与上传页提交汇总同格式）。 */
 function buildCopyText(group: DailyGroup): string {
-  const { points, singleUnit } = analyze(group.rows);
-  const lines: string[] = [];
-  lines.push(`${shortDate(group.perfDate)} ${group.teamName}`);
-  lines.push("开播情况汇总");
-  lines.push(`总开播时 ${toHours(group.broadcastMinutes)}`);
-  lines.push("个人业绩");
-  group.rows.forEach((r) => {
-    const name = r.profile?.name ?? "";
-    if (r.no_perf) {
-      lines.push(`${name}：${r.no_perf_note || "休息"}`);
-    } else {
-      const amount = r.points_amount.toLocaleString();
-      const val = singleUnit ? amount : `${amount}（${r.point?.name ?? ""}）`;
-      lines.push(`${name}：${val}`);
-    }
+  const members: PerfCopyMember[] = group.rows.map((r) => ({
+    name: r.profile?.name ?? "",
+    noPerf: r.no_perf,
+    note: r.no_perf_note,
+    pointsAmount: r.points_amount,
+    pointId: r.point_id,
+    pointName: r.point?.name ?? null,
+  }));
+  return buildPerformanceCopyText({
+    perfDate: group.perfDate,
+    teamName: group.teamName,
+    broadcastMinutes: group.broadcastMinutes,
+    members,
   });
-  if (singleUnit) {
-    const total = points[0]?.total ?? 0;
-    lines.push(`总${points[0]?.name ?? "音浪"} ${total.toLocaleString()}`);
-  } else {
-    points.forEach((p) => lines.push(`总${p.name} ${p.total.toLocaleString()}`));
-  }
-  return lines.join("\n");
 }
 
 export function TeamPerformanceCard({
