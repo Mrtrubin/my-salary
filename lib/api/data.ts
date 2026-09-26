@@ -7,6 +7,7 @@ import type { SettlementMemberContext } from "@/lib/domain/settlement/aggregate"
 import { getPeriodRange } from "@/lib/domain/settlement/cycle";
 import type { PeriodRange, SettlementType } from "@/lib/domain/settlement/cycle";
 import type { PayrollAdjustment } from "@/lib/domain/payroll/adjustment";
+import type { HostSalaryScheme } from "@/lib/domain/payroll/host";
 
 export type SalaryRecordStatus = Database["public"]["Enums"]["salary_record_status"];
 export type Profile = Database["public"]["Tables"]["profiles"]["Row"];
@@ -1106,4 +1107,251 @@ export async function settleAnchorRevenue(input: { teamId: string | null; period
     fail(error);
   }
   return { settledRecords: (data as number) ?? 0 };
+}
+
+// ==================== 主持工资核算（主持管理 / 主持流水 / 独立主持工资表）====================
+
+export type HostSalarySchemeRow = Database["public"]["Tables"]["host_salary_schemes"]["Row"] & {
+  profile: Pick<Profile, "name"> | null;
+  position: Pick<Position, "name"> | null;
+};
+export type HostSalaryRecord = Database["public"]["Tables"]["host_salary_records"]["Row"] & {
+  host: Pick<Profile, "name"> | null;
+};
+export type HostSalaryStatusLog = Database["public"]["Tables"]["host_salary_record_status_logs"]["Row"] & {
+  operator: Pick<Profile, "name"> | null;
+};
+export type HostSalarySchemeConfig = Database["public"]["Tables"]["host_salary_schemes"]["Insert"];
+
+/** 按团队拆分的主持周期流水明细（用于「团总流水」弹窗）。 */
+export interface HostTeamBreakdown {
+  teamId: string;
+  teamName: string | null;
+  revenueCents: number;
+  broadcastMinutes: number;
+}
+
+/** 单个主持的结算上下文：跨团流水 + 团队明细 + 生效方案。 */
+export interface HostSettlementContext {
+  hostProfileId: string;
+  hostName: string;
+  schemeId: string | null;
+  scheme: HostSalaryScheme | null;
+  revenueCents: number;
+  broadcastMinutes: number;
+  teamBreakdown: HostTeamBreakdown[];
+}
+
+/** 结算入参：主持 + 调整项（违约/奖励）。 */
+export interface HostSettleMember {
+  hostProfileId: string;
+  adjustments?: PayrollAdjustment[];
+}
+
+export async function listHostSchemes(): Promise<HostSalarySchemeRow[]> {
+  const { data, error } = await getBrowserSupabase()
+    .from("host_salary_schemes")
+    .select("*, profile:profiles(name), position:positions(name)")
+    .order("created_at", { ascending: false });
+  if (error) fail(error);
+  return data as unknown as HostSalarySchemeRow[];
+}
+
+export async function createHostScheme(input: HostSalarySchemeConfig) {
+  const { error } = await getBrowserSupabase().from("host_salary_schemes").insert(input);
+  if (error) fail(error);
+}
+
+export async function listHostSalaryRecords(): Promise<HostSalaryRecord[]> {
+  const { data, error } = await getBrowserSupabase()
+    .from("host_salary_records")
+    .select("*, host:profiles!host_salary_records_host_profile_id_fkey(name)")
+    .order("month", { ascending: false });
+  if (error) fail(error);
+  return data as unknown as HostSalaryRecord[];
+}
+
+/**
+ * 主持结算上下文：主持岗位成员 ∪ 周期内出现过的录入主持，
+ * 跨团队汇总团总流水/直播时长，并给出团队明细分项与生效主持方案。
+ */
+export async function getHostSettlementContexts(period: PeriodRange): Promise<HostSettlementContext[]> {
+  const supabase = getBrowserSupabase();
+
+  // 主持岗位成员。
+  const positionRows = await readSettlementRows((from, to) => supabase
+    .from("user_positions")
+    .select("profile_id, position:positions!inner(code), profile:profiles!inner(name)")
+    .eq("position.code", "host")
+    .order("profile_id").order("position_id").range(from, to));
+  const hostIds = new Set(positionRows.map((r) => r.profile_id));
+  const names: Record<string, string> = {};
+  for (const row of positionRows) names[row.profile_id] = row.profile.name;
+
+  // 周期内所有录入主持的流水，按 主持 × 团队 聚合。
+  // 直播时长口径：接口返回的是「团队当日总直播时长」，上传时写入当天每个匹配主播
+  //（同一团队同一天各成员值相同），故按 (团队, 日期) 取 MAX 去重后再汇总，不能被成员数放大。
+  interface TeamAgg {
+    teamId: string;
+    teamName: string | null;
+    revenueCents: number;
+    dailyBroadcast: Map<string, number>;
+  }
+  const revenueRows = await readSettlementRows((from, to) => supabase
+    .from("anchor_revenue_records")
+    .select("host_profile_id, team_id, perf_date, revenue_cents, broadcast_minutes, no_perf, team:teams(name)")
+    .not("host_profile_id", "is", null)
+    .gte("perf_date", period.start).lte("perf_date", period.end)
+    .order("id").range(from, to));
+
+  const breakdownByHost = new Map<string, Map<string, TeamAgg>>();
+  for (const row of revenueRows) {
+    const hostId = row.host_profile_id;
+    if (!hostId) continue;
+    hostIds.add(hostId);
+    const byTeam = breakdownByHost.get(hostId) ?? new Map<string, TeamAgg>();
+    const item = byTeam.get(row.team_id) ?? {
+      teamId: row.team_id,
+      teamName: row.team?.name ?? null,
+      revenueCents: 0,
+      dailyBroadcast: new Map<string, number>(),
+    };
+    if (!row.no_perf) item.revenueCents += row.revenue_cents;
+    item.dailyBroadcast.set(
+      row.perf_date,
+      Math.max(item.dailyBroadcast.get(row.perf_date) ?? 0, row.broadcast_minutes),
+    );
+    byTeam.set(row.team_id, item);
+    breakdownByHost.set(hostId, byTeam);
+  }
+
+  // 补全仅出现在流水中的主持姓名。
+  const missing = [...hostIds].filter((id) => !names[id]);
+  for (let i = 0; i < missing.length; i += 100) {
+    const ids = missing.slice(i, i + 100);
+    const { data, error } = await supabase.from("profiles").select("id, name").in("id", ids);
+    if (error) fail(error);
+    for (const row of data) names[row.id] = row.name;
+  }
+
+  // 生效方案：个人优先，其次模板。
+  const schemes = await readSettlementRows((from, to) => supabase
+    .from("host_salary_schemes")
+    .select("*").eq("status", "active").lte("effective_from", period.end)
+    .order("effective_from", { ascending: false }).order("version", { ascending: false }).order("id")
+    .range(from, to));
+  const personal = new Map<string, typeof schemes[number]>();
+  let template: typeof schemes[number] | undefined;
+  for (const scheme of schemes) {
+    if (scheme.profile_id === null) {
+      template ??= scheme;
+    } else if (!personal.has(scheme.profile_id)) {
+      personal.set(scheme.profile_id, scheme);
+    }
+  }
+
+  return [...hostIds].map((hostId) => {
+    const breakdown: HostTeamBreakdown[] = [...(breakdownByHost.get(hostId)?.values() ?? [])]
+      .map((item) => ({
+        teamId: item.teamId,
+        teamName: item.teamName,
+        revenueCents: item.revenueCents,
+        broadcastMinutes: [...item.dailyBroadcast.values()].reduce((sum, value) => sum + value, 0),
+      }))
+      .sort((a, b) => b.revenueCents - a.revenueCents || (a.teamName ?? "").localeCompare(b.teamName ?? "", "zh-CN"));
+    const scheme = personal.get(hostId) ?? template;
+    return {
+      hostProfileId: hostId,
+      hostName: names[hostId] ?? "—",
+      schemeId: scheme?.id ?? null,
+      scheme: scheme
+        ? {
+            baseIncomeInCents: scheme.base_income_cents,
+            commissionStartInCents: scheme.commission_start_cents,
+            baseCommissionRateBps: scheme.base_commission_rate_bps,
+            serviceFeeRateBps: scheme.service_fee_rate_bps,
+          }
+        : null,
+      revenueCents: breakdown.reduce((sum, item) => sum + item.revenueCents, 0),
+      broadcastMinutes: breakdown.reduce((sum, item) => sum + item.broadcastMinutes, 0),
+      teamBreakdown: breakdown,
+    };
+  }).sort((a, b) => b.revenueCents - a.revenueCents || a.hostName.localeCompare(b.hostName, "zh-CN"));
+}
+
+/**
+ * 管理员手动结算主持工资：仅传主持身份 + 调整项，数据库按周期流水与方案权威重算，
+ * 写入独立主持工资表并进入四态审核流。
+ */
+export async function settleHostPayroll(input: { period: PeriodRange; hosts: HostSettleMember[] }): Promise<{ settledRecords: number }> {
+  if (!input.hosts.length) throw new ApiError(ApiErrorCode.INVALID_INPUT, "请至少勾选一位主持");
+  const unique = new Set(input.hosts.map((h) => h.hostProfileId));
+  if (unique.size !== input.hosts.length) {
+    throw new ApiError(ApiErrorCode.INVALID_INPUT, "同一主持不能重复结算");
+  }
+  const supabase = getBrowserSupabase();
+  const payload = input.hosts.map((host) => ({
+    hostProfileId: host.hostProfileId,
+    adjustments: (host.adjustments ?? []).map((a) => ({ name: a.name, amountCents: a.amountCents })),
+  }));
+  const { data, error } = await retrySettlement(() => supabase.rpc("settle_host_payroll", {
+    p_period_start: input.period.start,
+    p_period_end: input.period.end,
+    p_hosts: payload as unknown as Json,
+  }));
+  if (error) {
+    const msg = error.message ?? "";
+    if (msg.includes("ADMIN_REQUIRED") || msg.includes("FORBIDDEN_TRANSITION")) throw new ApiError(ApiErrorCode.FORBIDDEN, "无权手动结算");
+    if (msg.includes("HOST_SALARY_SCHEME_MISSING")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "部分主持缺少生效工资方案，无法结算");
+    if (msg.includes("HOST_SALARY_RECORD_NOT_PENDING_REVIEW")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "主持工资已进入审核后续流程，不能覆盖");
+    fail(error);
+  }
+  return { settledRecords: (data as number) ?? 0 };
+}
+
+export async function transitionHostSalaryStatus(
+  id: string,
+  toStatus: SalaryRecordStatus,
+  options?: { operatorProfileId?: string; note?: string },
+): Promise<void> {
+  const supabase = getBrowserSupabase();
+  const { error } = await supabase.rpc("transition_host_salary_status", {
+    p_id: id,
+    p_to_status: toStatus,
+    p_operator_profile_id: options?.operatorProfileId ?? null,
+    p_note: options?.note ?? null,
+  });
+  if (error) {
+    const msg = error.message ?? "";
+    if (msg.includes("HOST_SALARY_RECORD_NOT_FOUND")) throw new ApiError(ApiErrorCode.NOT_FOUND, "主持工资记录不存在");
+    if (msg.includes("FORBIDDEN_TRANSITION")) throw new ApiError(ApiErrorCode.FORBIDDEN, "无权执行该状态流转");
+    if (msg.includes("INVALID_TRANSITION")) throw new ApiError(ApiErrorCode.INVALID_INPUT, `不允许流转到「${toStatus}」`);
+    fail(error);
+  }
+}
+
+export async function rejectAndRecomputeHostSalary(id: string): Promise<void> {
+  const supabase = getBrowserSupabase();
+  const { error } = await retrySettlement(() => supabase.rpc("recompute_host_salary_record", {
+    p_id: id,
+    p_note: "管理员驳回，已按保存周期跨团流水由数据库权威重算并保留原调整项",
+  }));
+  if (error) {
+    const msg = error.message ?? "";
+    if (msg.includes("HOST_SALARY_RECORD_NOT_FOUND")) throw new ApiError(ApiErrorCode.NOT_FOUND, "主持工资记录不存在");
+    if (msg.includes("FORBIDDEN_TRANSITION")) throw new ApiError(ApiErrorCode.FORBIDDEN, "无权驳回重算");
+    if (msg.includes("INVALID_TRANSITION")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "仅待审核主持工资条可驳回重算");
+    if (msg.includes("HOST_SALARY_SCHEME_MISSING")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "该主持无周期内生效工资方案，无法重算");
+    fail(error);
+  }
+}
+
+export async function listHostSalaryStatusLogs(salaryRecordId: string): Promise<HostSalaryStatusLog[]> {
+  const { data, error } = await getBrowserSupabase()
+    .from("host_salary_record_status_logs")
+    .select("*, operator:profiles!host_salary_record_status_logs_operator_profile_id_fkey(name)")
+    .eq("salary_record_id", salaryRecordId)
+    .order("created_at", { ascending: true });
+  if (error) fail(error);
+  return data as unknown as HostSalaryStatusLog[];
 }

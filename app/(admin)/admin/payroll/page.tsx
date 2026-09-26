@@ -19,6 +19,7 @@ import {
 } from "@/lib/api/hooks";
 import type { SalaryRecord } from "@/lib/api/data";
 import { formatBpsAsPercent, formatCentsToYuan, formatDateTime, formatDurationSeconds } from "@/lib/format";
+import { HostPayrollPanel } from "./HostPayrollPanel";
 
 /** 状态变更历史时间轴（展开某条工资条时按需加载，精确到秒）。 */
 function StatusTimeline({ recordId }: { recordId: string }) {
@@ -654,6 +655,8 @@ export default function PayrollPage() {
                 )}
                 </Card>
               </>
+            ) : position.code === "host" ? (
+              <HostPayrollPanel operatorProfileId={operatorProfileId} />
             ) : (
               <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}

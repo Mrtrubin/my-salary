@@ -48,8 +48,16 @@ import {
   settleAnchorRevenue,
   getSystemSettlementSettings,
   updateSystemSettlementSettings,
+  listHostSchemes,
+  createHostScheme,
+  listHostSalaryRecords,
+  getHostSettlementContexts,
+  settleHostPayroll,
+  transitionHostSalaryStatus,
+  rejectAndRecomputeHostSalary,
+  listHostSalaryStatusLogs,
 } from "./data";
-import type { Member, AnchorSettleMember } from "./data";
+import type { Member, AnchorSettleMember, HostSettleMember } from "./data";
 import type { PeriodRange } from "@/lib/domain/settlement/cycle";
 import { readCachedProfile, writeCachedProfile } from "./profile-cache";
 
@@ -68,6 +76,10 @@ export const keys = {
   systemSettlementSettings: ["systemSettlementSettings"] as const,
   teamEarliestPerfDate: ["teamEarliestPerfDate"] as const,
   salaryStatusLogs: ["salaryStatusLogs"] as const,
+  hostSchemes: ["hostSchemes"] as const,
+  hostSalary: ["hostSalary"] as const,
+  hostSettlementContexts: ["hostSettlementContexts"] as const,
+  hostSalaryStatusLogs: ["hostSalaryStatusLogs"] as const,
 };
 /** 成员、方案、流水或工资快照变化后，刷新跨团队试算依赖。 */
 function invalidateSettlementQueries(client: QueryClient) {
@@ -357,5 +369,76 @@ export function useSettleAnchorRevenue() {
       client.invalidateQueries({ queryKey: keys.salaryStatusLogs }),
       invalidateSettlementQueries(client),
     ]),
+  });
+}
+// ==================== 主持工资核算（/admin/hosts、/admin/host-revenue）====================
+
+export function useHostSchemes() {
+  return useQuery({ queryKey: keys.hostSchemes, queryFn: listHostSchemes });
+}
+
+export function useCreateHostScheme() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: createHostScheme,
+    onSuccess: () => invalidateRelatedQueries(client, keys.hostSchemes),
+  });
+}
+
+export function useHostSalaryRecords() {
+  return useQuery({ queryKey: keys.hostSalary, queryFn: listHostSalaryRecords });
+}
+
+/** period 为空时不请求；团总流水跨团队汇总，结算口径与系统周期一致。 */
+export function useHostSettlementContexts(period: PeriodRange | null) {
+  return useQuery({
+    queryKey: [...keys.hostSettlementContexts, period?.start, period?.end],
+    queryFn: () => getHostSettlementContexts(period!),
+    enabled: period !== null,
+  });
+}
+
+/** 手动结算主持工资（勾选主持 + 调整项 → 独立主持工资表四态审核流）。 */
+export function useSettleHostPayroll() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { period: PeriodRange; hosts: HostSettleMember[] }) => settleHostPayroll(input),
+    onSuccess: () => Promise.all([
+      client.invalidateQueries({ queryKey: keys.hostSalary }),
+      client.invalidateQueries({ queryKey: keys.hostSalaryStatusLogs }),
+      client.invalidateQueries({ queryKey: keys.hostSettlementContexts }),
+    ]),
+  });
+}
+
+export function useTransitionHostSalaryStatus() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, status, operatorProfileId, note }: { id: string; status: import("./data").SalaryRecordStatus; operatorProfileId?: string; note?: string }) =>
+      transitionHostSalaryStatus(id, status, { operatorProfileId, note }),
+    onSuccess: () => Promise.all([
+      client.invalidateQueries({ queryKey: keys.hostSalary }),
+      client.invalidateQueries({ queryKey: keys.hostSalaryStatusLogs }),
+    ]),
+  });
+}
+
+export function useRejectAndRecomputeHostSalary() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => rejectAndRecomputeHostSalary(id),
+    onSuccess: () => Promise.all([
+      client.invalidateQueries({ queryKey: keys.hostSalary }),
+      client.invalidateQueries({ queryKey: keys.hostSalaryStatusLogs }),
+      client.invalidateQueries({ queryKey: keys.hostSettlementContexts }),
+    ]),
+  });
+}
+
+export function useHostSalaryStatusLogs(salaryRecordId: string | null) {
+  return useQuery({
+    queryKey: ["hostSalaryStatusLogs", salaryRecordId],
+    queryFn: () => listHostSalaryStatusLogs(salaryRecordId as string),
+    enabled: !!salaryRecordId,
   });
 }

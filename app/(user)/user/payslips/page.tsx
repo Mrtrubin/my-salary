@@ -4,15 +4,22 @@ import { useMemo, useState } from "react";
 import { Badge, SalaryRecordStatusBadge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { QueryMessage } from "@/components/query-message";
-import { useConfirmSalaryRecord, useCurrentProfile, useSalaryRecords } from "@/lib/api/hooks";
+import { useConfirmSalaryRecord, useCurrentProfile, useHostSalaryRecords, useSalaryRecords } from "@/lib/api/hooks";
 import { formatBpsAsPercent, formatCentsToYuan } from "@/lib/format";
 import { PayslipDetail, periodLabel } from "./PayslipDetail";
+import { HostPayslipList } from "./HostPayslipList";
 
 export default function UserPayslipsPage() {
   const query = useSalaryRecords();
+  const hostQuery = useHostSalaryRecords();
   const profile = useCurrentProfile();
   const confirm = useConfirmSalaryRecord();
   const [detailId, setDetailId] = useState<string | null>(null);
+
+  const anchorRecords = query.data ?? [];
+  const hostRecords = hostQuery.data ?? [];
+  // 主播与主持工资条共用同一页，任一有数据就不显示「暂无数据」。
+  const isEmpty = !anchorRecords.length && !hostRecords.length;
 
   // 详情始终从最新列表数据取，确认收款后状态自动同步。
   const detailItem = useMemo(
@@ -22,10 +29,14 @@ export default function UserPayslipsPage() {
 
   return (
     <div className="space-y-4">
-      <QueryMessage loading={query.isLoading} error={query.error} empty={!query.data?.length} />
+      <QueryMessage
+        loading={query.isLoading || hostQuery.isLoading}
+        error={query.error || hostQuery.error}
+        empty={isEmpty}
+      />
 
       <ul className="space-y-3">
-        {query.data?.map((item) => (
+        {anchorRecords.map((item) => (
           <li key={item.id}>
             <Card className="p-0">
               <button
@@ -74,6 +85,8 @@ export default function UserPayslipsPage() {
           </li>
         ))}
       </ul>
+
+      <HostPayslipList records={hostRecords} />
 
       {detailItem ? (
         <PayslipDetail
