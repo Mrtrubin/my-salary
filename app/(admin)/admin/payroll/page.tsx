@@ -317,8 +317,8 @@ export default function PayrollPage() {
                               <div>达标门槛：{formatCentsToYuan(record.threshold_cents)}</div>
                               <div>提成起征：{formatCentsToYuan(record.commission_start_cents)}</div>
                               <div>
-                                考勤加点：{attendanceBonusBps / 100} 个百分点；dy任务加点：
-                                {dyTaskBonusBps / 100} 个百分点（未起征时不计入提成）
+                                考勤加点：{formatBpsAsPercent(attendanceBonusBps)}；dy任务加点：
+                                {formatBpsAsPercent(dyTaskBonusBps)}（未起征时不计入提成）
                               </div>
                             </div>
                             {adjustments.length ? (

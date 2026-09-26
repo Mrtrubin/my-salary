@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Badge, SalaryRecordStatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { QueryMessage } from "@/components/query-message";
@@ -60,6 +60,56 @@ function Row({ label, value, tone, hint }: { label: string; value: string; tone?
     <div className="flex items-start justify-between gap-3">
       <dt className="text-xs text-muted" title={hint}>{label}</dt>
       <dd className={`tabular-nums ${toneClass}`}>{value}</dd>
+    </div>
+  );
+}
+
+/**
+ * 「调整合计」行：有调整项时点击可展开奖励与扣款明细，否则为普通静态行。
+ */
+function AdjustmentSummary({ adjustments, total }: { adjustments: PayrollAdjustment[]; total: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasAdjustments = adjustments.length > 0;
+  const toneClass = total < 0 ? "text-danger" : total > 0 ? "text-emerald-600" : "text-muted";
+  const toggle = () => setExpanded((value) => !value);
+
+  return (
+    <div className="space-y-2.5">
+      <div
+        role={hasAdjustments ? "button" : undefined}
+        tabIndex={hasAdjustments ? 0 : undefined}
+        aria-expanded={hasAdjustments ? expanded : undefined}
+        onClick={hasAdjustments ? toggle : undefined}
+        onKeyDown={hasAdjustments ? (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            toggle();
+          }
+        } : undefined}
+        className={`flex items-start justify-between gap-3 ${hasAdjustments ? "cursor-pointer select-none" : ""}`}
+      >
+        <dt className="flex items-center gap-1 text-xs text-muted">
+          调整合计
+          {hasAdjustments ? (
+            <span aria-hidden="true" className={`text-[10px] transition-transform ${expanded ? "rotate-90" : ""}`}>
+              ▶
+            </span>
+          ) : null}
+        </dt>
+        <dd className={`tabular-nums ${toneClass}`}>{hasAdjustments ? signedAmount(total) : "—"}</dd>
+      </div>
+      {hasAdjustments && expanded ? (
+        <div className="space-y-2 rounded-xl bg-slate-50 px-3 py-2">
+          {adjustments.map((adjustment, index) => (
+            <div key={`${adjustment.name}-${index}`} className="flex items-start justify-between gap-3">
+              <span className="text-xs text-muted">{adjustment.name || "未命名调整"}</span>
+              <span className={`tabular-nums text-xs ${adjustment.amountCents < 0 ? "text-danger" : "text-emerald-600"}`}>
+                {signedAmount(adjustment.amountCents)}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -181,12 +231,12 @@ export function PayslipDetail({
             />
             <Row
               label="考勤加点"
-              value={`${attendanceBonusBps / 100} 个百分点`}
+              value={formatBpsAsPercent(attendanceBonusBps)}
               hint="结算保存的考勤加点，未达提成起征线时不计入提成"
             />
             <Row
               label="dy任务加点"
-              value={`${dyTaskBonusBps / 100} 个百分点`}
+              value={formatBpsAsPercent(dyTaskBonusBps)}
               hint="结算保存的 dy 任务加点，未达提成起征线时不计入提成"
             />
             <Row
@@ -200,28 +250,11 @@ export function PayslipDetail({
             <Row label="保障性部分" value={formatCentsToYuan(item.guaranteed_component_cents)} />
             <Row label={`绩效工资（${formatBpsAsPercent(item.commission_rate_bps)}）`} value={formatCentsToYuan(item.performance_component_cents)} />
             <Row label="基础收益" value={formatCentsToYuan(baseIncome)} hint="实发收益扣除调整项合计" />
-            <Row
-              label="调整合计"
-              value={adjustments.length ? signedAmount(adjustmentTotal) : "—"}
-              tone={adjustmentTotal < 0 ? "danger" : adjustmentTotal > 0 ? "success" : "muted"}
-            />
+            <AdjustmentSummary adjustments={adjustments} total={adjustmentTotal} />
             <Row label="实发收益" value={formatCentsToYuan(item.gross_cents)} />
             <Row label="服务费" value={`−${formatCentsToYuan(item.service_fee_cents)}`} tone="muted" />
             <Row label="到手工资" value={formatCentsToYuan(item.net_cents)} tone={item.net_cents < 0 ? "danger" : "strong"} />
           </Section>
-
-          {adjustments.length ? (
-            <Section title="奖励与扣款明细">
-              {adjustments.map((adjustment, index) => (
-                <Row
-                  key={`${adjustment.name}-${index}`}
-                  label={adjustment.name || "未命名调整"}
-                  value={signedAmount(adjustment.amountCents)}
-                  tone={adjustment.amountCents < 0 ? "danger" : "success"}
-                />
-              ))}
-            </Section>
-          ) : null}
 
           <section className="rounded-2xl bg-white px-4 py-3 shadow-sm shadow-slate-200/60">
             <h3 className="mb-2.5 text-xs font-semibold text-slate-500">状态变更记录</h3>

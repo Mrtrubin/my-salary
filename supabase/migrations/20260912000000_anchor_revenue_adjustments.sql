@@ -9,7 +9,7 @@
 --      与自动结算互不干扰。
 
 -- ---------- 1. salary_records 新增调整项字段 ----------
--- 数组元素结构：{ "name": "迟到", "amountCents": -10000 }
+-- 数组元素结构：{ "name": "缺勤", "amountCents": -10000 }
 alter table public.salary_records
   add column if not exists adjustments jsonb not null default '[]'::jsonb;
 

@@ -808,9 +808,9 @@ function AnchorRevenueWorkspace({
                                   <span aria-hidden="true">+</span>
                                 </Flex>
                                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                                  {preset.name === "迟到"
+                                  {preset.name === "延误"
                                     ? "保底 ÷ 26 × 0.1"
-                                    : preset.name === "缺勤"
+                                    : preset.name === "停播"
                                       ? "保底 ÷ 26"
                                       : "自定义奖励金额"}
                                 </Typography.Text>
@@ -867,7 +867,7 @@ function AnchorRevenueWorkspace({
                                     aria-label={`调整 ${index + 1} 名称`}
                                     aria-invalid={!adj.name.trim()}
                                     value={adj.name}
-                                    placeholder="如：迟到"
+                                    placeholder="如：延误"
                                     status={!adj.name.trim() ? "error" : undefined}
                                     onChange={(event) =>
                                       updateAdjustment(row.memberKey, adj.id, {
@@ -940,7 +940,7 @@ function AnchorRevenueWorkspace({
                           >
                             <Typography.Text type="secondary">暂无调整项</Typography.Text>
                             <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }}>
-                              点击上方「迟到」「缺勤」或「奖励」添加
+                              点击上方「延误」「停播」或「奖励」添加
                             </Typography.Paragraph>
                           </div>
                         ) : null}

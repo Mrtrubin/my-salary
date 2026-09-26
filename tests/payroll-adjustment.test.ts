@@ -28,10 +28,10 @@ const base: AnchorPayrollResult = {
 };
 
 describe("快捷调整项预设与金额编辑", () => {
-  it("只提供迟到、缺勤、奖励，保底 2600 元对应扣款 10 元、100 元", () => {
+  it("只提供延误、停播、奖励，保底 2600 元对应扣款 10 元、100 元", () => {
     expect(getAdjustmentPresets(260000)).toEqual([
-      { name: "迟到", amountCents: -1000 },
-      { name: "缺勤", amountCents: -10000 },
+      { name: "延误", amountCents: -1000 },
+      { name: "停播", amountCents: -10000 },
       { name: "奖励", amountCents: 0 },
     ]);
   });
@@ -45,7 +45,7 @@ describe("快捷调整项预设与金额编辑", () => {
 
   it("修改已添加项不影响后续预设，保留手动金额参与工资计算", () => {
     const item = getAdjustmentPresets(800000)[0];
-    item.name = "迟到（已复核）";
+    item.name = "延误（已复核）";
     item.amountCents = -1234;
     expect(getAdjustmentPresets(800000)[0].amountCents).toBe(-3077);
     expect(applyAdjustments(base, [item]).grossSalaryInCents).toBe(998766);
@@ -74,11 +74,11 @@ describe("sumAdjustments 合计调整项", () => {
     expect(sumAdjustments([])).toBe(0);
   });
 
-  it("正负混合求和：评优 +200 元、迟到 -100 元、缺勤 -200 元 = -100 元", () => {
+  it("正负混合求和：评优 +200 元、延误 -100 元、停播 -200 元 = -100 元", () => {
     const list: PayrollAdjustment[] = [
       { name: "评优", amountCents: 20000 },
-      { name: "迟到", amountCents: -10000 },
-      { name: "缺勤", amountCents: -20000 },
+      { name: "延误", amountCents: -10000 },
+      { name: "停播", amountCents: -20000 },
     ];
     expect(sumAdjustments(list)).toBe(-10000);
   });
@@ -88,7 +88,7 @@ describe("sumAdjustments 合计调整项", () => {
   });
 
   it("金额非整数抛 ApiError", () => {
-    expect(() => sumAdjustments([{ name: "迟到", amountCents: 1.5 }])).toThrow(ApiError);
+    expect(() => sumAdjustments([{ name: "延误", amountCents: 1.5 }])).toThrow(ApiError);
   });
 });
 
@@ -114,8 +114,8 @@ describe("applyAdjustments 叠加调整项并重算", () => {
 
   it("负向调整 -300 元：总工资 970000，服务费 ceil(970000×3%)=29100，实发 940900", () => {
     const r = applyAdjustments(base, [
-      { name: "迟到", amountCents: -10000 },
-      { name: "缺勤", amountCents: -20000 },
+      { name: "延误", amountCents: -10000 },
+      { name: "停播", amountCents: -20000 },
     ]);
     expect(r.grossSalaryInCents).toBe(970000);
     expect(r.serviceFeeInCents).toBe(29100);

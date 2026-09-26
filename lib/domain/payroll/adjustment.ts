@@ -1,7 +1,7 @@
 /**
  * 主播工资「调整项」领域纯函数（PLAN-001 阶段1）。
  *
- * 调整项是结算时叠加在总工资之上的不固定明细：迟到、缺勤扣款、奖励等。
+ * 调整项是结算时叠加在总工资之上的不固定明细：延误、停播扣款、奖励等。
  * 金额一律以「分」为单位的整数存储，可正可负。名称由管理员自定义。
  *
  * 计算口径（已与用户确认）：
@@ -22,7 +22,7 @@ import {
 
 /** 单条工资调整项（结算时落库为 salary_records.adjustments JSONB 数组元素）。 */
 export interface PayrollAdjustment {
-  /** 调整项名称，如「迟到」「缺勤」「奖励」。 */
+  /** 调整项名称，如「延误」「停播」「奖励」。 */
   name: string;
   /** 调整金额（分），正为增、负为减。 */
   amountCents: AmountInCents;
@@ -34,8 +34,8 @@ export function getAdjustmentPresets(guaranteeInCents: AmountInCents): PayrollAd
     throw new ApiError(ApiErrorCode.INVALID_INPUT, "保底金额须为非负整数分");
   }
   return [
-    { name: "迟到", amountCents: -Math.round(guaranteeInCents / 260) || 0 },
-    { name: "缺勤", amountCents: -Math.round(guaranteeInCents / 26) || 0 },
+    { name: "延误", amountCents: -Math.round(guaranteeInCents / 260) || 0 },
+    { name: "停播", amountCents: -Math.round(guaranteeInCents / 26) || 0 },
     { name: "奖励", amountCents: 0 },
   ];
 }
