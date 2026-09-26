@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import type { TeamPerformanceRow } from "@/lib/api/data";
 import { buildPerformanceCopyText, toHoursText, type PerfCopyMember } from "./performanceCopy";
+import { buildRevenueRecordFields, sumRevenueBreakdown } from "@/lib/domain/performance/recordView";
+import { formatCentsToYuan } from "@/lib/format";
 
 /** 单张团队每日绩效卡片的聚合数据。 */
 export interface DailyGroup {
@@ -70,6 +72,42 @@ function buildCopyText(group: DailyGroup): string {
   });
 }
 
+function signedCents(cents: number): string {
+  return `${cents > 0 ? "+" : ""}${formatCentsToYuan(cents)}`;
+}
+
+/** 单条流水的完整字段弹窗。 */
+function RecordDetailModal({ record, onClose }: { record: TeamPerformanceRow; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 px-4" onClick={onClose}>
+      <div
+        className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-900">流水详情</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="关闭"
+            className="rounded-full px-3 py-1 text-xs text-slate-500 hover:bg-slate-100"
+          >
+            关闭
+          </button>
+        </div>
+        <dl className="space-y-2.5 text-sm">
+          {buildRevenueRecordFields(record).map((field) => (
+            <div key={field.label} className="flex items-start justify-between gap-3">
+              <dt className="text-xs text-muted">{field.label}</dt>
+              <dd className="tabular-nums text-foreground">{field.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    </div>
+  );
+}
+
 export function TeamPerformanceCard({
   group,
   onEdit,
@@ -78,7 +116,9 @@ export function TeamPerformanceCard({
   onEdit?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [detail, setDetail] = useState<TeamPerformanceRow | null>(null);
   const { points, singleUnit } = analyze(group.rows);
+  const breakdown = sumRevenueBreakdown(group.rows);
 
   const handleCopy = async () => {
     const text = buildCopyText(group);
@@ -132,15 +172,38 @@ export function TeamPerformanceCard({
         ) : null}
       </div>
 
+      {/* 当日流水 / 总调整项 / 当日最终流水 */}
       <div className="mt-3 space-y-1 text-sm">
-        <div className="text-xs font-medium text-slate-500">个人业绩</div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted">当日流水</span>
+          <span className="tabular-nums">{formatCentsToYuan(breakdown.baseCents)}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted">总调整项</span>
+          <span className={`tabular-nums ${breakdown.adjustmentCents < 0 ? "text-danger" : breakdown.adjustmentCents > 0 ? "text-emerald-600" : "text-muted"}`}>
+            {breakdown.adjustmentCents === 0 ? "—" : signedCents(breakdown.adjustmentCents)}
+          </span>
+        </div>
+        <div className="flex items-center justify-between font-semibold">
+          <span>当日最终流水</span>
+          <span className="tabular-nums text-indigo-700">{formatCentsToYuan(breakdown.finalCents)}</span>
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-1 text-sm">
+        <div className="text-xs font-medium text-slate-500">个人业绩（点击查看详情）</div>
         {group.rows.map((r) => (
-          <div key={r.id} className="flex items-center justify-between">
+          <button
+            key={r.id}
+            type="button"
+            onClick={() => setDetail(r)}
+            className="flex w-full items-center justify-between rounded-lg px-1 py-0.5 text-left transition-colors hover:bg-slate-50"
+          >
             <span className="text-muted">{r.profile?.name ?? "—"}</span>
             <span className={`tabular-nums ${r.no_perf ? "text-amber-600" : ""}`}>
               {memberValueText(r, !singleUnit)}
             </span>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -161,6 +224,8 @@ export function TeamPerformanceCard({
           ))
         )}
       </div>
+
+      {detail ? <RecordDetailModal record={detail} onClose={() => setDetail(null)} /> : null}
     </Card>
   );
 }

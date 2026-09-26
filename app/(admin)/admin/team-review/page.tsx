@@ -1,13 +1,15 @@
 "use client";
 
-import { Button, Card, DatePicker, Flex, Input, Table, Typography } from "antd";
+import { Button, Card, DatePicker, Flex, Input, Modal, Table, Typography } from "antd";
 import type { Dayjs } from "dayjs";
 import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/admin/page-header";
 import { QueryMessage } from "@/components/admin/query-message";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
 import { useTeamPerformance } from "@/lib/api/hooks";
-import { formatDate } from "@/lib/format";
+import type { TeamPerformanceRow } from "@/lib/api/data";
+import { buildRevenueRecordFields } from "@/lib/domain/performance/recordView";
+import { formatCentsToYuan, formatDate } from "@/lib/format";
 
 function toHours(minutes: number): string {
   if (!minutes) return "0";
@@ -15,9 +17,14 @@ function toHours(minutes: number): string {
   return Number.isInteger(h) ? String(h) : h.toFixed(1);
 }
 
+function signedCents(cents: number): string {
+  return `${cents > 0 ? "+" : ""}${formatCentsToYuan(cents)}`;
+}
+
 export default function TeamReviewPage() {
   const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
   const [keyword, setKeyword] = useState("");
+  const [detail, setDetail] = useState<TeamPerformanceRow | null>(null);
 
   const query = useTeamPerformance({
     start: range?.[0] ? range[0].format("YYYY-MM-DD") : undefined,
@@ -82,6 +89,10 @@ export default function TeamReviewPage() {
             pagination={{ showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }}
             locale={{ emptyText: "暂无流水记录" }}
             scroll={{ x: "max-content" }}
+            onRow={(record) => ({
+              onClick: () => setDetail(record),
+              style: { cursor: "pointer" },
+            })}
             columns={[
               {
                 title: "绩效日期",
@@ -114,10 +125,56 @@ export default function TeamReviewPage() {
                 render: (_, record) =>
                   record.no_perf ? "—" : record.points_amount.toLocaleString(),
               },
+              {
+                title: "当日流水",
+                width: 130,
+                align: "right",
+                render: (_, record) => formatCentsToYuan(record.revenue_cents - record.adjustment_cents),
+              },
+              {
+                title: "总调整项",
+                width: 120,
+                align: "right",
+                render: (_, record) =>
+                  record.adjustment_cents === 0 ? (
+                    "—"
+                  ) : (
+                    <span style={{ color: record.adjustment_cents < 0 ? "#cf1322" : "#389e0d" }}>
+                      {signedCents(record.adjustment_cents)}
+                    </span>
+                  ),
+              },
+              {
+                title: "当日最终流水",
+                width: 140,
+                align: "right",
+                render: (_, record) => formatCentsToYuan(record.revenue_cents),
+              },
             ]}
           />
         )}
       </Card>
+
+      <Modal
+        open={!!detail}
+        title="流水详情"
+        footer={null}
+        onCancel={() => setDetail(null)}
+        destroyOnHidden
+      >
+        {detail ? (
+          <div style={{ display: "grid", gap: 8 }}>
+            {buildRevenueRecordFields(detail).map((field) => (
+              <Flex key={field.label} justify="space-between" gap={16}>
+                <Typography.Text type="secondary">{field.label}</Typography.Text>
+                <Typography.Text style={{ fontVariantNumeric: "tabular-nums" }}>
+                  {field.value}
+                </Typography.Text>
+              </Flex>
+            ))}
+          </div>
+        ) : null}
+      </Modal>
     </>
   );
 }

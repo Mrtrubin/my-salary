@@ -19,7 +19,7 @@ vi.mock("@/components/ui/card", () => ({
 
 const row = (id: string, extra: Partial<TeamPerformanceRow> = {}): TeamPerformanceRow => ({
   id, team_id: "t1", profile_id: "p1", point_id: "point1", perf_date: "2026-04-10",
-  broadcast_minutes: 60, points_amount: 111, revenue_cents: 10000,
+  broadcast_minutes: 60, points_amount: 111, revenue_cents: 10000, adjustment_cents: 0,
   no_perf: false, no_perf_note: null, created_at: "2026-04-10T12:00:00Z",
   team: { name: "甲团", team_code: "T-001" }, point: { name: "音浪" }, profile: { name: "主播甲" }, host: { name: "主持甲" }, ...extra,
 });

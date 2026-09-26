@@ -298,6 +298,8 @@ export interface TeamPerformanceRow {
   broadcast_minutes: number;
   points_amount: number;
   revenue_cents: number;
+  /** 当日调整项折算金额（分，可正可负）。 */
+  adjustment_cents: number;
   no_perf: boolean;
   no_perf_note: string | null;
   created_at: string;
@@ -334,6 +336,8 @@ export interface TeamPerformanceUploadItem {
   revenueCents: number;
   /** 该成员当日直播时长（分钟），按主播单独记录。 */
   broadcastMinutes: number;
+  /** 该成员当日调整项折算金额（分，可正可负）。 */
+  adjustmentCents: number;
   noPerf: boolean;
   noPerfNote?: string;
 }
@@ -358,6 +362,7 @@ export async function createTeamPerformanceRecords(input: {
     point_id: item.noPerf ? null : (item.pointId || null),
     perf_date: input.perfDate,
     broadcast_minutes: item.noPerf ? 0 : item.broadcastMinutes,
+    adjustment_cents: item.noPerf ? 0 : item.adjustmentCents,
     points_amount: item.noPerf ? 0 : item.pointsAmount,
     revenue_cents: item.noPerf ? 0 : item.revenueCents,
     no_perf: item.noPerf,
@@ -390,7 +395,7 @@ export async function replaceTeamPerformanceRecords(input: {
   // 1. 读取当日现有记录，用于逐成员对比「是否有变化」。
   const { data: existingRows, error: readError } = await supabase
     .from("anchor_revenue_records")
-    .select("profile_id, point_id, points_amount, revenue_cents, no_perf, no_perf_note, broadcast_minutes")
+    .select("profile_id, point_id, points_amount, revenue_cents, no_perf, no_perf_note, broadcast_minutes, adjustment_cents")
     .eq("team_id", input.teamId)
     .eq("perf_date", input.perfDate);
   if (readError) fail(readError);
@@ -398,6 +403,7 @@ export async function replaceTeamPerformanceRecords(input: {
     (existingRows as unknown as {
       profile_id: string; point_id: string | null; points_amount: number;
       revenue_cents: number; no_perf: boolean; no_perf_note: string | null; broadcast_minutes: number;
+      adjustment_cents: number;
     }[]).map((r) => [r.profile_id, r]),
   );
 
@@ -410,6 +416,7 @@ export async function replaceTeamPerformanceRecords(input: {
     const nextRevenueCents = item.noPerf ? 0 : item.revenueCents;
     const nextNote = item.noPerf ? (item.noPerfNote?.slice(0, 20) || REST_NOTE) : null;
     const nextBroadcastMinutes = item.noPerf ? 0 : item.broadcastMinutes;
+    const nextAdjustmentCents = item.noPerf ? 0 : item.adjustmentCents;
     const same =
       prev &&
       prev.point_id === nextPointId &&
@@ -417,7 +424,8 @@ export async function replaceTeamPerformanceRecords(input: {
       prev.revenue_cents === nextRevenueCents &&
       prev.no_perf === item.noPerf &&
       prev.no_perf_note === nextNote &&
-      prev.broadcast_minutes === nextBroadcastMinutes;
+      prev.broadcast_minutes === nextBroadcastMinutes &&
+      prev.adjustment_cents === nextAdjustmentCents;
     if (!same) changedItems.push(item);
   }
 

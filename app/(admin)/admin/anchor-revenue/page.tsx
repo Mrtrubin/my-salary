@@ -280,30 +280,40 @@ function AnchorRevenueWorkspace({
     });
   }, [period, contextsQuery.data, perfQuery.data, adjustments, bonuses]);
 
-  // 结算草稿自动预填：把本周期「停播」按次数折算为「停播」扣款，每条 = 本期保底 ÷ 26。
+  // 结算草稿自动预填：把本周期「停播」按次数折算为「停播」扣款，每条 = 初始保底 ÷ 26。
   // 每个 (memberKey, 周期) 只预填一次，之后可手动增删，不覆盖编辑。
+  // 注意：种子跟 key 必须在 updater 之外计算/落 rc，React 会重复调用 updater
+  //（StrictMode/并发），在 updater 里写 ref 会导致第二次调用看不到结果、预填丢失。
   useEffect(() => {
-    setAdjustments((prev) => {
-      let next: Record<string, AdjustmentDraft[]> | null = null;
-      for (const row of rows) {
-        if (!row.hasScheme) continue;
-        const count = offAirCountByProfile[row.profileId] ?? 0;
-        if (count <= 0) continue;
-        const seedKey = `${row.memberKey}:${period?.start ?? ""}:${period?.end ?? ""}`;
-        if (seededKeysRef.current.has(seedKey)) continue;
-        seededKeysRef.current.add(seedKey);
-        // 停播扣款固定按「初始保底 ÷ 26」，与当期是否达标签约无关。
-        const perDayYuan = (Math.round(row.initialGuaranteeCents / 26) / 100).toFixed(2);
-        const drafts: AdjustmentDraft[] = Array.from({ length: count }, () => ({
+    const seeds: { memberKey: string; seedKey: string; drafts: AdjustmentDraft[] }[] = [];
+    for (const row of rows) {
+      if (!row.hasScheme) continue;
+      const count = offAirCountByProfile[row.profileId] ?? 0;
+      if (count <= 0) continue;
+      const seedKey = `${row.memberKey}:${period?.start ?? ""}:${period?.end ?? ""}`;
+      if (seededKeysRef.current.has(seedKey)) continue;
+      // 停播扣款固定按「初始保底 ÷ 26」，与当期是否达标签约无关。
+      const perDayYuan = (Math.round(row.initialGuaranteeCents / 26) / 100).toFixed(2);
+      seeds.push({
+        memberKey: row.memberKey,
+        seedKey,
+        drafts: Array.from({ length: count }, () => ({
           id: crypto.randomUUID(),
           name: OFF_AIR_NOTE,
           direction: "deduction" as const,
           amountYuan: perDayYuan,
-        }));
-        next = next ?? { ...prev };
-        next[row.memberKey] = [...(next[row.memberKey] ?? []), ...drafts];
+        })),
+      });
+    }
+    if (!seeds.length) return;
+    seeds.forEach((seed) => seededKeysRef.current.add(seed.seedKey));
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 依据加载完成的结算数据同步预填调整项
+    setAdjustments((prev) => {
+      const next = { ...prev };
+      for (const seed of seeds) {
+        next[seed.memberKey] = [...(next[seed.memberKey] ?? []), ...seed.drafts];
       }
-      return next ?? prev;
+      return next;
     });
   }, [rows, offAirCountByProfile, period]);
 
@@ -330,10 +340,11 @@ function AnchorRevenueWorkspace({
   }, [rows, keyword]);
 
   // 同一人员的跨团队流水供各岗位查看，交互状态仍按人员与岗位隔离。
+  // 含休息/停播记录（同样要展示，只是不计流水）。
   const dailyByProfile = useMemo(() => {
     const map: Record<string, AnchorRevenuePerfRow[]> = {};
     for (const row of perfQuery.data ?? []) {
-      if (!row.noPerf) (map[row.profileId] ??= []).push(row);
+      (map[row.profileId] ??= []).push(row);
     }
     return map;
   }, [perfQuery.data]);
@@ -819,9 +830,14 @@ function AnchorRevenueWorkspace({
                         {(dailyByProfile[row.profileId] ?? []).map((d) => (
                           <li key={d.id}>
                             <Flex justify="space-between" gap={16}>
-                              <span>{`${formatDate(d.perfDate)} · ${d.teamName ?? "未知团队"} · ${d.pointName ?? "—"}`}</span>
-                              <span style={{ fontVariantNumeric: "tabular-nums" }}>
-                                {formatCentsToYuan(d.revenueCents)}
+                              <span>{`${formatDate(d.perfDate)} · ${d.teamName ?? "未知团队"} · ${d.noPerf ? (d.noPerfNote || "休息") : (d.pointName ?? "—")}`}</span>
+                              <span
+                                style={{
+                                  fontVariantNumeric: "tabular-nums",
+                                  color: d.noPerf ? "#d48806" : undefined,
+                                }}
+                              >
+                                {d.noPerf ? "—" : formatCentsToYuan(d.revenueCents)}
                               </span>
                             </Flex>
                           </li>
@@ -829,7 +845,7 @@ function AnchorRevenueWorkspace({
                       </ul>
                     ) : (
                       <Typography.Paragraph type="secondary" style={{ marginTop: 8 }}>
-                        该周期暂无有效流水。
+                        该周期暂无流水记录。
                       </Typography.Paragraph>
                     )}
                   </Col>

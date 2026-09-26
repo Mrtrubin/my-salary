@@ -372,12 +372,16 @@ export function TeamUpload({
     const items = membersToSubmit.map((m) => {
       const pointId = m.pointId || teamDefaultPointId;
       const record = recordFromStatus(m.status, m.restNote);
+      const rate = teamRateOf(pointId);
+      // 调整项折算金额（分）：调整点数 ÷ 换算率 × 100。
+      const adjustmentCents = record.noPerf || rate <= 0 ? 0 : Math.round((sumAdjustments(m.adjustments) / rate) * 100);
       return {
         profileId: m.profileId,
         pointId,
         pointsAmount: record.noPerf ? 0 : totalPointsOf(m),
         revenueCents: Math.round(teamRevenueYuanOf(m) * 100),
         broadcastMinutes: record.noPerf ? 0 : Math.round((Number(m.broadcastHours) || 0) * 60),
+        adjustmentCents,
         noPerf: record.noPerf,
         noPerfNote: record.noPerfNote ?? undefined,
       };
