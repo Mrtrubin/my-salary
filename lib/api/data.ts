@@ -1,6 +1,6 @@
 import { ApiError, ApiErrorCode } from "@/lib/api/contracts/errors";
+import { invokeEdgeFunction, isNetworkFailure, toNetworkError, type EdgeFunctionBody } from "@/lib/api/client";
 import { getBrowserSupabase } from "@/lib/supabase/client";
-import { getPublicSupabaseEnv } from "@/lib/supabase/env";
 import type { Database, Json } from "@/lib/supabase/database.types";
 import type { SettlementMemberContext } from "@/lib/domain/settlement/aggregate";
 import { getPeriodRange } from "@/lib/domain/settlement/cycle";
@@ -27,6 +27,8 @@ const settlementErrors: Record<string, string> = {
   TEAM_NOT_FOUND: "团队不存在",
 };
 function fail(error: { message: string; code?: string } | null): never {
+  // 网络层失败（断网 / ERR_CONNECTION_RESET / 超时）走 NETWORK，保留可读文案。
+  if (isNetworkFailure(error)) throw toNetworkError(error, "数据请求失败");
   const message = Object.entries(settlementErrors).find(([code]) => error?.message.includes(code))?.[1]
     ?? (error?.code === "40001" || error?.code === "40P01" ? "结算操作并发冲突，请稍后重试" : error?.message)
     ?? "数据请求失败";
@@ -130,49 +132,24 @@ export interface CreateMemberInput {
  * 一次性创建登录账号 + 成员资料 + 职位关联。普通客户端不可直接写 profiles。
  */
 export async function createMember(input: CreateMemberInput): Promise<{ id: string }> {
-  const { url, anonKey } = getPublicSupabaseEnv();
-  const supabase = getBrowserSupabase();
-  const { data: sessionData } = await supabase.auth.getSession();
-
-  const response = await fetch(`${url}/functions/v1/admin-create-member`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: anonKey,
-      Authorization: `Bearer ${sessionData.session?.access_token ?? anonKey}`,
+  const body = await invokeEdgeFunction<{ id?: string; message?: string }>("admin-create-member", {
+    username: input.username.trim(),
+    password: input.password,
+    name: input.name?.trim() ?? "",
+    phone: input.phone?.trim() ?? "",
+    email: input.email?.trim() ?? "",
+    idCard: input.idCard?.trim() ?? "",
+    douyinId: input.douyinId?.trim() ?? "",
+    hireDate: input.hireDate,
+    positionIds: input.positionIds ?? [],
+  }, {
+    fallbackMessage: "新增成员失败",
+    codeMessages: {
+      USERNAME_TAKEN: "该用户名已被占用",
+      INVALID_INPUT: "输入不合法",
+      FORBIDDEN: "仅管理员可新增成员",
     },
-    body: JSON.stringify({
-      username: input.username.trim(),
-      password: input.password,
-      name: input.name?.trim() ?? "",
-      phone: input.phone?.trim() ?? "",
-      email: input.email?.trim() ?? "",
-      idCard: input.idCard?.trim() ?? "",
-      douyinId: input.douyinId?.trim() ?? "",
-      hireDate: input.hireDate,
-      positionIds: input.positionIds ?? [],
-    }),
   });
-
-  let body: { code?: string; message?: string; id?: string } = {};
-  try {
-    body = await response.json();
-  } catch {
-    throw new ApiError(ApiErrorCode.UNKNOWN, "新增成员服务响应异常", response.status);
-  }
-
-  if (!response.ok) {
-    if (body.code === "USERNAME_TAKEN") {
-      throw new ApiError(ApiErrorCode.INVALID_INPUT, "该用户名已被占用");
-    }
-    if (body.code === "INVALID_INPUT") {
-      throw new ApiError(ApiErrorCode.INVALID_INPUT, body.message ?? "输入不合法");
-    }
-    if (body.code === "FORBIDDEN") {
-      throw new ApiError(ApiErrorCode.FORBIDDEN, body.message ?? "仅管理员可新增成员");
-    }
-    throw new ApiError(ApiErrorCode.UNKNOWN, body.message ?? "新增成员失败，请稍后再试");
-  }
 
   return { id: body.id ?? "" };
 }
@@ -251,10 +228,6 @@ export async function updateAnchorSettings(input: UpdateAnchorSettingsInput): Pr
 }
 
 export async function updateMember(input: UpdateMemberInput): Promise<{ id: string }> {
-  const { url, anonKey } = getPublicSupabaseEnv();
-  const supabase = getBrowserSupabase();
-  const { data: sessionData } = await supabase.auth.getSession();
-
   const body: Record<string, unknown> = { id: input.id };
   if (input.username !== undefined) body.username = input.username.trim();
   if (input.password !== undefined && input.password !== "") body.password = input.password;
@@ -267,30 +240,15 @@ export async function updateMember(input: UpdateMemberInput): Promise<{ id: stri
   if (input.status !== undefined) body.status = input.status;
   if (input.positionIds !== undefined) body.positionIds = input.positionIds;
 
-  const response = await fetch(`${url}/functions/v1/admin-update-member`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: anonKey,
-      Authorization: `Bearer ${sessionData.session?.access_token ?? anonKey}`,
+  const result = await invokeEdgeFunction<{ id?: string }>("admin-update-member", body, {
+    fallbackMessage: "编辑成员失败",
+    codeMessages: {
+      USERNAME_TAKEN: "该用户名已被占用",
+      EMAIL_TAKEN: "该邮箱已被占用",
+      INVALID_INPUT: "输入不合法",
+      FORBIDDEN: "仅管理员可编辑成员",
     },
-    body: JSON.stringify(body),
   });
-
-  let result: { code?: string; message?: string; id?: string } = {};
-  try {
-    result = await response.json();
-  } catch {
-    throw new ApiError(ApiErrorCode.UNKNOWN, "编辑成员服务响应异常", response.status);
-  }
-
-  if (!response.ok) {
-    if (result.code === "USERNAME_TAKEN") throw new ApiError(ApiErrorCode.INVALID_INPUT, "该用户名已被占用");
-    if (result.code === "EMAIL_TAKEN") throw new ApiError(ApiErrorCode.INVALID_INPUT, "该邮箱已被占用");
-    if (result.code === "INVALID_INPUT") throw new ApiError(ApiErrorCode.INVALID_INPUT, result.message ?? "输入不合法");
-    if (result.code === "FORBIDDEN") throw new ApiError(ApiErrorCode.FORBIDDEN, result.message ?? "仅管理员可编辑成员");
-    throw new ApiError(ApiErrorCode.UNKNOWN, result.message ?? "编辑成员失败，请稍后再试");
-  }
 
   return { id: result.id ?? input.id };
 }
@@ -729,57 +687,23 @@ export type DailyIncomePayload = {
  * @param date 目标日期 `YYYY-MM-DD`（由日期表单决定），透传给上游 `date` 参数。
  */
 export async function fetchDailyIncomePayload(team: { teamId: string; teamCode: string }, date: string): Promise<DailyIncomePayload> {
-  const { url, anonKey } = getPublicSupabaseEnv();
-  const supabase = getBrowserSupabase();
+  const body = await invokeEdgeFunction<EdgeFunctionBody<DailyIncomePayload>>("daily-income", {
+    teamId: team.teamId,
+    anchorId: team.teamCode,
+    date,
+  }, {
+    fallbackMessage: "拉取流水失败",
+    codeMessages: {
+      UNAUTHENTICATED: "登录状态已失效，请重新登录",
+      FORBIDDEN: "你不在该团队中，无法拉取流水",
+      TEAM_NOT_FOUND: "团队不存在，请核对团队 ID",
+      INVALID_INPUT: "请求参数有误",
+      UPSTREAM_FAILED: "流水接口不可达，请稍后再试",
+    },
+  });
 
-  // 会话读取失败不致命：退回 anon key，由边缘函数按 401 归一化。
-  let accessToken = anonKey;
-  try {
-    const { data: sessionData } = await supabase.auth.getSession();
-    accessToken = sessionData.session?.access_token ?? anonKey;
-  } catch {
-    accessToken = anonKey;
-  }
-
-  let response: Response;
-  try {
-    response = await fetch(`${url}/functions/v1/daily-income`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: anonKey,
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({ teamId: team.teamId, anchorId: team.teamCode, date }),
-    });
-  } catch (err) {
-    // fetch 只在网络层失败（断网/DNS/被拦）时抛错，此时没有 HTTP 状态可参考。
-    throw new ApiError(ApiErrorCode.UNKNOWN, "网络异常，流水服务不可达，请检查网络后重试", err);
-  }
-
-  let body: { code?: string; message?: string; data?: DailyIncomePayload } = {};
-  try {
-    body = await response.json();
-  } catch {
-    throw new ApiError(
-      ApiErrorCode.UNKNOWN,
-      response.ok ? "流水服务响应异常" : `流水服务响应异常（HTTP ${response.status}）`,
-      response.status,
-    );
-  }
-
-  if (!response.ok || !body.data) {
-    const code =
-      body.code === "UNAUTHENTICATED"
-        ? ApiErrorCode.UNAUTHENTICATED
-        : body.code === "FORBIDDEN"
-          ? ApiErrorCode.FORBIDDEN
-          : body.code === "TEAM_NOT_FOUND"
-            ? ApiErrorCode.NOT_FOUND
-            : body.code === "INVALID_INPUT"
-              ? ApiErrorCode.INVALID_INPUT
-              : ApiErrorCode.UNKNOWN;
-    throw new ApiError(code, body.message ?? "拉取流水失败，请稍后再试", response.status);
+  if (!body.data) {
+    throw new ApiError(ApiErrorCode.UNKNOWN, body.message ?? "流水服务未返回数据，请稍后再试", body);
   }
 
   return body.data;
@@ -896,28 +820,14 @@ async function getCurrentProfileId(): Promise<string | null> {
 }
 
 async function callEdgeFunction(name: string, body: unknown): Promise<Record<string, unknown>> {
-  const { url, anonKey } = getPublicSupabaseEnv();
-  const supabase = getBrowserSupabase();
-  const { data: sessionData } = await supabase.auth.getSession();
-  const response = await fetch(`${url}/functions/v1/${name}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", apikey: anonKey, Authorization: `Bearer ${sessionData.session?.access_token ?? anonKey}` },
-    body: JSON.stringify(body),
+  return invokeEdgeFunction<Record<string, unknown>>(name, body, {
+    fallbackMessage: "操作失败",
+    codeMessages: {
+      FORBIDDEN: "没有操作权限",
+      INVALID_INPUT: "输入不合法",
+      EMAIL_TAKEN: "该邮箱已被占用",
+    },
   });
-  let result: Record<string, unknown> = {};
-  try {
-    result = await response.json();
-  } catch {
-    throw new ApiError(ApiErrorCode.UNKNOWN, "服务响应异常", response.status);
-  }
-  if (!response.ok) {
-    const code = result.code as string | undefined;
-    const message = (result.message as string | undefined) ?? "操作失败，请稍后再试";
-    if (code === "FORBIDDEN") throw new ApiError(ApiErrorCode.FORBIDDEN, message);
-    if (code === "INVALID_INPUT" || code === "EMAIL_TAKEN") throw new ApiError(ApiErrorCode.INVALID_INPUT, message);
-    throw new ApiError(ApiErrorCode.UNKNOWN, message);
-  }
-  return result;
 }
 
 /** 成员批量提交资料修改申请（覆盖同字段旧 pending）。 */

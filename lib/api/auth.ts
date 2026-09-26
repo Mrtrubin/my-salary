@@ -5,7 +5,7 @@
  * 注册经 auth-register Edge Function 创建 Auth 用户与成员资料。
  */
 import { getBrowserSupabase } from "@/lib/supabase/client";
-import { getPublicSupabaseEnv } from "@/lib/supabase/env";
+import { invokeEdgeFunction } from "@/lib/api/client";
 import { ApiError, ApiErrorCode } from "@/lib/api/contracts/errors";
 
 /**
@@ -40,52 +40,32 @@ export interface AuthUser {
   email: string | null;
 }
 
+/** 登录接口返回体（access_token 等凭证在顶层，不在 data 内）。 */
+interface LoginResponse {
+  access_token?: string;
+  refresh_token?: string;
+  expires_at?: number;
+  user?: { id: string; email: string | null };
+}
+
 /** 用户名 + 密码登录，成功返回登录用户信息。 */
 export async function signInWithPassword({
   username,
   password,
 }: SignInInput): Promise<AuthUser> {
-  const { url, anonKey } = getPublicSupabaseEnv();
-
-  const response = await fetch(`${url}/functions/v1/auth-login`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: anonKey,
-      Authorization: `Bearer ${anonKey}`,
+  // 登录前没有会话，显式只用 anon key；网络失败会归一化为 NETWORK 并附带原因。
+  const body = await invokeEdgeFunction<LoginResponse>("auth-login", {
+    username: username.trim(),
+    password,
+  }, {
+    withSession: false,
+    fallbackMessage: "登录失败",
+    codeMessages: {
+      UNAUTHENTICATED: "用户名或密码错误",
+      FORBIDDEN: "账号已停用，请联系管理员",
+      INVALID_INPUT: "输入不合法",
     },
-    body: JSON.stringify({
-      username: username.trim(),
-      password,
-    }),
   });
-
-  let body: {
-    code?: string;
-    message?: string;
-    access_token?: string;
-    refresh_token?: string;
-    expires_at?: number;
-    user?: { id: string; email: string | null };
-  };
-  try {
-    body = await response.json();
-  } catch {
-    throw new ApiError(ApiErrorCode.UNKNOWN, "登录服务响应异常", response.status);
-  }
-
-  if (!response.ok) {
-    if (body.code === "UNAUTHENTICATED") {
-      throw new ApiError(ApiErrorCode.UNAUTHENTICATED, "用户名或密码错误", body);
-    }
-    if (body.code === "FORBIDDEN") {
-      throw new ApiError(ApiErrorCode.FORBIDDEN, body.message ?? "账号已停用", body);
-    }
-    if (body.code === "INVALID_INPUT") {
-      throw new ApiError(ApiErrorCode.INVALID_INPUT, body.message ?? "输入不合法", body);
-    }
-    throw new ApiError(ApiErrorCode.UNKNOWN, body.message ?? "登录失败，请稍后再试", body);
-  }
 
   // 用返回的 token 建立本地会话
   if (!body.access_token || !body.refresh_token) {
@@ -110,41 +90,18 @@ export async function signInWithPassword({
  * 首个注册账号自动成为管理员，其余为普通用户。
  */
 export async function signUpWithUsername(input: SignUpInput): Promise<void> {
-  const { url, anonKey } = getPublicSupabaseEnv();
-  const supabase = getBrowserSupabase();
-  const { data: sessionData } = await supabase.auth.getSession();
-
-  const response = await fetch(`${url}/functions/v1/auth-register`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: anonKey,
-      Authorization: `Bearer ${sessionData.session?.access_token ?? anonKey}`,
+  await invokeEdgeFunction("auth-register", {
+    username: input.username.trim().toLowerCase(),
+    password: input.password,
+    email: input.email?.trim() ?? "",
+    name: input.name?.trim() ?? "",
+  }, {
+    fallbackMessage: "注册失败",
+    codeMessages: {
+      USERNAME_TAKEN: "该用户名已被注册",
+      INVALID_INPUT: "输入不合法",
     },
-    body: JSON.stringify({
-      username: input.username.trim().toLowerCase(),
-      password: input.password,
-      email: input.email?.trim() ?? "",
-      name: input.name?.trim() ?? "",
-    }),
   });
-
-  let body: { code?: string; message?: string } = {};
-  try {
-    body = await response.json();
-  } catch {
-    throw new ApiError(ApiErrorCode.UNKNOWN, "注册服务响应异常", response.status);
-  }
-
-  if (!response.ok) {
-    if (body.code === "USERNAME_TAKEN") {
-      throw new ApiError(ApiErrorCode.INVALID_INPUT, "该用户名已被注册");
-    }
-    if (body.code === "INVALID_INPUT") {
-      throw new ApiError(ApiErrorCode.INVALID_INPUT, body.message ?? "输入不合法");
-    }
-    throw new ApiError(ApiErrorCode.UNKNOWN, body.message ?? "注册失败，请稍后再试");
-  }
 }
 
 /** 密码最小长度（与注册保持一致）。 */

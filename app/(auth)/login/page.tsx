@@ -80,12 +80,17 @@ export default function LoginPage() {
       writeCachedProfile(profile);
       router.push(profile.system_role === "admin" ? "/admin" : "/user/dashboard");
     } catch (error) {
-      if (error instanceof ApiError && error.code === ApiErrorCode.UNAUTHENTICATED) {
+      if (error instanceof ApiError && error.code === ApiErrorCode.NETWORK) {
+        // 网络层异常（断网 / ERR_CONNECTION_RESET 等）单独提示，不混同为「登录失败」。
+        setSubmitError(error.message);
+      } else if (error instanceof ApiError && error.code === ApiErrorCode.UNAUTHENTICATED) {
         setSubmitError("用户名或密码错误，请重试");
       } else if (error instanceof ApiError && error.code === ApiErrorCode.FORBIDDEN) {
         setSubmitError(error.message || "账号已停用，请联系管理员");
       } else if (error instanceof ApiError && error.code === ApiErrorCode.INVALID_INPUT) {
         setSubmitError(error.message || "输入不合法");
+      } else if (error instanceof ApiError) {
+        setSubmitError(error.message || "登录失败，请稍后再试");
       } else {
         setSubmitError("登录失败，请稍后再试");
       }
@@ -119,6 +124,8 @@ export default function LoginPage() {
     } catch (error) {
       if (error instanceof ApiError && error.code === ApiErrorCode.INVALID_INPUT) {
         setSubmitError(error.message);
+      } else if (error instanceof ApiError) {
+        setSubmitError(error.message || "注册失败，请稍后再试");
       } else {
         setSubmitError("注册失败，请稍后再试");
       }

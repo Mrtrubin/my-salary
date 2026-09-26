@@ -14,6 +14,8 @@ export const ApiErrorCode = {
   CONFLICT: "CONFLICT",
   NOT_FOUND: "NOT_FOUND",
   FORMULA_ERROR: "FORMULA_ERROR",
+  /** 网络层异常：断网、DNS 失败、ERR_CONNECTION_RESET、超时等，没有 HTTP 状态可参考。 */
+  NETWORK: "NETWORK",
   UNKNOWN: "UNKNOWN",
 } as const;
 
