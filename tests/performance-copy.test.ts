@@ -55,6 +55,28 @@ describe("业绩汇总文案（提交汇总与卡片复制共用格式）", () =
     expect(text).toContain("总人气 5");
   });
 
+  it("按成员列出调整项明细，无调整项则不输出", () => {
+    const text = buildPerformanceCopyText({
+      perfDate: "2026-09-06",
+      teamName: "水晶之恋",
+      broadcastMinutes: 0,
+      members: [
+        member({ name: "甲", pointsAmount: 12445, adjustments: ["运营票 +100", "罚款 -50"] }),
+        member({ name: "乙", pointsAmount: 100, adjustments: [] }),
+      ],
+    });
+
+    expect(text).toBe([
+      "9月6日 水晶之恋",
+      "开播情况汇总",
+      "总开播时 0",
+      "个人业绩",
+      "甲：12,445 (运营票 +100、罚款 -50)",
+      "乙：100",
+      "总音浪 12,545",
+    ].join("\n"));
+  });
+
   it("休息/停播成员显示备注，缺省「休息」", () => {
     const text = buildPerformanceCopyText({
       perfDate: "2026-09-06",

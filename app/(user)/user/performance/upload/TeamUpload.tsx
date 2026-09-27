@@ -67,6 +67,14 @@ function sumAdjustments(list: PerfAdjustment[]): number {
   }, 0);
 }
 
+/** 调整项 → 复制文案明细（如「运营票 +100」）；名称为空只留数值，零值忽略。 */
+function formatAdjustmentEntries(list: PerfAdjustment[]): string[] {
+  return (list ?? [])
+    .map((a) => ({ name: a.name.trim(), amount: Number(a.amount) }))
+    .filter((a) => Number.isFinite(a.amount) && a.amount !== 0)
+    .map((a) => `${a.name ? `${a.name} ` : ""}${a.amount > 0 ? "+" : ""}${a.amount}`);
+}
+
 /** 原生下拉/日期输入统一样式，与 UI 组件视觉对齐。 */
 const controlClass =
   "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100";
@@ -375,6 +383,10 @@ export function TeamUpload({
       const rate = teamRateOf(pointId);
       // 调整项折算金额（分）：调整点数 ÷ 换算率 × 100。
       const adjustmentCents = record.noPerf || rate <= 0 ? 0 : Math.round((sumAdjustments(m.adjustments) / rate) * 100);
+      // 逐条调整项明细：丢弃空/非法/零值项，名称去空白。
+      const adjustments = (m.adjustments ?? [])
+        .map((a) => ({ name: a.name.trim(), amount: Number(a.amount) }))
+        .filter((a) => Number.isFinite(a.amount) && a.amount !== 0);
       return {
         profileId: m.profileId,
         pointId,
@@ -382,6 +394,7 @@ export function TeamUpload({
         revenueCents: Math.round(teamRevenueYuanOf(m) * 100),
         broadcastMinutes: record.noPerf ? 0 : Math.round((Number(m.broadcastHours) || 0) * 60),
         adjustmentCents,
+        adjustments,
         noPerf: record.noPerf,
         noPerfNote: record.noPerfNote ?? undefined,
       };
@@ -419,6 +432,7 @@ export function TeamUpload({
         pointsAmount: totalPointsOf(m),
         pointId,
         pointName: teamPoints.find((p) => p.id === pointId)?.name ?? null,
+        adjustments: formatAdjustmentEntries(m.adjustments),
       };
     });
     // 卡片口径：当日「总开播时」取各主播时长的最大值。

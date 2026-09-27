@@ -39,14 +39,21 @@ export default function HostPerformanceUploadPage() {
     const memberRows: Record<string, TeamMemberRow> = {};
     rows.forEach((r) => {
       const status = statusFromRecord(r.no_perf, r.no_perf_note);
+      // 逐条调整项已单独落库，回填时从 points_amount 里扣掉，业绩与调整项分开编辑。
+      const restored = status === "normal" ? (r.adjustments ?? []) : [];
+      const adjustmentSum = restored.reduce((sum, a) => sum + a.amount, 0);
+      const basePoints = status === "normal" ? (r.points_amount || 0) - adjustmentSum : 0;
       memberRows[r.profile_id] = {
         profileId: r.profile_id,
         name: r.profile?.name ?? "",
         douyinId: "",
         pointId: r.point_id ?? "",
-        pointsAmount: status === "normal" ? String(r.points_amount || "") : "",
-        // 提交时已将「业绩 + 调整项」合并存入 points_amount，编辑回填不再拆分调整项。
-        adjustments: [],
+        pointsAmount: status === "normal" && basePoints ? String(basePoints) : "",
+        adjustments: restored.map((a) => ({
+          id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2),
+          name: a.name,
+          amount: String(a.amount),
+        })),
         status,
         restNote: status === "rest" ? (r.no_perf_note ?? REST_NOTE) : REST_NOTE,
         broadcastHours: r.broadcast_minutes > 0 ? String((r.broadcast_minutes / 60).toFixed(2)) : "",

@@ -107,10 +107,14 @@ export async function signUpWithUsername(input: SignUpInput): Promise<void> {
 /** 密码最小长度（与注册保持一致）。 */
 export const PASSWORD_MIN_LENGTH = 6;
 
-/** 登出当前会话。 */
+/**
+ * 登出当前会话。
+ * 默认只登出「本设备」（scope: local）——避免一台设备登出就把该账号其他设备的会话一并撤销，
+ * 导致其他设备拿着已失效的 access_token 继续请求而被判 401。
+ */
 export async function signOut(): Promise<void> {
   const supabase = getBrowserSupabase();
-  const { error } = await supabase.auth.signOut();
+  const { error } = await supabase.auth.signOut({ scope: "local" });
   if (error) {
     throw new ApiError(ApiErrorCode.UNKNOWN, error.message, error);
   }

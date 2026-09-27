@@ -6,7 +6,7 @@
  *   开播情况汇总
  *   总开播时 6.1
  *   个人业绩
- *   甲：12,345（音浪）
+ *   甲：12,345（音浪） (运营票 +100、罚款 -50)
  *   乙：休息
  *   总音浪 12,345
  */
@@ -32,6 +32,8 @@ export interface PerfCopyMember {
   pointsAmount: number;
   pointId: string | null;
   pointName: string | null;
+  /** 调整项明细（已格式化，如「运营票 +100」）；无调整项时省略。 */
+  adjustments?: string[];
 }
 
 export interface PerfCopyInput {
@@ -65,7 +67,9 @@ export function buildPerformanceCopyText(input: PerfCopyInput): string {
       lines.push(`${member.name}：${member.note || "休息"}`);
     } else {
       const amount = member.pointsAmount.toLocaleString();
-      lines.push(`${member.name}：${singleUnit ? amount : `${amount}（${member.pointName ?? ""}）`}`);
+      const base = `${member.name}：${singleUnit ? amount : `${amount}（${member.pointName ?? ""}）`}`;
+      const adj = member.adjustments?.length ? ` (${member.adjustments.join("、")})` : "";
+      lines.push(`${base}${adj}`);
     }
   }
   if (singleUnit) {

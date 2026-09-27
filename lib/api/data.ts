@@ -1,5 +1,5 @@
 import { ApiError, ApiErrorCode } from "@/lib/api/contracts/errors";
-import { invokeEdgeFunction, isNetworkFailure, toNetworkError, type EdgeFunctionBody } from "@/lib/api/client";
+import { invokeEdgeFunction, isAuthFailure, isNetworkFailure, toNetworkError, type EdgeFunctionBody } from "@/lib/api/client";
 import { REST_NOTE } from "@/lib/domain/performance/status";
 import { getBrowserSupabase } from "@/lib/supabase/client";
 import type { Database, Json } from "@/lib/supabase/database.types";
@@ -31,6 +31,8 @@ const settlementErrors: Record<string, string> = {
 function fail(error: { message: string; code?: string } | null): never {
   // 网络层失败（断网 / ERR_CONNECTION_RESET / 超时）走 NETWORK，保留可读文案。
   if (isNetworkFailure(error)) throw toNetworkError(error, "数据请求失败");
+  // 登录态失效（JWT 过期/被撤销）：归一化为 UNAUTHENTICATED，交由全局处理清会话并回登录页。
+  if (isAuthFailure(error)) throw new ApiError(ApiErrorCode.UNAUTHENTICATED, "登录状态已失效，请重新登录", error);
   const message = Object.entries(settlementErrors).find(([code]) => error?.message.includes(code))?.[1]
     ?? (error?.code === "40001" || error?.code === "40P01" ? "结算操作并发冲突，请稍后重试" : error?.message)
     ?? "数据请求失败";
@@ -289,6 +291,25 @@ export async function updatePosition(id: number, input: Partial<PositionInput>):
   return data;
 }
 
+/** 单条调整项：名称 + 数值（单位与业绩一致，可为负）。 */
+export interface AnchorRevenueAdjustment {
+  name: string;
+  amount: number;
+}
+
+/** 把数据库 jsonb 容错解析为调整项数组（丢弃非法/零值项）。 */
+export function parseAnchorRevenueAdjustments(value: unknown): AnchorRevenueAdjustment[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const record = item as { name?: unknown; amount?: unknown };
+    const amount = Number(record.amount);
+    if (!Number.isFinite(amount) || amount === 0) return [];
+    const name = typeof record.name === "string" ? record.name.trim() : "";
+    return [{ name, amount }];
+  });
+}
+
 /** 团队每日绩效记录（含关联团队名 / 绩效点名 / 成员名）。 */
 export interface TeamPerformanceRow {
   id: string;
@@ -301,6 +322,8 @@ export interface TeamPerformanceRow {
   revenue_cents: number;
   /** 当日调整项折算金额（分，可正可负）。 */
   adjustment_cents: number;
+  /** 当日逐条调整项明细（名称 + 数值）。 */
+  adjustments: AnchorRevenueAdjustment[];
   no_perf: boolean;
   no_perf_note: string | null;
   created_at: string;
@@ -326,7 +349,8 @@ export async function listTeamPerformance(range?: { start?: string; end?: string
   if (range?.end) query = query.lte("perf_date", range.end);
   const { data, error } = await query;
   if (error) fail(error);
-  return data as unknown as TeamPerformanceRow[];
+  const rows = data as unknown as (Omit<TeamPerformanceRow, "adjustments"> & { adjustments: unknown })[];
+  return rows.map((row) => ({ ...row, adjustments: parseAnchorRevenueAdjustments(row.adjustments) }));
 }
 
 /** 团队绩效单条上传项：某成员当日的绩效点/数量/流水，或无绩效备注。 */
@@ -339,6 +363,8 @@ export interface TeamPerformanceUploadItem {
   broadcastMinutes: number;
   /** 该成员当日调整项折算金额（分，可正可负）。 */
   adjustmentCents: number;
+  /** 该成员当日逐条调整项明细（名称 + 数值）。 */
+  adjustments: AnchorRevenueAdjustment[];
   noPerf: boolean;
   noPerfNote?: string;
 }
@@ -364,6 +390,7 @@ export async function createTeamPerformanceRecords(input: {
     perf_date: input.perfDate,
     broadcast_minutes: item.noPerf ? 0 : item.broadcastMinutes,
     adjustment_cents: item.noPerf ? 0 : item.adjustmentCents,
+    adjustments: (item.noPerf ? [] : item.adjustments) as unknown as Json,
     points_amount: item.noPerf ? 0 : item.pointsAmount,
     revenue_cents: item.noPerf ? 0 : item.revenueCents,
     no_perf: item.noPerf,
@@ -396,7 +423,7 @@ export async function replaceTeamPerformanceRecords(input: {
   // 1. 读取当日现有记录，用于逐成员对比「是否有变化」。
   const { data: existingRows, error: readError } = await supabase
     .from("anchor_revenue_records")
-    .select("profile_id, point_id, points_amount, revenue_cents, no_perf, no_perf_note, broadcast_minutes, adjustment_cents")
+    .select("profile_id, point_id, points_amount, revenue_cents, no_perf, no_perf_note, broadcast_minutes, adjustment_cents, adjustments")
     .eq("team_id", input.teamId)
     .eq("perf_date", input.perfDate);
   if (readError) fail(readError);
@@ -404,7 +431,7 @@ export async function replaceTeamPerformanceRecords(input: {
     (existingRows as unknown as {
       profile_id: string; point_id: string | null; points_amount: number;
       revenue_cents: number; no_perf: boolean; no_perf_note: string | null; broadcast_minutes: number;
-      adjustment_cents: number;
+      adjustment_cents: number; adjustments: unknown;
     }[]).map((r) => [r.profile_id, r]),
   );
 
@@ -418,6 +445,7 @@ export async function replaceTeamPerformanceRecords(input: {
     const nextNote = item.noPerf ? (item.noPerfNote?.slice(0, 20) || REST_NOTE) : null;
     const nextBroadcastMinutes = item.noPerf ? 0 : item.broadcastMinutes;
     const nextAdjustmentCents = item.noPerf ? 0 : item.adjustmentCents;
+    const nextAdjustments = item.noPerf ? [] : item.adjustments;
     const same =
       prev &&
       prev.point_id === nextPointId &&
@@ -426,7 +454,8 @@ export async function replaceTeamPerformanceRecords(input: {
       prev.no_perf === item.noPerf &&
       prev.no_perf_note === nextNote &&
       prev.broadcast_minutes === nextBroadcastMinutes &&
-      prev.adjustment_cents === nextAdjustmentCents;
+      prev.adjustment_cents === nextAdjustmentCents &&
+      JSON.stringify(parseAnchorRevenueAdjustments(prev.adjustments)) === JSON.stringify(nextAdjustments);
     if (!same) changedItems.push(item);
   }
 
@@ -913,6 +942,10 @@ export interface AnchorRevenuePerfRow {
   revenueCents: number;
   broadcastMinutes: number;
   pointName: string | null;
+  /** 当日调整项折算金额（分，可正可负）。 */
+  adjustmentCents: number;
+  /** 当日逐条调整项明细（名称 + 数值）；历史记录可能为空，仅能以 adjustmentCents 兜底。 */
+  adjustments: AnchorRevenueAdjustment[];
   noPerf: boolean;
   noPerfNote: string | null;
   createdAt: string;
@@ -931,7 +964,7 @@ async function readProfileRevenue(profileIds: string[], period: PeriodRange): Pr
   for (let i = 0; i < uniqueIds.length; i += 100) {
     const ids = uniqueIds.slice(i, i + 100);
     const data = await readSettlementRows((from, to) => supabase.from("anchor_revenue_records")
-      .select("id, team_id, profile_id, perf_date, revenue_cents, broadcast_minutes, no_perf, no_perf_note, created_at, team:teams(name), point:performance_points(name), profile:profiles!anchor_revenue_records_profile_id_fkey(name)")
+      .select("id, team_id, profile_id, perf_date, revenue_cents, broadcast_minutes, adjustment_cents, adjustments, no_perf, no_perf_note, created_at, team:teams(name), point:performance_points(name), profile:profiles!anchor_revenue_records_profile_id_fkey(name)")
       .in("profile_id", ids).gte("perf_date", period.start).lte("perf_date", period.end)
       .order("perf_date", { ascending: false }).order("created_at", { ascending: false }).order("id")
       .range(from, to));
@@ -939,7 +972,9 @@ async function readProfileRevenue(profileIds: string[], period: PeriodRange): Pr
       id: r.id, teamId: r.team_id, teamName: r.team?.name ?? null,
       profileId: r.profile_id, profileName: r.profile?.name ?? null,
       perfDate: r.perf_date, revenueCents: r.revenue_cents, broadcastMinutes: r.broadcast_minutes,
-      pointName: r.point?.name ?? null, noPerf: r.no_perf, noPerfNote: r.no_perf_note, createdAt: r.created_at,
+      pointName: r.point?.name ?? null, adjustmentCents: r.adjustment_cents,
+      adjustments: parseAnchorRevenueAdjustments(r.adjustments),
+      noPerf: r.no_perf, noPerfNote: r.no_perf_note, createdAt: r.created_at,
     })));
   }
   return rows.sort((a, b) => b.perfDate.localeCompare(a.perfDate) || b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));

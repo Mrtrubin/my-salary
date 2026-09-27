@@ -8,7 +8,7 @@ import { QueryMessage } from "@/components/admin/query-message";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
 import { useTeamPerformance } from "@/lib/api/hooks";
 import type { TeamPerformanceRow } from "@/lib/api/data";
-import { buildRevenueRecordFields } from "@/lib/domain/performance/recordView";
+import { buildRevenueRecordFields, formatAdjustmentItems } from "@/lib/domain/performance/recordView";
 import { formatCentsToYuan, formatDate } from "@/lib/format";
 
 function toHours(minutes: number): string {
@@ -143,6 +143,11 @@ export default function TeamReviewPage() {
                       {signedCents(record.adjustment_cents)}
                     </span>
                   ),
+              },
+              {
+                title: "调整项明细",
+                width: 200,
+                render: (_, record) => formatAdjustmentItems(record.adjustments) || "—",
               },
               {
                 title: "当日最终流水",

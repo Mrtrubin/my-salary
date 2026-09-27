@@ -714,6 +714,7 @@ export type Database = {
       anchor_revenue_records: {
         Row: {
           adjustment_cents: number
+          adjustments: Json
           broadcast_minutes: number
           created_at: string
           id: string
@@ -730,6 +731,7 @@ export type Database = {
         }
         Insert: {
           adjustment_cents?: number
+          adjustments?: Json
           broadcast_minutes?: number
           created_at?: string
           id?: string
@@ -746,6 +748,7 @@ export type Database = {
         }
         Update: {
           adjustment_cents?: number
+          adjustments?: Json
           broadcast_minutes?: number
           created_at?: string
           id?: string

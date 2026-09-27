@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import type { TeamPerformanceRow } from "@/lib/api/data";
 import { buildPerformanceCopyText, toHoursText, type PerfCopyMember } from "./performanceCopy";
-import { buildRevenueRecordFields, sumRevenueBreakdown } from "@/lib/domain/performance/recordView";
+import { adjustmentItemTexts, buildRevenueRecordFields, sumRevenueBreakdown } from "@/lib/domain/performance/recordView";
 import { formatCentsToYuan } from "@/lib/format";
 
 /** 单张团队每日绩效卡片的聚合数据。 */
@@ -63,6 +63,7 @@ function buildCopyText(group: DailyGroup): string {
     pointsAmount: r.points_amount,
     pointId: r.point_id,
     pointName: r.point?.name ?? null,
+    adjustments: r.no_perf ? undefined : adjustmentItemTexts(r.adjustments),
   }));
   return buildPerformanceCopyText({
     perfDate: group.perfDate,

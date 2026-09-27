@@ -8,11 +8,31 @@
  */
 import { formatCentsToYuan, formatDateTime, formatDurationSeconds } from "@/lib/format";
 
+/** 单条调整项（名称 + 数值，单位与业绩一致，可为负）。 */
+export interface RevenueAdjustmentLike {
+  name: string;
+  amount: number;
+}
+
+/** 逐条调整项 → 单项文案（如「运营票 +100」）；丢弃零值/非法项。 */
+export function adjustmentItemTexts(list: RevenueAdjustmentLike[] | null | undefined): string[] {
+  return (list ?? [])
+    .filter((item) => Number.isFinite(item.amount) && item.amount !== 0)
+    .map((item) => `${item.name ? `${item.name} ` : ""}${item.amount > 0 ? "+" : ""}${item.amount}`);
+}
+
+/** 逐条调整项 → 单行文案（如「运营票 +100、罚款 -50」）；空项返回空串。 */
+export function formatAdjustmentItems(list: RevenueAdjustmentLike[] | null | undefined): string {
+  return adjustmentItemTexts(list).join("、");
+}
+
 export interface RevenueRecordLike {
   perf_date: string;
   points_amount: number;
   revenue_cents: number;
   adjustment_cents: number;
+  /** 当日逐条调整项明细。 */
+  adjustments?: RevenueAdjustmentLike[] | null;
   broadcast_minutes: number;
   no_perf: boolean;
   no_perf_note: string | null;
@@ -62,8 +82,10 @@ export function buildRevenueRecordFields(record: RevenueRecordLike): { label: st
     { label: "直播时长", value: record.broadcast_minutes > 0 ? formatDurationSeconds(record.broadcast_minutes * 60) : "—" },
     { label: "当日流水", value: formatCentsToYuan(baseCents) },
     { label: "当日调整项", value: formatCentsToYuan(adjustmentCents) },
-    { label: "当日最终流水", value: formatCentsToYuan(finalCents) },
   ];
+  const adjustmentText = formatAdjustmentItems(record.adjustments);
+  if (adjustmentText) fields.push({ label: "调整项明细", value: adjustmentText });
+  fields.push({ label: "当日最终流水", value: formatCentsToYuan(finalCents) });
   if (record.created_at) fields.push({ label: "录入时间", value: formatDateTime(record.created_at) });
   return fields;
 }

@@ -1,6 +1,7 @@
 import type { PostgrestError } from "@supabase/supabase-js";
 import { getPublicSupabaseEnv } from "@/lib/supabase/env";
 import { getBrowserSupabase } from "@/lib/supabase/client";
+import { expireSession } from "@/lib/api/session";
 import { ApiError, ApiErrorCode } from "../contracts/errors";
 
 /** Edge Function 统一响应契约：业务码 + 可读消息（+ 业务数据）。 */
@@ -45,6 +46,21 @@ export function isNetworkFailure(error: unknown): boolean {
   // 带业务码的错误交给对应分支处理；仅放行 Abort 这类客户端 code。
   if (code && !/^ERR_/.test(code)) return false;
   return NETWORK_MESSAGE_PATTERN.test(message) || /^(typeerror|fetcherror):/i.test(message);
+}
+
+/**
+ * 判断底层错误是否表示「登录态已失效」（JWT 过期 / 被撤销 / 401 系）。
+ * 用于统一触发「清本地会话 + 回登录页」，避免带着失效 token 反复重试。
+ */
+export function isAuthFailure(error: unknown): boolean {
+  if (error instanceof ApiError) return error.code === ApiErrorCode.UNAUTHENTICATED;
+  const candidate = error as { code?: string; status?: number; statusCode?: number; message?: string } | null;
+  if (!candidate || typeof candidate !== "object") return false;
+  const status = candidate.status ?? candidate.statusCode;
+  if (status === 401) return true;
+  // PostgREST 的 401 系错误码：PGRST301（JWT 过期）等。
+  if (candidate.code === "PGRST301") return true;
+  return /jwt|session_not_found|invalid claim/i.test(candidate.message ?? "");
 }
 
 /** 网络层异常归一化：没有 HTTP 状态可参考，统一为 NETWORK 并给出可展示文案。 */
@@ -167,19 +183,29 @@ export async function invokeEdgeFunction<T = EdgeFunctionBody>(
     }
   }
 
-  return postJson<T>(
-    `${url}/functions/v1/${name}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: anonKey,
-        Authorization: `Bearer ${accessToken}`,
+  try {
+    return await postJson<T>(
+      `${url}/functions/v1/${name}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: anonKey,
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(body),
       },
-      body: JSON.stringify(body),
-    },
-    postOptions,
-  );
+      postOptions,
+    );
+  } catch (error) {
+    // 带登录态的请求返回「登录态失效」：清本地会话并回登录页。
+    // 放在这里而不是 React Query 层，是因为像 daily-income 这类直接在事件回调里
+    // 调用的请求不经过 React Query，必须由调用入口统一兜住，否则 401 只会显示成局部错误。
+    if (withSession && error instanceof ApiError && error.code === ApiErrorCode.UNAUTHENTICATED) {
+      expireSession();
+    }
+    throw error;
+  }
 }
 
 export function normalizeError(error: unknown): ApiError {
@@ -187,6 +213,7 @@ export function normalizeError(error: unknown): ApiError {
   if (isNetworkFailure(error)) return toNetworkError(error, "数据请求失败");
   const source = error as Partial<PostgrestError> | null;
   const message = source?.message ?? (error instanceof Error ? error.message : String(error));
+  if (isAuthFailure(error)) return new ApiError(ApiErrorCode.UNAUTHENTICATED, message || "登录状态已失效，请重新登录", error);
   if (!message) return new ApiError(ApiErrorCode.UNKNOWN, "数据请求失败，请稍后重试", error);
   if (source?.code === "42501") return new ApiError(ApiErrorCode.FORBIDDEN, message, error);
   if (source?.code === "23505") return new ApiError(ApiErrorCode.DUPLICATE_MONTH, message, error);

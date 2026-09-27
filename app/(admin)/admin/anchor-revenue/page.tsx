@@ -44,6 +44,7 @@ import {
 } from "@/lib/domain/payroll/adjustment";
 import type { PayrollAdjustment } from "@/lib/domain/payroll/adjustment";
 import { OFF_AIR_NOTE, statusFromRecord } from "@/lib/domain/performance/status";
+import { formatAdjustmentItems } from "@/lib/domain/performance/recordView";
 import { calculateAnchorPayroll, parseCommissionBonusPoints } from "@/lib/domain/payroll/anchor";
 import { formatCentsToYuan, formatDate, formatDurationSeconds } from "@/lib/format";
 
@@ -827,10 +828,14 @@ function AnchorRevenueWorkspace({
                     <Typography.Text strong>周期内流水</Typography.Text>
                     {(dailyByProfile[row.profileId] ?? []).length ? (
                       <ul style={{ margin: "8px 0 0", paddingInlineStart: 18, fontSize: 13 }}>
-                        {(dailyByProfile[row.profileId] ?? []).map((d) => (
+                        {(dailyByProfile[row.profileId] ?? []).map((d) => {
+                          // 优先展示逐条明细；历史记录没有明细时退回按折算金额显示。
+                          const itemText = formatAdjustmentItems(d.adjustments);
+                          const adjustmentText = itemText || (d.adjustmentCents ? signedAmount(d.adjustmentCents) : "");
+                          return (
                           <li key={d.id}>
                             <Flex justify="space-between" gap={16}>
-                              <span>{`${formatDate(d.perfDate)} · ${d.teamName ?? "未知团队"} · ${d.noPerf ? (d.noPerfNote || "休息") : (d.pointName ?? "—")}`}</span>
+                              <span>{`${formatDate(d.perfDate)} · ${d.teamName ?? "未知团队"} · ${d.noPerf ? (d.noPerfNote || "休息") : (d.pointName ?? "—")}`}{adjustmentText ? ` (${adjustmentText})` : ""}</span>
                               <span
                                 style={{
                                   fontVariantNumeric: "tabular-nums",
@@ -841,7 +846,8 @@ function AnchorRevenueWorkspace({
                               </span>
                             </Flex>
                           </li>
-                        ))}
+                          );
+                        })}
                       </ul>
                     ) : (
                       <Typography.Paragraph type="secondary" style={{ marginTop: 8 }}>
