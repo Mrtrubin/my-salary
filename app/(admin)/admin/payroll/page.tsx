@@ -21,7 +21,7 @@ import {
 } from "@/lib/api/hooks";
 import type { SalaryRecord } from "@/lib/api/data";
 import { formatBpsAsPercent, formatCentsToYuan, formatDateTime, formatDurationSeconds } from "@/lib/format";
-import { bpsToPercentNumber, centsToYuanNumber, downloadExcel, fileStamp, type ExcelColumn } from "@/lib/excel";
+import { bpsToRatio, centsToYuanNumber, downloadExcel, fileStamp, type ExcelColumn } from "@/lib/excel";
 import { HostPayrollPanel } from "./HostPayrollPanel";
 
 /** 状态变更历史时间轴（展开某条工资条时按需加载，精确到秒）。 */
@@ -332,7 +332,7 @@ export default function PayrollPage() {
       title: "基础提成率",
       width: 120,
       align: "right",
-      exportValue: (record) => bpsToPercentNumber(record.base_commission_rate_bps ?? 0),
+      exportValue: (record) => bpsToRatio(record.base_commission_rate_bps ?? 0),
       render: (_, record) => (
         <span title="结算时该主播的基础提成率快照">
           {formatBpsAsPercent(record.base_commission_rate_bps ?? 0)}
@@ -343,7 +343,7 @@ export default function PayrollPage() {
       title: "阶梯提点",
       width: 110,
       align: "right",
-      exportValue: (record) => bpsToPercentNumber(tierBonusBps(record)),
+      exportValue: (record) => bpsToRatio(tierBonusBps(record)),
       render: (_, record) => (
         <span
           title={
@@ -360,7 +360,7 @@ export default function PayrollPage() {
       title: "考勤加点",
       width: 110,
       align: "right",
-      exportValue: (record) => bpsToPercentNumber(record.attendance_bonus_bps ?? 0),
+      exportValue: (record) => bpsToRatio(record.attendance_bonus_bps ?? 0),
       render: (_, record) => (
         <span title="结算保存的考勤加点，仅达到提成起征线后生效">
           {(record.attendance_bonus_bps ?? 0) / 100}
@@ -371,7 +371,7 @@ export default function PayrollPage() {
       title: "dy任务加点",
       width: 120,
       align: "right",
-      exportValue: (record) => bpsToPercentNumber(record.dy_task_bonus_bps ?? 0),
+      exportValue: (record) => bpsToRatio(record.dy_task_bonus_bps ?? 0),
       render: (_, record) => (
         <span title="结算保存的dy任务加点，仅达到提成起征线后生效">
           {(record.dy_task_bonus_bps ?? 0) / 100}
@@ -382,7 +382,7 @@ export default function PayrollPage() {
       title: "最终提成率",
       width: 120,
       align: "right",
-      exportValue: (record) => bpsToPercentNumber(record.commission_rate_bps),
+      exportValue: (record) => bpsToRatio(record.commission_rate_bps),
       render: (_, record) => (
         <span
           title={

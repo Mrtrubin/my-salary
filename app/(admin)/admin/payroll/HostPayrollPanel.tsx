@@ -16,7 +16,7 @@ import {
 } from "@/lib/api/hooks";
 import type { HostSalaryRecord } from "@/lib/api/data";
 import { formatBpsAsPercent, formatCentsToYuan, formatDateTime, formatDurationSeconds } from "@/lib/format";
-import { bpsToPercentNumber, centsToYuanNumber, downloadExcel, fileStamp, type ExcelColumn } from "@/lib/excel";
+import { bpsToRatio, centsToYuanNumber, downloadExcel, fileStamp, type ExcelColumn } from "@/lib/excel";
 
 const STATUS_LABELS: Record<string, string> = {
   pending_review: "待审核",
@@ -222,14 +222,14 @@ export function HostPayrollPanel({ operatorProfileId }: { operatorProfileId?: st
       title: "基础提成率",
       width: 120,
       align: "right",
-      exportValue: (record) => bpsToPercentNumber(record.base_commission_rate_bps),
+      exportValue: (record) => bpsToRatio(record.base_commission_rate_bps),
       render: (_, record) => formatBpsAsPercent(record.base_commission_rate_bps),
     },
     {
       title: "阶梯式提点",
       width: 120,
       align: "right",
-      exportValue: (record) => bpsToPercentNumber(record.tier_bonus_bps),
+      exportValue: (record) => bpsToRatio(record.tier_bonus_bps),
       render: (_, record) => (
         <span title="超拿提点门槛每满 10 万 +1 个点，最高 +3 个点">
           {formatBpsAsPercent(record.tier_bonus_bps)}
@@ -240,7 +240,7 @@ export function HostPayrollPanel({ operatorProfileId }: { operatorProfileId?: st
       title: "最终提成率",
       width: 120,
       align: "right",
-      exportValue: (record) => bpsToPercentNumber(record.commission_rate_bps),
+      exportValue: (record) => bpsToRatio(record.commission_rate_bps),
       render: (_, record) => (
         <span title="最终提成率 = 基础提成率 + 阶梯式提点">
           {formatBpsAsPercent(record.commission_rate_bps)}
@@ -314,7 +314,7 @@ export function HostPayrollPanel({ operatorProfileId }: { operatorProfileId?: st
       title: "服务率",
       width: 100,
       align: "right",
-      exportValue: (record) => bpsToPercentNumber(record.service_fee_rate_bps),
+      exportValue: (record) => bpsToRatio(record.service_fee_rate_bps),
       render: (_, record) => formatBpsAsPercent(record.service_fee_rate_bps),
     },
     {

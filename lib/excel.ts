@@ -1,7 +1,7 @@
 /**
  * 表格导出为 Excel（.xlsx）。
  * 仅用于管理端「工资核算」等表格的下载：按列定义逐行取值后落表。
- * 金额一律由「分」转成「元」的数值，比例由 bps 转成百分数值，便于在 Excel 中直接求和/排序。
+ * 金额一律由「分」转成「元」的数值，比例由 bps 转成小数（0.22 表示 22%），便于在 Excel 中直接求和/排序。
  */
 import * as XLSX from "xlsx";
 
@@ -19,9 +19,9 @@ export function centsToYuanNumber(cents: number): number {
   return Number((cents / 100).toFixed(2));
 }
 
-/** 基点 → 百分数值（如 26500 bps → 265）。 */
-export function bpsToPercentNumber(bps: number): number {
-  return bps / 100;
+/** 基点 → 小数比例（如 2200 bps → 0.22，表示 22%）。 */
+export function bpsToRatio(bps: number): number {
+  return bps / 10000;
 }
 
 /** 按列定义把记录整理成二维数组（首行为表头），便于单测且与写文件解耦。 */

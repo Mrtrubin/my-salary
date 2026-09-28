@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bpsToPercentNumber, buildExcelMatrix, centsToYuanNumber, fileStamp } from "@/lib/excel";
+import { bpsToRatio, buildExcelMatrix, centsToYuanNumber, fileStamp } from "@/lib/excel";
 
 describe("Excel 导出工具", () => {
   it("金额由分转元（保留两位小数，允许负数）", () => {
@@ -9,10 +9,11 @@ describe("Excel 导出工具", () => {
     expect(centsToYuanNumber(0)).toBe(0);
   });
 
-  it("基点转百分数值", () => {
-    expect(bpsToPercentNumber(2000)).toBe(20);
-    expect(bpsToPercentNumber(26500)).toBe(265);
-    expect(bpsToPercentNumber(0)).toBe(0);
+  it("基点转小数比例", () => {
+    expect(bpsToRatio(2200)).toBe(0.22);
+    expect(bpsToRatio(2000)).toBe(0.2);
+    expect(bpsToRatio(26500)).toBe(2.65);
+    expect(bpsToRatio(0)).toBe(0);
   });
 
   it("按列定义生成表头与数据行，跳过未提供导出值的列", () => {
