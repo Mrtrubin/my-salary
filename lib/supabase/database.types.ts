@@ -246,6 +246,7 @@ export type Database = {
           is_qualified: boolean
           month: string
           net_cents: number
+          note: string
           performance_component_cents: number
           position_id: number
           profile_id: string
@@ -284,6 +285,7 @@ export type Database = {
           is_qualified: boolean
           month: string
           net_cents: number
+          note?: string
           performance_component_cents: number
           position_id: number
           profile_id: string
@@ -322,6 +324,7 @@ export type Database = {
           is_qualified?: boolean
           month?: string
           net_cents?: number
+          note?: string
           performance_component_cents?: number
           position_id?: number
           profile_id?: string

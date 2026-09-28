@@ -1,7 +1,9 @@
 "use client";
 
 import { App, Button, Card, Col, Flex, Row, Select, Table, Typography } from "antd";
-import { useMemo, useState } from "react";
+import type { TableColumnType } from "antd";
+import { DownloadOutlined } from "@ant-design/icons";
+import { useMemo, useState, type Key } from "react";
 import { QueryMessage } from "@/components/admin/query-message";
 import { SalaryRecordStatusBadge } from "@/components/admin/status-tag";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
@@ -14,6 +16,7 @@ import {
 } from "@/lib/api/hooks";
 import type { HostSalaryRecord } from "@/lib/api/data";
 import { formatBpsAsPercent, formatCentsToYuan, formatDateTime, formatDurationSeconds } from "@/lib/format";
+import { bpsToPercentNumber, centsToYuanNumber, downloadExcel, fileStamp, type ExcelColumn } from "@/lib/excel";
 
 const STATUS_LABELS: Record<string, string> = {
   pending_review: "待审核",
@@ -58,6 +61,9 @@ function readBreakdown(value: HostSalaryRecord["team_breakdown"]): BreakdownItem
   return value as unknown as BreakdownItem[];
 }
 
+/** 主持工资表格列：在 antd 列基础上附带 Excel 导出取值。 */
+type HostColumn = TableColumnType<HostSalaryRecord> & ExcelColumn<HostSalaryRecord>;
+
 function HostStatusTimeline({ recordId }: { recordId: string }) {
   const logs = useHostSalaryStatusLogs(recordId);
   return (
@@ -87,6 +93,8 @@ export function HostPayrollPanel({ operatorProfileId }: { operatorProfileId?: st
   const transition = useTransitionHostSalaryStatus();
   const reject = useRejectAndRecomputeHostSalary();
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
+  // 勾选的行：用于「下载选中部分」；为空时下载当前筛选的全部行。
+  const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
   const [period, setPeriod] = useState("");
   const [status, setStatus] = useState("");
   const [recomputeFeedback, setRecomputeFeedback] = useState<{ id: string; ok: boolean; message: string } | null>(null);
@@ -105,6 +113,13 @@ export function HostPayrollPanel({ operatorProfileId }: { operatorProfileId?: st
       }),
     [records, period, status],
   );
+
+  // 只认当前筛选结果里的勾选行，避免筛选后残留不可见的选中项。
+  const selectedRecords = useMemo(
+    () => filtered.filter((item) => selectedRowKeys.includes(item.id)),
+    [filtered, selectedRowKeys],
+  );
+  const exportRecords = selectedRecords.length ? selectedRecords : filtered;
 
   const recomputingId = reject.isPending ? (reject.variables ?? null) : null;
 
@@ -138,6 +153,246 @@ export function HostPayrollPanel({ operatorProfileId }: { operatorProfileId?: st
     );
   }
 
+  const hostColumns: HostColumn[] = [
+    {
+      title: "主持姓名",
+      fixed: "left",
+      width: 130,
+      exportValue: (record) => record.host?.name ?? "未关联",
+      render: (_, record) => (
+        <Button
+          type="link"
+          size="small"
+          onClick={() => setExpandedKeys(expandedKeys.includes(record.id) ? [] : [record.id])}
+        >
+          {record.host?.name ?? "未关联"}
+        </Button>
+      ),
+    },
+    {
+      title: "团队名称",
+      width: 170,
+      exportValue: (record) => {
+        const names = readBreakdown(record.team_breakdown).map((item) => item.teamName ?? "未知团队");
+        return names.length ? names.join("、") : "—";
+      },
+      render: (_, record) => {
+        const names = readBreakdown(record.team_breakdown).map((item) => item.teamName ?? "未知团队");
+        return names.length ? names.join("、") : "—";
+      },
+    },
+    {
+      title: "结算周期",
+      width: 190,
+      exportValue: (record) => periodLabel(record),
+      render: (_, record) => (
+        <span style={{ whiteSpace: "nowrap", fontSize: 12 }}>{periodLabel(record)}</span>
+      ),
+    },
+    {
+      title: "团总流水",
+      width: 120,
+      align: "right",
+      exportValue: (record) => centsToYuanNumber(record.revenue_cents),
+      render: (_, record) => formatCentsToYuan(record.revenue_cents),
+    },
+    {
+      title: "直播时长",
+      width: 110,
+      align: "right",
+      exportValue: (record) =>
+        record.broadcast_minutes > 0 ? formatDurationSeconds(record.broadcast_minutes * 60) : "",
+      render: (_, record) =>
+        record.broadcast_minutes > 0 ? formatDurationSeconds(record.broadcast_minutes * 60) : "—",
+    },
+    {
+      title: "拿提点门槛",
+      width: 120,
+      align: "right",
+      exportValue: (record) => centsToYuanNumber(record.threshold_cents),
+      render: (_, record) => formatCentsToYuan(record.threshold_cents),
+    },
+    {
+      title: "是否达标",
+      width: 100,
+      exportValue: (record) => (record.is_qualified ? "是" : "否"),
+      render: (_, record) => (record.is_qualified ? "是" : "否"),
+    },
+    {
+      title: "基础提成率",
+      width: 120,
+      align: "right",
+      exportValue: (record) => bpsToPercentNumber(record.base_commission_rate_bps),
+      render: (_, record) => formatBpsAsPercent(record.base_commission_rate_bps),
+    },
+    {
+      title: "阶梯式提点",
+      width: 120,
+      align: "right",
+      exportValue: (record) => bpsToPercentNumber(record.tier_bonus_bps),
+      render: (_, record) => (
+        <span title="超拿提点门槛每满 10 万 +1 个点，最高 +3 个点">
+          {formatBpsAsPercent(record.tier_bonus_bps)}
+        </span>
+      ),
+    },
+    {
+      title: "最终提成率",
+      width: 120,
+      align: "right",
+      exportValue: (record) => bpsToPercentNumber(record.commission_rate_bps),
+      render: (_, record) => (
+        <span title="最终提成率 = 基础提成率 + 阶梯式提点">
+          {formatBpsAsPercent(record.commission_rate_bps)}
+        </span>
+      ),
+    },
+    {
+      title: "基础收益",
+      width: 110,
+      align: "right",
+      exportValue: (record) => centsToYuanNumber(record.base_income_cents),
+      render: (_, record) => formatCentsToYuan(record.base_income_cents),
+    },
+    {
+      title: "总违约",
+      width: 110,
+      align: "right",
+      exportValue: (record) => {
+        const total = readAdjustments(record.adjustments)
+          .filter((item) => item.amountCents < 0)
+          .reduce((sum, item) => sum + item.amountCents, 0);
+        return total ? centsToYuanNumber(total) : null;
+      },
+      render: (_, record) => {
+        const total = readAdjustments(record.adjustments)
+          .filter((item) => item.amountCents < 0)
+          .reduce((sum, item) => sum + item.amountCents, 0);
+        return total ? <span style={{ color: "#cf1322" }}>{signedAmount(total)}</span> : "—";
+      },
+    },
+    {
+      title: "总奖励",
+      width: 110,
+      align: "right",
+      exportValue: (record) => {
+        const total = readAdjustments(record.adjustments)
+          .filter((item) => item.amountCents > 0)
+          .reduce((sum, item) => sum + item.amountCents, 0);
+        return total ? centsToYuanNumber(total) : null;
+      },
+      render: (_, record) => {
+        const total = readAdjustments(record.adjustments)
+          .filter((item) => item.amountCents > 0)
+          .reduce((sum, item) => sum + item.amountCents, 0);
+        return total ? <span style={{ color: "#389e0d" }}>{signedAmount(total)}</span> : "—";
+      },
+    },
+    {
+      title: "调整合计",
+      width: 110,
+      align: "right",
+      exportValue: (record) => {
+        const adjustments = readAdjustments(record.adjustments);
+        if (!adjustments.length) return null;
+        return centsToYuanNumber(adjustments.reduce((sum, item) => sum + item.amountCents, 0));
+      },
+      render: (_, record) => {
+        const adjustments = readAdjustments(record.adjustments);
+        const total = adjustments.reduce((sum, item) => sum + item.amountCents, 0);
+        return adjustments.length ? signedAmount(total) : "—";
+      },
+    },
+    {
+      title: "实发收益",
+      width: 110,
+      align: "right",
+      exportValue: (record) => centsToYuanNumber(record.gross_cents),
+      render: (_, record) => formatCentsToYuan(record.gross_cents),
+    },
+    {
+      title: "服务率",
+      width: 100,
+      align: "right",
+      exportValue: (record) => bpsToPercentNumber(record.service_fee_rate_bps),
+      render: (_, record) => formatBpsAsPercent(record.service_fee_rate_bps),
+    },
+    {
+      title: "服务费",
+      width: 110,
+      align: "right",
+      exportValue: (record) => centsToYuanNumber(record.service_fee_cents),
+      render: (_, record) => formatCentsToYuan(record.service_fee_cents),
+    },
+    {
+      title: "到手收益",
+      width: 120,
+      align: "right",
+      exportValue: (record) => centsToYuanNumber(record.net_cents),
+      render: (_, record) => (
+        <Typography.Text strong>{formatCentsToYuan(record.net_cents)}</Typography.Text>
+      ),
+    },
+    {
+      title: "状态",
+      width: 110,
+      render: (_, record) => <SalaryRecordStatusBadge status={record.status} />,
+    },
+    {
+      title: "操作",
+      key: "action",
+      fixed: "right",
+      width: 200,
+      render: (_, record) => (
+        <div>
+          <Flex gap={4} wrap>
+            {record.status === "pending_review" ? (
+              <>
+                <Button
+                  size="small"
+                  loading={transition.isPending && transition.variables?.id === record.id}
+                  onClick={() => transitionTo(record, "pending_confirm")}
+                >
+                  通过
+                </Button>
+                <Button
+                  size="small"
+                  disabled={recomputingId === record.id}
+                  onClick={() => handleReject(record.id)}
+                >
+                  {recomputingId === record.id ? "重算中…" : "驳回重算"}
+                </Button>
+              </>
+            ) : null}
+            {record.status === "confirmed" ? (
+              <Button
+                size="small"
+                loading={transition.isPending && transition.variables?.id === record.id}
+                onClick={() => transitionTo(record, "completed")}
+              >
+                确认到账
+              </Button>
+            ) : null}
+          </Flex>
+          {recomputeFeedback?.id === record.id ? (
+            <Typography.Text type={recomputeFeedback.ok ? "success" : "danger"} style={{ fontSize: 12 }}>
+              {recomputeFeedback.message}
+            </Typography.Text>
+          ) : null}
+        </div>
+      ),
+    },
+  ];
+
+  function handleDownloadHost() {
+    downloadExcel({
+      fileName: `主持工资条_${fileStamp()}.xlsx`,
+      sheetName: "主持工资条",
+      columns: hostColumns,
+      records: exportRecords,
+    });
+  }
+
   return (
     <>
       <Card style={{ marginBottom: 16 }}>
@@ -146,7 +401,10 @@ export function HostPayrollPanel({ operatorProfileId }: { operatorProfileId?: st
             <Select
               style={{ width: "100%" }}
               value={period}
-              onChange={setPeriod}
+              onChange={(value) => {
+                setPeriod(value);
+                setSelectedRowKeys([]);
+              }}
               options={[{ value: "", label: "全部周期" }, ...periods.map((p) => ({ value: p, label: p }))]}
             />
           </Col>
@@ -154,7 +412,10 @@ export function HostPayrollPanel({ operatorProfileId }: { operatorProfileId?: st
             <Select
               style={{ width: "100%" }}
               value={status}
-              onChange={setStatus}
+              onChange={(value) => {
+                setStatus(value);
+                setSelectedRowKeys([]);
+              }}
               options={[
                 { value: "", label: "全部状态" },
                 { value: "pending_review", label: "待审核" },
@@ -170,9 +431,18 @@ export function HostPayrollPanel({ operatorProfileId }: { operatorProfileId?: st
       <Card
         title="主持工资条"
         extra={
-          <Typography.Text type="secondary">
-            共 {filtered.length} 条记录 · 金额单位：元 · 左右滑动查看全部字段
-          </Typography.Text>
+          <Flex align="center" gap={12}>
+            <Typography.Text type="secondary">
+              共 {filtered.length} 条记录 · 金额单位：元 · 左右滑动查看全部字段
+            </Typography.Text>
+            <Button
+              icon={<DownloadOutlined />}
+              disabled={!exportRecords.length}
+              onClick={handleDownloadHost}
+            >
+              {selectedRecords.length ? `下载选中(${selectedRecords.length})` : "下载表格"}
+            </Button>
+          </Flex>
         }
       >
         {salary.error ? (
@@ -186,6 +456,11 @@ export function HostPayrollPanel({ operatorProfileId }: { operatorProfileId?: st
             pagination={{ showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }}
             locale={{ emptyText: "暂无主持工资条" }}
             scroll={{ x: "max-content" }}
+            rowSelection={{
+              selectedRowKeys,
+              onChange: (keys) => setSelectedRowKeys(keys),
+              preserveSelectedRowKeys: true,
+            }}
             expandable={{
               expandedRowKeys: expandedKeys,
               onExpand: (expanded, record) => setExpandedKeys(expanded ? [record.id] : []),
@@ -241,200 +516,7 @@ export function HostPayrollPanel({ operatorProfileId }: { operatorProfileId?: st
                 );
               },
             }}
-            columns={[
-              {
-                title: "主持姓名",
-                fixed: "left",
-                width: 130,
-                render: (_, record) => (
-                  <Button
-                    type="link"
-                    size="small"
-                    onClick={() => setExpandedKeys(expandedKeys.includes(record.id) ? [] : [record.id])}
-                  >
-                    {record.host?.name ?? "未关联"}
-                  </Button>
-                ),
-              },
-              {
-                title: "团队名称",
-                width: 170,
-                render: (_, record) => {
-                  const names = readBreakdown(record.team_breakdown).map((item) => item.teamName ?? "未知团队");
-                  return names.length ? names.join("、") : "—";
-                },
-              },
-              {
-                title: "结算周期",
-                width: 190,
-                render: (_, record) => (
-                  <span style={{ whiteSpace: "nowrap", fontSize: 12 }}>{periodLabel(record)}</span>
-                ),
-              },
-              {
-                title: "团总流水",
-                width: 120,
-                align: "right",
-                render: (_, record) => formatCentsToYuan(record.revenue_cents),
-              },
-              {
-                title: "直播时长",
-                width: 110,
-                align: "right",
-                render: (_, record) =>
-                  record.broadcast_minutes > 0 ? formatDurationSeconds(record.broadcast_minutes * 60) : "—",
-              },
-              {
-                title: "拿提点门槛",
-                width: 120,
-                align: "right",
-                render: (_, record) => formatCentsToYuan(record.threshold_cents),
-              },
-              {
-                title: "是否达标",
-                width: 100,
-                render: (_, record) => (record.is_qualified ? "是" : "否"),
-              },
-              {
-                title: "基础提成率",
-                width: 120,
-                align: "right",
-                render: (_, record) => formatBpsAsPercent(record.base_commission_rate_bps),
-              },
-              {
-                title: "阶梯式提点",
-                width: 120,
-                align: "right",
-                render: (_, record) => (
-                  <span title="超拿提点门槛每满 10 万 +1 个点，最高 +3 个点">
-                    {formatBpsAsPercent(record.tier_bonus_bps)}
-                  </span>
-                ),
-              },
-              {
-                title: "最终提成率",
-                width: 120,
-                align: "right",
-                render: (_, record) => (
-                  <span title="最终提成率 = 基础提成率 + 阶梯式提点">
-                    {formatBpsAsPercent(record.commission_rate_bps)}
-                  </span>
-                ),
-              },
-              {
-                title: "基础收益",
-                width: 110,
-                align: "right",
-                render: (_, record) => formatCentsToYuan(record.base_income_cents),
-              },
-              {
-                title: "总违约",
-                width: 110,
-                align: "right",
-                render: (_, record) => {
-                  const total = readAdjustments(record.adjustments)
-                    .filter((item) => item.amountCents < 0)
-                    .reduce((sum, item) => sum + item.amountCents, 0);
-                  return total ? <span style={{ color: "#cf1322" }}>{signedAmount(total)}</span> : "—";
-                },
-              },
-              {
-                title: "总奖励",
-                width: 110,
-                align: "right",
-                render: (_, record) => {
-                  const total = readAdjustments(record.adjustments)
-                    .filter((item) => item.amountCents > 0)
-                    .reduce((sum, item) => sum + item.amountCents, 0);
-                  return total ? <span style={{ color: "#389e0d" }}>{signedAmount(total)}</span> : "—";
-                },
-              },
-              {
-                title: "调整合计",
-                width: 110,
-                align: "right",
-                render: (_, record) => {
-                  const adjustments = readAdjustments(record.adjustments);
-                  const total = adjustments.reduce((sum, item) => sum + item.amountCents, 0);
-                  return adjustments.length ? signedAmount(total) : "—";
-                },
-              },
-              {
-                title: "实发收益",
-                width: 110,
-                align: "right",
-                render: (_, record) => formatCentsToYuan(record.gross_cents),
-              },
-              {
-                title: "服务率",
-                width: 100,
-                align: "right",
-                render: (_, record) => formatBpsAsPercent(record.service_fee_rate_bps),
-              },
-              {
-                title: "服务费",
-                width: 110,
-                align: "right",
-                render: (_, record) => formatCentsToYuan(record.service_fee_cents),
-              },
-              {
-                title: "到手收益",
-                width: 120,
-                align: "right",
-                render: (_, record) => (
-                  <Typography.Text strong>{formatCentsToYuan(record.net_cents)}</Typography.Text>
-                ),
-              },
-              {
-                title: "状态",
-                width: 110,
-                render: (_, record) => <SalaryRecordStatusBadge status={record.status} />,
-              },
-              {
-                title: "操作",
-                key: "action",
-                fixed: "right",
-                width: 200,
-                render: (_, record) => (
-                  <div>
-                    <Flex gap={4} wrap>
-                      {record.status === "pending_review" ? (
-                        <>
-                          <Button
-                            size="small"
-                            loading={transition.isPending && transition.variables?.id === record.id}
-                            onClick={() => transitionTo(record, "pending_confirm")}
-                          >
-                            通过
-                          </Button>
-                          <Button
-                            size="small"
-                            disabled={recomputingId === record.id}
-                            onClick={() => handleReject(record.id)}
-                          >
-                            {recomputingId === record.id ? "重算中…" : "驳回重算"}
-                          </Button>
-                        </>
-                      ) : null}
-                      {record.status === "confirmed" ? (
-                        <Button
-                          size="small"
-                          loading={transition.isPending && transition.variables?.id === record.id}
-                          onClick={() => transitionTo(record, "completed")}
-                        >
-                          确认到账
-                        </Button>
-                      ) : null}
-                    </Flex>
-                    {recomputeFeedback?.id === record.id ? (
-                      <Typography.Text type={recomputeFeedback.ok ? "success" : "danger"} style={{ fontSize: 12 }}>
-                        {recomputeFeedback.message}
-                      </Typography.Text>
-                    ) : null}
-                  </div>
-                ),
-              },
-            ]}
+            columns={hostColumns}
           />
         )}
       </Card>

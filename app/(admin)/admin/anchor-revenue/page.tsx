@@ -23,6 +23,7 @@ import { useConfirm } from "@/components/admin/use-confirm";
 import {
   useAnchorRevenuePerf,
   useAnchorSettlementContexts,
+  useSalaryRecords,
   useSettleAnchorRevenue,
   useSystemSettlementSettings,
   useTeamEarliestPerfDate,
@@ -32,8 +33,10 @@ import { resolveSystemPeriod, settlementMemberKey } from "@/lib/api/data";
 import type {
   AnchorRevenuePerfRow,
   AnchorSettleMember,
+  SalaryRecord,
   SystemSettlementSettings,
 } from "@/lib/api/data";
+import { SalaryRecordStatusBadge } from "@/components/admin/status-tag";
 import { getPeriodRange, getPreviousPeriodRange } from "@/lib/domain/settlement/cycle";
 import type { PeriodRange } from "@/lib/domain/settlement/cycle";
 import { aggregateSettlement } from "@/lib/domain/settlement/aggregate";
@@ -71,6 +74,33 @@ function validAdjustments(drafts: AdjustmentDraft[]): PayrollAdjustment[] {
 
 function signedAmount(cents: number): string {
   return `${cents > 0 ? "+" : ""}${formatCentsToYuan(cents)}`;
+}
+
+/** 基点转「百分点」输入串：0 → 空串（占位提示已说明空值按 0）。 */
+function bpsToBonusPoints(bps: number): string {
+  if (!bps) return "";
+  return String(bps / 100);
+}
+
+/** 把已落库的调整项 JSON 还原成可编辑草稿。 */
+function recordAdjustmentDrafts(record: SalaryRecord): AdjustmentDraft[] {
+  const raw = record.adjustments;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const item = entry as { name?: unknown; amountCents?: unknown };
+    const name = typeof item.name === "string" ? item.name : "";
+    const amountCents = typeof item.amountCents === "number" ? item.amountCents : 0;
+    if (!name) return [];
+    return [
+      {
+        id: crypto.randomUUID(),
+        name,
+        direction: amountCents < 0 ? ("deduction" as const) : ("reward" as const),
+        amountYuan: (Math.abs(amountCents) / 100).toFixed(2),
+      },
+    ];
+  });
 }
 
 interface CommissionBonusDraft {
@@ -148,11 +178,15 @@ function AnchorRevenueWorkspace({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bonuses, setBonuses] = useState<Record<string, CommissionBonusDraft>>({});
   const [adjustments, setAdjustments] = useState<Record<string, AdjustmentDraft[]>>({});
+  // 每名主播的结算备注：随结算落库，工资核算页展示。
+  const [notes, setNotes] = useState<Record<string, string>>({});
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [keyword, setKeyword] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
   // 已自动预填过「停播」扣款的 (memberKey:周期) 集合，避免重复追加或覆盖手动编辑。
   const seededKeysRef = useRef<Set<string>>(new Set());
+  // 已从既有工资记录回填过草稿的 memberKey 集合，避免重复回填覆盖用户编辑。
+  const prefilledKeysRef = useRef<Set<string>>(new Set());
 
   const period = useMemo(
     () =>
@@ -184,6 +218,20 @@ function AnchorRevenueWorkspace({
   const perfQuery = useAnchorRevenuePerf(teamId, period);
   const contextsQuery = useAnchorSettlementContexts(teamId, period);
   const settleMutation = useSettleAnchorRevenue();
+  const salaryRecordsQuery = useSalaryRecords();
+
+  // 当前周期已存在的工资记录（按 主播:岗位）。存在即可覆盖重算（只有 completed 不可）。
+  const existingRecordsByMember = useMemo(() => {
+    const map = new Map<string, SalaryRecord>();
+    for (const record of salaryRecordsQuery.data ?? []) {
+      if (!period || record.period_start !== period.start || record.period_end !== period.end) continue;
+      map.set(
+        settlementMemberKey({ profileId: record.profile_id, positionId: record.position_id }),
+        record,
+      );
+    }
+    return map;
+  }, [salaryRecordsQuery.data, period]);
 
   // 每名主播在本周期内的「停播」次数：上传时标记停播 → 结算按次数预填扣款。
   const offAirCountByProfile = useMemo(() => {
@@ -281,6 +329,50 @@ function AnchorRevenueWorkspace({
     });
   }, [period, contextsQuery.data, perfQuery.data, adjustments, bonuses]);
 
+  // 重算既有工资记录：把原记录的加点/调整项/备注回填到草稿，避免重新结算时把原内容覆盖为空。
+  // 每个 memberKey 只回填一次，之后不覆盖用户编辑；同时标记已处理，跳过「停播」自动预填。
+  useEffect(() => {
+    if (!rows.length) return;
+    const pending = rows.flatMap((row) => {
+      const seedKey = `${row.memberKey}:${period?.start ?? ""}:${period?.end ?? ""}`;
+      if (prefilledKeysRef.current.has(seedKey)) return [];
+      const record = existingRecordsByMember.get(row.memberKey);
+      if (!record) return [];
+      return [
+        {
+          memberKey: row.memberKey,
+          seedKey,
+          bonus: {
+            attendance: bpsToBonusPoints(record.attendance_bonus_bps),
+            dyTask: bpsToBonusPoints(record.dy_task_bonus_bps),
+          },
+          adjustments: recordAdjustmentDrafts(record),
+          note: record.note ?? "",
+        },
+      ];
+    });
+    if (!pending.length) return;
+    pending.forEach((item) => {
+      prefilledKeysRef.current.add(item.seedKey);
+      seededKeysRef.current.add(item.seedKey);
+    });
+    setBonuses((prev) => {
+      const next = { ...prev };
+      for (const item of pending) next[item.memberKey] = item.bonus;
+      return next;
+    });
+    setAdjustments((prev) => {
+      const next = { ...prev };
+      for (const item of pending) next[item.memberKey] = item.adjustments;
+      return next;
+    });
+    setNotes((prev) => {
+      const next = { ...prev };
+      for (const item of pending) next[item.memberKey] = item.note;
+      return next;
+    });
+  }, [rows, existingRecordsByMember, period]);
+
   // 结算草稿自动预填：把本周期「停播」按次数折算为「停播」扣款，每条 = 初始保底 ÷ 26。
   // 每个 (memberKey, 周期) 只预填一次，之后可手动增删，不覆盖编辑。
   // 注意：种子跟 key 必须在 updater 之外计算/落 rc，React 会重复调用 updater
@@ -289,6 +381,8 @@ function AnchorRevenueWorkspace({
     const seeds: { memberKey: string; seedKey: string; drafts: AdjustmentDraft[] }[] = [];
     for (const row of rows) {
       if (!row.hasScheme) continue;
+      // 已有工资记录：其调整项已包含停播扣款，由回填逻辑处理，不再重复预填。
+      if (existingRecordsByMember.has(row.memberKey)) continue;
       const count = offAirCountByProfile[row.profileId] ?? 0;
       if (count <= 0) continue;
       const seedKey = `${row.memberKey}:${period?.start ?? ""}:${period?.end ?? ""}`;
@@ -316,7 +410,7 @@ function AnchorRevenueWorkspace({
       }
       return next;
     });
-  }, [rows, offAirCountByProfile, period]);
+  }, [rows, offAirCountByProfile, existingRecordsByMember, period]);
 
   // 预设常驻，自定义项按名称排序；搜索主播不改变列顺序。
   const adjustmentColumns = useMemo(() => {
@@ -371,8 +465,10 @@ function AnchorRevenueWorkspace({
     setSelectedIds(new Set());
     setAdjustments({});
     setBonuses({});
+    setNotes({});
     setExpandedKeys([]);
     seededKeysRef.current.clear();
+    prefilledKeysRef.current.clear();
     clearFeedback();
   }
 
@@ -432,27 +528,65 @@ function AnchorRevenueWorkspace({
       );
       return;
     }
-    // 结算会把工资写入待审核流且不可撤销，先让用户确认一次。
-    const ok = await confirm({
-      title: "确认结算所选主播",
-      content: `将为 ${selectedRows.length} 位主播生成工资记录并进入待审核，确认继续？`,
-      okText: "确认结算",
-    });
-    if (!ok) return;
+    // 已有工资记录的主播：展示原记录并二次确认，避免误覆盖；无记录时走普通确认。
+    const existingRows = selectedRows.filter((row) => existingRecordsByMember.has(row.memberKey));
+    if (existingRows.length) {
+      const ok = await confirm({
+        title: "该周期已存在工资记录，重新结算将覆盖",
+        content: (
+          <div>
+            <p style={{ marginTop: 0 }}>
+              以下 {existingRows.length} 位主播本周期已有工资记录，重新结算会覆盖原记录并重置为「待审核」：
+            </p>
+            <Flex vertical gap={6} style={{ maxHeight: 220, overflow: "auto" }}>
+              {existingRows.map((row) => {
+                const record = existingRecordsByMember.get(row.memberKey)!;
+                return (
+                  <div key={row.memberKey} style={{ fontSize: 13 }}>
+                    <span style={{ fontWeight: 600 }}>{row.profileName}</span>{" "}
+                    <SalaryRecordStatusBadge status={record.status} /> 实发{" "}
+                    {formatCentsToYuan(record.gross_cents)}
+                    {record.note ? ` · 备注：${record.note}` : ""}
+                  </div>
+                );
+              })}
+            </Flex>
+          </div>
+        ),
+        okText: "覆盖并重算",
+        okButtonProps: { danger: true },
+      });
+      if (!ok) return;
+    } else {
+      const ok = await confirm({
+        title: "确认结算所选主播",
+        content: `将为 ${selectedRows.length} 位主播生成工资记录并进入待审核，确认继续？`,
+        okText: "确认结算",
+      });
+      if (!ok) return;
+    }
     const members: AnchorSettleMember[] = selectedRows.map((row) => ({
       profileId: row.profileId,
       positionId: row.positionId,
       attendanceBonusBps: parseCommissionBonusPoints(bonuses[row.memberKey]?.attendance ?? "")!,
       dyTaskBonusBps: parseCommissionBonusPoints(bonuses[row.memberKey]?.dyTask ?? "")!,
       adjustments: validAdjustments(adjustments[row.memberKey] ?? []),
+      note: (notes[row.memberKey] ?? "").trim(),
     }));
     settleMutation.mutate(
       { teamId, period, members },
       {
         onSuccess: () => {
+          // 刚结算的行已是最新记录，标记为已回填，避免刷新后又被回填进草稿。
+          selectedRows.forEach((row) =>
+            prefilledKeysRef.current.add(
+              `${row.memberKey}:${period?.start ?? ""}:${period?.end ?? ""}`,
+            ),
+          );
           setSelectedIds(new Set());
           setAdjustments({});
           setBonuses({});
+          setNotes({});
           setExpandedKeys([]);
         },
       },
@@ -625,12 +759,20 @@ function AnchorRevenueWorkspace({
       key: "profileName",
       fixed: "left",
       width: 180,
-      render: (_: unknown, row: AnchorRow) => (
-        <Flex align="center" gap={6}>
-          <span>{row.profileName}</span>
-          {row.hasScheme ? null : <Tag color="orange">未配置方案</Tag>}
-        </Flex>
-      ),
+      render: (_: unknown, row: AnchorRow) => {
+        const existing = existingRecordsByMember.get(row.memberKey);
+        return (
+          <Flex align="center" gap={6}>
+            <span>{row.profileName}</span>
+            {row.hasScheme ? null : <Tag color="orange">未配置方案</Tag>}
+            {existing ? (
+              <Tag color={existing.status === "completed" ? "red" : "blue"}>
+                {existing.status === "completed" ? "已完成" : "已结算"}
+              </Tag>
+            ) : null}
+          </Flex>
+        );
+      },
     },
     {
       title: "直播时长",
@@ -657,6 +799,26 @@ function AnchorRevenueWorkspace({
         ),
     },
     ...schemeColumns,
+    {
+      title: "备注",
+      key: "note",
+      width: 200,
+      render: (_: unknown, row: AnchorRow) =>
+        row.hasScheme ? (
+          <Input
+            value={notes[row.memberKey] ?? ""}
+            placeholder="选填，结算后展示在工资核算"
+            maxLength={200}
+            disabled={dataUnavailable || settleMutation.isPending}
+            aria-label={`${row.profileName}的备注`}
+            onChange={(event) => {
+              const value = event.target.value;
+              clearFeedback();
+              setNotes((prev) => ({ ...prev, [row.memberKey]: value }));
+            }}
+          />
+        ) : null,
+    },
     {
       title: "明细",
       key: "detail",
@@ -810,10 +972,18 @@ function AnchorRevenueWorkspace({
                   return next;
                 });
               },
-              getCheckboxProps: (row) => ({
-                disabled: !row.hasScheme,
-                title: row.hasScheme ? undefined : "该主播未配置生效工资方案，无法结算",
-              }),
+              getCheckboxProps: (row) => {
+                const completed =
+                  existingRecordsByMember.get(row.memberKey)?.status === "completed";
+                return {
+                  disabled: !row.hasScheme || completed,
+                  title: !row.hasScheme
+                    ? "该主播未配置生效工资方案，无法结算"
+                    : completed
+                      ? "该主播本周期工资已「已完成」，无法重新结算"
+                      : undefined,
+                };
+              },
             }}
             expandable={{
               expandedRowKeys: expandedKeys,

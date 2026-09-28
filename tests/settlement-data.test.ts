@@ -200,7 +200,7 @@ describe("手动结算（方案 B：前端只透传身份+加点+调整项，金
       attendanceBonusBps: 125, dyTaskBonusBps: 250, adjustments }] });
     const saved = client.rpc.mock.calls[0][1].p_members[0];
     expect(saved).toEqual({ profileId: "p1", positionId: 7, attendanceBonusBps: 125, dyTaskBonusBps: 250,
-      adjustments: [{ name: " 奖金 ", amountCents: 10001 }, { name: "扣款", amountCents: -5000 }] });
+      adjustments: [{ name: " 奖金 ", amountCents: 10001 }, { name: "扣款", amountCents: -5000 }], note: "" });
     for (const key of ["schemeId", "revenueCents", "commissionRateBps", "performanceComponentCents",
       "guaranteedComponentCents", "grossCents", "serviceFeeCents", "netCents", "tenureMonth", "isQualified"]) {
       expect(saved).not.toHaveProperty(key);
@@ -215,9 +215,16 @@ describe("手动结算（方案 B：前端只透传身份+加点+调整项，金
       { profileId: "p1", positionId: 7, attendanceBonusBps: 125 },
     ] });
     expect(client.rpc.mock.calls[0][1].p_members).toEqual(expect.arrayContaining([
-      { profileId: "p1", positionId: 7, attendanceBonusBps: 125, dyTaskBonusBps: 0, adjustments: [] },
-      { profileId: "p2", positionId: 7, attendanceBonusBps: 300, dyTaskBonusBps: 400, adjustments: [] },
+      { profileId: "p1", positionId: 7, attendanceBonusBps: 125, dyTaskBonusBps: 0, adjustments: [], note: "" },
+      { profileId: "p2", positionId: 7, attendanceBonusBps: 300, dyTaskBonusBps: 400, adjustments: [], note: "" },
     ]));
+  });
+
+  it("透传备注：填写时原样传入，未填写补空串", async () => {
+    await settleAnchorRevenue({ ...input(), members: [
+      { profileId: "p1", positionId: 7, note: "本月迟到两次" },
+    ] });
+    expect(client.rpc.mock.calls[0][1].p_members[0]).toMatchObject({ note: "本月迟到两次" });
   });
 
   it("加点合法性由数据库权威校验：前端原样透传，不再本地拦截", async () => {
@@ -244,7 +251,7 @@ describe("手动结算（方案 B：前端只透传身份+加点+调整项，金
     expect(client.rpc).toHaveBeenCalledExactlyOnceWith("settle_anchor_revenue", {
       p_team_id: null, p_period_start: period.start, p_period_end: period.end,
       p_members: [{ profileId: "p1", positionId: 7, attendanceBonusBps: 0, dyTaskBonusBps: 0,
-        adjustments: [{ name: " 奖金 ", amountCents: 10001 }, { name: "扣款", amountCents: -5000 }] }],
+        adjustments: [{ name: " 奖金 ", amountCents: 10001 }, { name: "扣款", amountCents: -5000 }], note: "" }],
     });
     expect(queries.some((q) => q.table === "system_settlement_settings")).toBe(false);
   });

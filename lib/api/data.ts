@@ -1086,6 +1086,8 @@ export interface AnchorSettleMember {
   attendanceBonusBps?: number;
   dyTaskBonusBps?: number;
   adjustments?: PayrollAdjustment[];
+  /** 结算备注（选填），落库 salary_records.note，工资核算页展示。 */
+  note?: string;
 }
 
 /**
@@ -1118,13 +1120,19 @@ export async function settleAnchorRevenue(input: { teamId: string | null; period
   // 组装 RPC p_members：仅身份 + 加点 + 调整项，数据库自行读流水/入职日/方案完整重算。
   const payload = contexts.map((context) => {
     const key = settlementMemberKey(context);
-    const { attendanceBonusBps = 0, dyTaskBonusBps = 0, adjustments = [] } = membersByKey.get(key)!;
+    const {
+      attendanceBonusBps = 0,
+      dyTaskBonusBps = 0,
+      adjustments = [],
+      note = "",
+    } = membersByKey.get(key)!;
     return {
       profileId: context.profileId,
       positionId: context.positionId,
       attendanceBonusBps,
       dyTaskBonusBps,
       adjustments: adjustments.map((a) => ({ name: a.name, amountCents: a.amountCents })),
+      note,
     };
   });
 
@@ -1139,6 +1147,7 @@ export async function settleAnchorRevenue(input: { teamId: string | null; period
     if (msg.includes("ADMIN_REQUIRED") || msg.includes("FORBIDDEN_TRANSITION")) throw new ApiError(ApiErrorCode.FORBIDDEN, "无权手动结算");
     if (msg.includes("TEAM_NOT_FOUND")) throw new ApiError(ApiErrorCode.NOT_FOUND, "团队不存在");
     if (msg.includes("SALARY_SCHEME_MISSING")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "部分主播缺少生效工资方案，无法结算");
+    if (msg.includes("SALARY_RECORD_COMPLETED")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "该周期工资已「已完成」，无法重新结算");
     fail(error);
   }
   return { settledRecords: (data as number) ?? 0 };
