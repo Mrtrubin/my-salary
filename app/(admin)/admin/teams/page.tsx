@@ -1,14 +1,16 @@
 "use client";
 
-import { Button, Card, Col, Form, Input, Row, Select, Space, Table, Typography } from "antd";
+import { Button, Card, Col, Form, Input, Row, Select, Space, Typography } from "antd";
 import { useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { FormField } from "@/components/admin/form-field";
 import { PageHeader } from "@/components/admin/page-header";
 import { QueryMessage } from "@/components/admin/query-message";
+import { ResizableTable } from "@/components/admin/resizable-table";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
 import { TextLink } from "@/components/admin/text-link";
 import { useConfirm } from "@/components/admin/use-confirm";
+import type { Team } from "@/lib/api/data";
 import { useCreateTeam, useDeleteTeam, useMembers, useTeams, useUpdateTeam } from "@/lib/api/hooks";
 
 type FormValues = { name: string; teamCode: string; hostProfileId: string; anchorProfileIds: string[] };
@@ -276,20 +278,18 @@ export default function TeamsPage() {
         {teams.error ? (
           <QueryMessage loading={false} error={teams.error} />
         ) : (
-          <Table
+          <ResizableTable<Team>
             rowClassName={zebraRowClassName}
             rowKey="id"
             loading={teams.isLoading}
             dataSource={teams.data ?? []}
-            pagination={false}
             locale={{ emptyText: "暂无团队" }}
-            scroll={{ x: "max-content" }}
             columns={[
               {
                 title: "团队",
                 dataIndex: "name",
                 fixed: "left",
-                width: 260,
+                width: 220,
                 render: (name: string, record) => {
                   if (editing?.id === record.id && editing.field === "name") {
                     return (
@@ -352,24 +352,32 @@ export default function TeamsPage() {
               },
               {
                 title: "主持人",
+                key: "host",
                 width: 140,
+                sortValue: (record) => record.host?.name,
                 render: (_, record) => record.host?.name ?? "-",
               },
               {
                 title: "主播成员数",
+                key: "member_count",
+                align: "right",
                 width: 120,
+                sortValue: (record) => record.members.length,
                 render: (_, record) => record.members.length,
               },
               {
                 title: "绩效点数",
+                key: "point_count",
+                align: "right",
                 width: 120,
+                sortValue: (record) => record.points.length,
                 render: (_, record) => record.points.length,
               },
               {
                 title: "操作",
                 key: "action",
                 fixed: "right",
-                width: 260,
+                width: 240,
                 render: (_, record) => (
                   <Space size={12}>
                     <TextLink href={teamDetailHref(record.id, "members")}>成员管理</TextLink>

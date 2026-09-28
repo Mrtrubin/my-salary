@@ -1,9 +1,10 @@
 "use client";
 
-import { Alert, Button, Card, Divider, Flex, Select, Table, Typography } from "antd";
+import { Alert, Button, Card, Divider, Flex, Select, Typography } from "antd";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useMemo } from "react";
 import { QueryMessage } from "@/components/admin/query-message";
+import { ResizableTable } from "@/components/admin/resizable-table";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
 import { useConfirm } from "@/components/admin/use-confirm";
 import {
@@ -124,17 +125,17 @@ function TeamMembersInner() {
             ) : null}
           </Flex>
 
-          <Table
+          <ResizableTable
             rowClassName={zebraRowClassName}
             rowKey="key"
             dataSource={rows}
-            pagination={false}
             locale={{ emptyText: "暂无成员，请从上方添加主播" }}
             columns={[
-              { title: "成员姓名", dataIndex: "name" },
-              { title: "职位", width: 120, render: () => "主播" },
+              { title: "成员姓名", dataIndex: "name", width: 200 },
+              { title: "职位", key: "position", width: 120, render: () => "主播" },
               {
                 title: "操作",
+                key: "action",
                 width: 120,
                 render: (_, record) => (
                   <Button

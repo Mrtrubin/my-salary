@@ -1,12 +1,14 @@
 "use client";
 
-import { App, Button, Card, Col, Form, Input, InputNumber, Row, Table, Typography } from "antd";
+import { App, Button, Card, Col, Form, Input, InputNumber, Row, Typography } from "antd";
 import { useState } from "react";
 import { FormField } from "@/components/admin/form-field";
 import { PageHeader } from "@/components/admin/page-header";
 import { QueryMessage } from "@/components/admin/query-message";
+import { ResizableTable } from "@/components/admin/resizable-table";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
 import { useConfirm } from "@/components/admin/use-confirm";
+import type { PerformancePoint } from "@/lib/api/data";
 import {
   useCreatePerformancePoint,
   useDeletePerformancePoint,
@@ -67,18 +69,19 @@ export default function TeamPointsPage() {
         {points.error ? (
           <QueryMessage loading={false} error={points.error} />
         ) : (
-          <Table
+          <ResizableTable<PerformancePoint>
             rowClassName={zebraRowClassName}
             rowKey="id"
             loading={points.isLoading}
             dataSource={points.data ?? []}
-            pagination={false}
             locale={{ emptyText: "暂无绩效点" }}
             columns={[
-              { title: "绩效点名称", dataIndex: "name" },
+              { title: "绩效点名称", dataIndex: "name", width: 200 },
               {
                 title: "换算率",
                 dataIndex: "points_per_yuan",
+                minWidth: 160,
+                align: "right",
                 render: (value: number) => `${value} 绩效点 = 1 元`,
               },
               {

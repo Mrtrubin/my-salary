@@ -20,6 +20,46 @@
   text-decoration: underline;
 }
 
+/* --- 可拖拽列宽（components/admin/resizable-table.tsx） --- */
+/* 表头强制单行：列宽下限已按表头文本量算，但拖拽/浏览器最小宽度仍可能压缩，
+   这里兜底避免表头折行。 */
+.ant-table-wrapper .ant-table-thead > tr > th {
+  white-space: nowrap;
+}
+
+/* 拖拽手柄需要 th 作为定位上下文；固定列（.ant-table-cell-fix）保持 antd 的
+   position: sticky，不能用 relative 覆盖，否则左右吸附失效。 */
+.ant-table-wrapper .ant-table-thead > tr > th.admin-resizable-cell:not(.ant-table-cell-fix) {
+  position: relative;
+}
+
+/* 列宽拖拽手柄：绝对定位在 th 右侧内部，覆盖单元格边界，便于抓取。 */
+.admin-resizable-handle {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  z-index: 3;
+  width: 9px;
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none;
+}
+
+.admin-resizable-handle::after {
+  content: "";
+  position: absolute;
+  inset-block: 20%;
+  inset-inline-start: 4px;
+  width: 1px;
+  background: transparent;
+  transition: background-color 0.15s;
+}
+
+.admin-resizable-handle:hover::after,
+.admin-resizable-handle:active::after {
+  background: rgba(0, 0, 0, 0.3);
+}
+
 /* --- 表格斑马纹 --- */
 /* 行类名由 components/admin/table-zebra.ts 经 antd 的 rowClassName 注入。
    刻意使用较高特异性（.ant-table-wrapper + .ant-table-tbody + 行类 + 单元格），

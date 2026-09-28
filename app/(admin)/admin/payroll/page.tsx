@@ -1,11 +1,11 @@
 "use client";
 
-import { App, Button, Card, Col, Empty, Flex, Row, Select, Table, Tabs, Typography } from "antd";
-import type { TableColumnType } from "antd";
+import { App, Button, Card, Col, Empty, Flex, Row, Select, Tabs, Typography } from "antd";
 import { DownloadOutlined } from "@ant-design/icons";
 import { useMemo, useState, type Key } from "react";
 import { PageHeader } from "@/components/admin/page-header";
 import { QueryMessage } from "@/components/admin/query-message";
+import { ResizableTable, type ResizableColumnType } from "@/components/admin/resizable-table";
 import { SalaryRecordStatusBadge } from "@/components/admin/status-tag";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
 import { useConfirm } from "@/components/admin/use-confirm";
@@ -112,8 +112,8 @@ function tierBonusBps(record: SalaryRecord): number {
   );
 }
 
-/** 工资表格列：在 antd 列基础上附带 Excel 导出取值。 */
-type AnchorColumn = TableColumnType<SalaryRecord> & ExcelColumn<SalaryRecord>;
+/** 工资表格列：在 antd 列基础上附带 Excel 导出取值与拖拽列宽能力。 */
+type AnchorColumn = ResizableColumnType<SalaryRecord> & ExcelColumn<SalaryRecord>;
 
 export default function PayrollPage() {
   const { message } = App.useApp();
@@ -483,7 +483,9 @@ export default function PayrollPage() {
     },
     {
       title: "状态",
+      key: "status",
       width: 110,
+      sortValue: (record) => record.status,
       render: (_, record) => <SalaryRecordStatusBadge status={record.status} />,
     },
     {
@@ -534,6 +536,15 @@ export default function PayrollPage() {
       ),
     },
   ];
+
+  // 每列都以 Excel 导出取值作为排序依据，避免为大量列重复声明 sortValue。
+  const anchorTableColumns = anchorColumns.map((column) => {
+    const exportValue = column.exportValue;
+    const sortValue =
+      column.sortValue ??
+      (exportValue ? (record: SalaryRecord) => exportValue(record) : undefined);
+    return { ...column, sortValue };
+  });
 
   function handleDownloadAnchor() {
     downloadExcel({
@@ -636,14 +647,12 @@ export default function PayrollPage() {
                 {salary.error ? (
                   <QueryMessage loading={false} error={salary.error} />
                 ) : (
-                  <Table<SalaryRecord>
+                  <ResizableTable<SalaryRecord>
                     rowClassName={zebraRowClassName}
                     rowKey="id"
                     loading={salary.isLoading}
                     dataSource={filtered}
-                    pagination={{ showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }}
                     locale={{ emptyText: "暂无工资条" }}
-                    scroll={{ x: "max-content" }}
                     rowSelection={{
                       selectedRowKeys,
                       onChange: (keys) => setSelectedRowKeys(keys),
@@ -710,7 +719,7 @@ export default function PayrollPage() {
                         );
                       },
                     }}
-                    columns={anchorColumns}
+                    columns={anchorTableColumns}
                   />
                 )}
                 </Card>

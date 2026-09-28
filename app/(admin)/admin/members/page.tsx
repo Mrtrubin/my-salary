@@ -15,7 +15,6 @@ import {
   Select,
   Space,
   Switch,
-  Table,
   Typography,
 } from "antd";
 import dayjs from "dayjs";
@@ -24,6 +23,7 @@ import { Controller, useForm } from "react-hook-form";
 import { FormField } from "@/components/admin/form-field";
 import { PageHeader } from "@/components/admin/page-header";
 import { QueryMessage } from "@/components/admin/query-message";
+import { ResizableTable } from "@/components/admin/resizable-table";
 import { Badge } from "@/components/admin/status-tag";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
 import { useConfirm } from "@/components/admin/use-confirm";
@@ -250,40 +250,50 @@ export default function MembersPage() {
         {members.error ? (
           <QueryMessage loading={false} error={members.error} />
         ) : (
-          <Table
+          <ResizableTable<Member>
             rowClassName={zebraRowClassName}
             rowKey="id"
             loading={members.isLoading}
             dataSource={filtered}
-            pagination={{ showSizeChanger: true, showTotal: (total) => `共 ${total} 人` }}
             locale={{ emptyText: "暂无成员" }}
-            scroll={{ x: "max-content" }}
             columns={[
-              { title: "姓名", dataIndex: "name", fixed: "left", width: 140 },
+              { title: "姓名", dataIndex: "name", fixed: "left", width: 130 },
               {
                 title: "用户名",
                 dataIndex: "username",
-                width: 140,
+                width: 130,
                 render: (value: string | null) => value ?? "-",
               },
               {
                 title: "手机号",
+                key: "phone",
                 width: 140,
+                sortValue: (record) => record.phone,
                 render: (_, record) => record.phone || "-",
               },
               {
                 title: "邮箱",
+                key: "email",
                 width: 200,
+                sortValue: (record) => record.email,
                 render: (_, record) => record.email || "-",
               },
               {
                 title: "身份证号",
+                key: "id_card",
                 width: 200,
+                sortValue: (record) => record.id_card,
                 render: (_, record) => record.id_card || "-",
               },
               {
                 title: "职位",
+                key: "positions",
                 width: 200,
+                sortValue: (record) =>
+                  record.user_positions
+                    .map(({ position }) => position?.name)
+                    .filter(Boolean)
+                    .join(","),
                 render: (_, record) => (
                   <Space size={4} wrap>
                     {record.user_positions.map(({ position }) =>
@@ -295,19 +305,23 @@ export default function MembersPage() {
               { title: "入职日期", dataIndex: "hire_date", width: 130 },
               {
                 title: "系统角色",
+                key: "system_role",
                 width: 120,
+                sortValue: (record) => (record.system_role === "admin" ? "管理员" : "普通用户"),
                 render: (_, record) => (record.system_role === "admin" ? "管理员" : "普通用户"),
               },
               {
                 title: "状态",
+                key: "status",
                 width: 100,
+                sortValue: (record) => (record.status === "active" ? "在职" : "已停用"),
                 render: (_, record) => (record.status === "active" ? "在职" : "已停用"),
               },
               {
                 title: "操作",
                 key: "action",
                 fixed: "right",
-                width: 300,
+                width: 280,
                 render: (_, record) => (
                   <Space size={0}>
                     <Button type="link" size="small" onClick={() => setDetailing(record)}>

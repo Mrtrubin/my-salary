@@ -10,14 +10,16 @@ import {
   Input,
   Row,
   Select,
-  Table,
   Tag,
   Typography,
 } from "antd";
-import type { ColumnsType } from "antd/es/table";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/admin/page-header";
 import { QueryMessage } from "@/components/admin/query-message";
+import {
+  ResizableTable,
+  type ResizableColumnsType,
+} from "@/components/admin/resizable-table";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
 import { useConfirm } from "@/components/admin/use-confirm";
 import {
@@ -596,11 +598,13 @@ function AnchorRevenueWorkspace({
   /** 无生效方案的行：工资相关列合并为一格提示。 */
   const noSchemeCell = (row: AnchorRow) => (row.hasScheme ? {} : { colSpan: 0 });
 
-  const schemeColumns: ColumnsType<AnchorRow> = [
+  const schemeColumns: ResizableColumnsType<AnchorRow> = [
     ...BONUS_FIELDS.map(({ key, label }) => ({
       title: label,
       key,
       width: 170,
+      sortValue: (row: AnchorRow) =>
+        parseCommissionBonusPoints(bonuses[row.memberKey]?.[key] ?? ""),
       render: (_: unknown, row: AnchorRow) =>
         row.hasScheme ? (
           <Input
@@ -636,6 +640,7 @@ function AnchorRevenueWorkspace({
       width: 120,
       align: "right" as const,
       onCell: noSchemeCell,
+      sortValue: (row: AnchorRow) => row.commissionRateBps,
       render: (_: unknown, row: AnchorRow) =>
         row.bonusError ? (
           <Typography.Text type="danger" style={{ fontSize: 12 }}>
@@ -651,6 +656,7 @@ function AnchorRevenueWorkspace({
       width: 120,
       align: "right" as const,
       onCell: noSchemeCell,
+      sortValue: (row: AnchorRow) => row.performanceComponentCents,
       render: (_: unknown, row: AnchorRow) =>
         row.bonusError ? "—" : formatCentsToYuan(row.performanceComponentCents),
     },
@@ -660,6 +666,7 @@ function AnchorRevenueWorkspace({
       width: 120,
       align: "right" as const,
       onCell: noSchemeCell,
+      sortValue: (row: AnchorRow) => row.guaranteedComponentCents,
       render: (_: unknown, row: AnchorRow) => formatCentsToYuan(row.guaranteedComponentCents),
     },
     ...adjustmentColumns.map((name) => ({
@@ -668,6 +675,12 @@ function AnchorRevenueWorkspace({
       width: 130,
       align: "right" as const,
       onCell: noSchemeCell,
+      sortValue: (row: AnchorRow) => {
+        const items = (adjustments[row.memberKey] ?? []).filter(
+          (item) => item.name.trim() === name,
+        );
+        return validAdjustments(items).reduce((sum, item) => sum + item.amountCents, 0);
+      },
       render: (_: unknown, row: AnchorRow) => {
         const items = (adjustments[row.memberKey] ?? []).filter(
           (item) => item.name.trim() === name,
@@ -692,6 +705,7 @@ function AnchorRevenueWorkspace({
       key: "adjustments",
       width: 160,
       onCell: noSchemeCell,
+      sortValue: (row: AnchorRow) => row.adjustmentTotalCents,
       render: (_: unknown, row: AnchorRow) => {
         const list = adjustments[row.memberKey] ?? [];
         return (
@@ -733,6 +747,7 @@ function AnchorRevenueWorkspace({
       width: 120,
       align: "right" as const,
       onCell: noSchemeCell,
+      sortValue: (row: AnchorRow) => row.grossCents,
       render: (_: unknown, row: AnchorRow) =>
         row.bonusError ? "—" : formatCentsToYuan(row.grossCents),
     },
@@ -742,6 +757,7 @@ function AnchorRevenueWorkspace({
       width: 120,
       align: "right" as const,
       onCell: noSchemeCell,
+      sortValue: (row: AnchorRow) => row.netCents,
       render: (_: unknown, row: AnchorRow) =>
         row.bonusError ? (
           "—"
@@ -753,12 +769,13 @@ function AnchorRevenueWorkspace({
     },
   ];
 
-  const columns: ColumnsType<AnchorRow> = [
+  const columns: ResizableColumnsType<AnchorRow> = [
     {
       title: "主播",
       key: "profileName",
       fixed: "left",
-      width: 180,
+      width: 160,
+      sortValue: (row: AnchorRow) => row.profileName,
       render: (_: unknown, row: AnchorRow) => {
         const existing = existingRecordsByMember.get(row.memberKey);
         return (
@@ -779,6 +796,7 @@ function AnchorRevenueWorkspace({
       key: "broadcastMinutes",
       width: 110,
       align: "right" as const,
+      sortValue: (row: AnchorRow) => row.broadcastMinutes,
       render: (_: unknown, row: AnchorRow) =>
         row.broadcastMinutes > 0 ? formatDurationSeconds(row.broadcastMinutes * 60) : "—",
     },
@@ -787,6 +805,7 @@ function AnchorRevenueWorkspace({
       key: "revenue",
       width: 130,
       align: "right" as const,
+      sortValue: (row: AnchorRow) => row.revenueCents,
       onCell: (row: AnchorRow) =>
         row.hasScheme ? {} : { colSpan: schemeColumns.length },
       render: (_: unknown, row: AnchorRow) =>
@@ -803,6 +822,7 @@ function AnchorRevenueWorkspace({
       title: "备注",
       key: "note",
       width: 200,
+      sortValue: (row: AnchorRow) => notes[row.memberKey] ?? "",
       render: (_: unknown, row: AnchorRow) =>
         row.hasScheme ? (
           <Input
@@ -941,13 +961,11 @@ function AnchorRevenueWorkspace({
             加点单位为百分点，填 1 表示增加 1 个百分点，空值按 0；达到原提成起征线后生效。同名调整项合并显示，明细中可逐条编辑。
           </Typography.Paragraph>
 
-          <Table<AnchorRow>
+          <ResizableTable<AnchorRow>
             rowClassName={zebraRowClassName}
             rowKey="memberKey"
             dataSource={filteredRows}
             columns={columns}
-            pagination={false}
-            scroll={{ x: "max-content" }}
             locale={{ emptyText: "该周期暂无有效流水" }}
             rowSelection={{
               // 默认情况下 antd 会把「不在当前 dataSource 里的 key」从 onChange 中剔除，

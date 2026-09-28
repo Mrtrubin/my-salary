@@ -1,11 +1,12 @@
 "use client";
 
-import { Button, Card, Col, Form, Input, Modal, Row, Space, Table, Typography } from "antd";
+import { Button, Card, Col, Form, Input, Modal, Row, Space, Typography } from "antd";
 import { useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { FormField } from "@/components/admin/form-field";
 import { PageHeader } from "@/components/admin/page-header";
 import { QueryMessage } from "@/components/admin/query-message";
+import { ResizableTable } from "@/components/admin/resizable-table";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
 import { useCreatePosition, useMembers, usePositions, useUpdatePosition } from "@/lib/api/hooks";
 import type { Position } from "@/lib/api/data";
@@ -186,31 +187,36 @@ export default function PositionsPage() {
         {positions.error || members.error ? (
           <QueryMessage loading={false} error={positions.error ?? members.error} />
         ) : (
-          <Table
+          <ResizableTable<Position>
             rowClassName={zebraRowClassName}
             rowKey="id"
             loading={positions.isLoading || members.isLoading}
             dataSource={positions.data ?? []}
-            pagination={false}
             locale={{ emptyText: "暂无职位" }}
             columns={[
               {
                 title: "职位",
                 dataIndex: "name",
+                width: 160,
                 render: (value: string) => <Typography.Text strong>{value}</Typography.Text>,
               },
               {
                 title: "编码",
                 dataIndex: "code",
+                width: 160,
                 render: (value: string) => <Typography.Text type="secondary">{value}</Typography.Text>,
               },
               {
                 title: "成员数",
+                key: "member_count",
+                align: "right",
                 width: 120,
+                sortValue: (record) => countByPosition.get(record.id) ?? 0,
                 render: (_, record) => `${countByPosition.get(record.id) ?? 0} 人`,
               },
               {
                 title: "操作",
+                key: "action",
                 width: 120,
                 render: (_, record) => (
                   <Button type="link" size="small" onClick={() => setEditing(record)}>

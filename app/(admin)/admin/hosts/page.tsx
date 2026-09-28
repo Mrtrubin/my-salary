@@ -1,11 +1,12 @@
 "use client";
 
-import { Button, Card, Col, Form, InputNumber, Modal, Row, Table, Typography } from "antd";
+import { Button, Card, Col, Form, InputNumber, Modal, Row, Typography } from "antd";
 import dayjs from "dayjs";
 import { useMemo, useState } from "react";
 import { FormField } from "@/components/admin/form-field";
 import { PageHeader } from "@/components/admin/page-header";
 import { QueryMessage } from "@/components/admin/query-message";
+import { ResizableTable } from "@/components/admin/resizable-table";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
 import { useCreateHostScheme, useHostSchemes, useMembers, usePositions } from "@/lib/api/hooks";
 import type { HostSalarySchemeRow, Member } from "@/lib/api/data";
@@ -53,8 +54,12 @@ export default function HostsPage() {
   const template = latestTemplateScheme(schemes.data, hostPositionId);
   const listError = members.error ?? schemes.error;
 
+  function effectiveScheme(member: Member) {
+    return latestPersonalScheme(schemes.data, member.id) ?? template;
+  }
+
   function openEditor(member: Member) {
-    const effective = latestPersonalScheme(schemes.data, member.id) ?? template;
+    const effective = effectiveScheme(member);
     setError("");
     setEditing({
       id: member.id,
@@ -124,50 +129,61 @@ export default function HostsPage() {
         {listError ? (
           <QueryMessage loading={false} error={listError} />
         ) : (
-          <Table
+          <ResizableTable<Member>
             rowClassName={zebraRowClassName}
             rowKey="id"
             loading={members.isLoading || schemes.isLoading}
             dataSource={hosts}
-            pagination={false}
             locale={{ emptyText: "暂无主持" }}
-            scroll={{ x: "max-content" }}
             columns={[
-              { title: "主持", dataIndex: "name", fixed: "left", width: 180 },
+              { title: "主持", dataIndex: "name", fixed: "left", width: 160 },
               {
                 title: "基础收益",
-                width: 140,
+                key: "base_income",
+                align: "right",
+                width: 130,
+                sortValue: (record) => effectiveScheme(record)?.base_income_cents ?? null,
                 render: (_, record) => {
-                  const effective = latestPersonalScheme(schemes.data, record.id) ?? template;
+                  const effective = effectiveScheme(record);
                   return effective ? formatCentsToYuan(effective.base_income_cents) : "—";
                 },
               },
               {
                 title: "拿提点门槛",
-                width: 140,
+                key: "commission_start",
+                align: "right",
+                width: 130,
+                sortValue: (record) => effectiveScheme(record)?.commission_start_cents ?? null,
                 render: (_, record) => {
-                  const effective = latestPersonalScheme(schemes.data, record.id) ?? template;
+                  const effective = effectiveScheme(record);
                   return effective ? formatCentsToYuan(effective.commission_start_cents) : "—";
                 },
               },
               {
                 title: "基础提成率",
-                width: 130,
+                key: "base_commission",
+                align: "right",
+                width: 120,
+                sortValue: (record) => effectiveScheme(record)?.base_commission_rate_bps ?? null,
                 render: (_, record) => {
-                  const effective = latestPersonalScheme(schemes.data, record.id) ?? template;
+                  const effective = effectiveScheme(record);
                   return effective ? `${effective.base_commission_rate_bps / 100}%` : "—";
                 },
               },
               {
                 title: "服务率",
+                key: "service_fee",
+                align: "right",
                 width: 110,
+                sortValue: (record) => effectiveScheme(record)?.service_fee_rate_bps ?? null,
                 render: (_, record) => {
-                  const effective = latestPersonalScheme(schemes.data, record.id) ?? template;
+                  const effective = effectiveScheme(record);
                   return effective ? `${effective.service_fee_rate_bps / 100}%` : "—";
                 },
               },
               {
                 title: "操作",
+                key: "action",
                 fixed: "right",
                 width: 100,
                 render: (_, record) => (

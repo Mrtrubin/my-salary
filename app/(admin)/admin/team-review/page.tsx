@@ -1,10 +1,11 @@
 "use client";
 
-import { Button, Card, DatePicker, Flex, Input, Modal, Table, Typography } from "antd";
+import { Button, Card, DatePicker, Flex, Input, Modal, Typography } from "antd";
 import type { Dayjs } from "dayjs";
 import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/admin/page-header";
 import { QueryMessage } from "@/components/admin/query-message";
+import { ResizableTable } from "@/components/admin/resizable-table";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
 import { useTeamPerformance } from "@/lib/api/hooks";
 import type { TeamPerformanceRow } from "@/lib/api/data";
@@ -81,14 +82,12 @@ export default function TeamReviewPage() {
         {query.error ? (
           <QueryMessage loading={false} error={query.error} />
         ) : (
-          <Table
+          <ResizableTable<TeamPerformanceRow>
             rowClassName={zebraRowClassName}
             rowKey="id"
             loading={query.isLoading}
             dataSource={filtered}
-            pagination={{ showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }}
             locale={{ emptyText: "暂无流水记录" }}
-            scroll={{ x: "max-content" }}
             onRow={(record) => ({
               onClick: () => setDetail(record),
               style: { cursor: "pointer" },
@@ -98,15 +97,35 @@ export default function TeamReviewPage() {
                 title: "绩效日期",
                 dataIndex: "perf_date",
                 fixed: "left",
-                width: 140,
+                width: 120,
                 render: (value: string) => formatDate(value),
               },
-              { title: "团队", width: 160, render: (_, record) => record.team?.name ?? "—" },
-              { title: "成员", width: 140, render: (_, record) => record.profile?.name ?? "—" },
-              { title: "主持", width: 140, render: (_, record) => record.host?.name ?? "—" },
+              {
+                title: "团队",
+                key: "team",
+                width: 150,
+                sortValue: (record) => record.team?.name,
+                render: (_, record) => record.team?.name ?? "—",
+              },
+              {
+                title: "成员",
+                key: "profile",
+                width: 130,
+                sortValue: (record) => record.profile?.name,
+                render: (_, record) => record.profile?.name ?? "—",
+              },
+              {
+                title: "主持",
+                key: "host",
+                width: 130,
+                sortValue: (record) => record.host?.name,
+                render: (_, record) => record.host?.name ?? "—",
+              },
               {
                 title: "绩效点",
-                width: 160,
+                key: "point",
+                width: 150,
+                sortValue: (record) => (record.no_perf ? record.no_perf_note || "休息" : record.point?.name),
                 render: (_, record) =>
                   record.no_perf ? (
                     <Typography.Text type="warning">{record.no_perf_note || "休息"}</Typography.Text>
@@ -116,25 +135,35 @@ export default function TeamReviewPage() {
               },
               {
                 title: "开播时长",
-                width: 120,
+                key: "broadcast_minutes",
+                align: "right",
+                width: 110,
+                sortValue: (record) => record.broadcast_minutes,
                 render: (_, record) => toHours(record.broadcast_minutes),
               },
               {
                 title: "业绩",
-                width: 140,
+                key: "points_amount",
+                align: "right",
+                width: 130,
+                sortValue: (record) => record.points_amount,
                 render: (_, record) =>
                   record.no_perf ? "—" : record.points_amount.toLocaleString(),
               },
               {
                 title: "当日流水",
+                key: "revenue",
                 width: 130,
                 align: "right",
+                sortValue: (record) => record.revenue_cents - record.adjustment_cents,
                 render: (_, record) => formatCentsToYuan(record.revenue_cents - record.adjustment_cents),
               },
               {
                 title: "总调整项",
-                width: 120,
+                key: "adjustment",
+                width: 130,
                 align: "right",
+                sortValue: (record) => record.adjustment_cents,
                 render: (_, record) =>
                   record.adjustment_cents === 0 ? (
                     "—"
@@ -146,13 +175,17 @@ export default function TeamReviewPage() {
               },
               {
                 title: "调整项明细",
+                key: "adjustment_items",
                 width: 200,
+                sortValue: (record) => formatAdjustmentItems(record.adjustments),
                 render: (_, record) => formatAdjustmentItems(record.adjustments) || "—",
               },
               {
                 title: "当日最终流水",
+                key: "final_revenue",
                 width: 140,
                 align: "right",
+                sortValue: (record) => record.revenue_cents,
                 render: (_, record) => formatCentsToYuan(record.revenue_cents),
               },
             ]}

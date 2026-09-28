@@ -11,14 +11,16 @@ import {
   Modal,
   Row,
   Select,
-  Table,
   Tag,
   Typography,
 } from "antd";
-import type { ColumnsType } from "antd/es/table";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/admin/page-header";
 import { QueryMessage } from "@/components/admin/query-message";
+import {
+  ResizableTable,
+  type ResizableColumnsType,
+} from "@/components/admin/resizable-table";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
 import { useConfirm } from "@/components/admin/use-confirm";
 import {
@@ -275,13 +277,14 @@ function HostRevenueWorkspace({
   const noSchemeCell = (row: HostRow) => (row.hasScheme ? {} : { colSpan: 0 });
 
   // 方案相关列：无生效方案的行整段隐藏（colSpan 0），由「团总流水」列跨列提示。
-  const schemeColumns: ColumnsType<HostRow> = [
+  const schemeColumns: ResizableColumnsType<HostRow> = [
     {
       title: "拿提点门槛",
       key: "threshold",
       width: 130,
       align: "right",
       onCell: noSchemeCell,
+      sortValue: (row) => row.result?.thresholdInCents ?? null,
       render: (_, row) => (row.result ? formatCentsToYuan(row.result.thresholdInCents) : "—"),
     },
     {
@@ -289,6 +292,7 @@ function HostRevenueWorkspace({
       key: "qualified",
       width: 100,
       onCell: noSchemeCell,
+      sortValue: (row) => (row.result ? (row.result.isQualified ? 1 : 0) : null),
       render: (_, row) =>
         row.result ? (
           <Typography.Text type={row.result.isQualified ? undefined : "secondary"}>
@@ -304,6 +308,7 @@ function HostRevenueWorkspace({
       width: 120,
       align: "right",
       onCell: noSchemeCell,
+      sortValue: (row) => row.result?.baseCommissionRateBps ?? null,
       render: (_, row) => (row.result ? formatBpsAsPercent(row.result.baseCommissionRateBps) : "—"),
     },
     {
@@ -312,6 +317,7 @@ function HostRevenueWorkspace({
       width: 120,
       align: "right",
       onCell: noSchemeCell,
+      sortValue: (row) => row.result?.tierBonusBps ?? null,
       render: (_, row) => (row.result ? formatBpsAsPercent(row.result.tierBonusBps) : "—"),
     },
     {
@@ -320,6 +326,7 @@ function HostRevenueWorkspace({
       width: 120,
       align: "right",
       onCell: noSchemeCell,
+      sortValue: (row) => row.result?.commissionRateBps ?? null,
       render: (_, row) => (row.result ? formatBpsAsPercent(row.result.commissionRateBps) : "—"),
     },
     {
@@ -328,6 +335,7 @@ function HostRevenueWorkspace({
       width: 120,
       align: "right",
       onCell: noSchemeCell,
+      sortValue: (row) => row.result?.baseIncomeInCents ?? null,
       render: (_, row) => (row.result ? formatCentsToYuan(row.result.baseIncomeInCents) : "—"),
     },
     {
@@ -336,6 +344,7 @@ function HostRevenueWorkspace({
       width: 120,
       align: "right",
       onCell: noSchemeCell,
+      sortValue: (row) => row.penaltyCents,
       render: (_, row) =>
         row.penaltyCents ? (
           <span style={{ color: "#cf1322" }}>{signedAmount(row.penaltyCents)}</span>
@@ -349,6 +358,7 @@ function HostRevenueWorkspace({
       width: 120,
       align: "right",
       onCell: noSchemeCell,
+      sortValue: (row) => row.rewardCents,
       render: (_, row) =>
         row.rewardCents ? (
           <span style={{ color: "#389e0d" }}>{signedAmount(row.rewardCents)}</span>
@@ -362,6 +372,7 @@ function HostRevenueWorkspace({
       width: 120,
       align: "right",
       onCell: noSchemeCell,
+      sortValue: (row) => row.adjustmentTotalCents,
       render: (_, row) =>
         row.adjustmentTotalCents ? (
           <span style={{ color: row.adjustmentTotalCents < 0 ? "#cf1322" : "#389e0d" }}>
@@ -377,6 +388,7 @@ function HostRevenueWorkspace({
       width: 130,
       align: "right",
       onCell: noSchemeCell,
+      sortValue: (row) => row.result?.grossIncomeInCents ?? null,
       render: (_, row) => (row.result ? formatCentsToYuan(row.result.grossIncomeInCents) : "—"),
     },
     {
@@ -385,6 +397,7 @@ function HostRevenueWorkspace({
       width: 100,
       align: "right",
       onCell: noSchemeCell,
+      sortValue: (row) => row.result?.serviceFeeRateBps ?? null,
       render: (_, row) => (row.result ? formatBpsAsPercent(row.result.serviceFeeRateBps) : "—"),
     },
     {
@@ -393,6 +406,7 @@ function HostRevenueWorkspace({
       width: 120,
       align: "right",
       onCell: noSchemeCell,
+      sortValue: (row) => row.result?.serviceFeeInCents ?? null,
       render: (_, row) => (row.result ? formatCentsToYuan(row.result.serviceFeeInCents) : "—"),
     },
     {
@@ -401,6 +415,7 @@ function HostRevenueWorkspace({
       width: 130,
       align: "right",
       onCell: noSchemeCell,
+      sortValue: (row) => row.result?.netIncomeInCents ?? null,
       render: (_, row) =>
         row.result ? (
           <Typography.Text type={row.result.netIncomeInCents < 0 ? "danger" : undefined} strong>
@@ -415,6 +430,7 @@ function HostRevenueWorkspace({
       key: "adjustments",
       width: 110,
       onCell: noSchemeCell,
+      sortValue: (row) => row.adjustmentTotalCents,
       render: (_, row) => (
         <Button type="link" size="small" onClick={() => setAdjustingHost(row.context)}>
           {row.adjustmentTotalCents ? signedAmount(row.adjustmentTotalCents) : "+ 录入"}
@@ -423,12 +439,13 @@ function HostRevenueWorkspace({
     },
   ];
 
-  const columns: ColumnsType<HostRow> = [
+  const columns: ResizableColumnsType<HostRow> = [
     {
       title: "主持姓名",
       key: "hostName",
       fixed: "left",
-      width: 170,
+      width: 160,
+      sortValue: (row) => row.context.hostName,
       render: (_, row) => (
         <Flex align="center" gap={6}>
           <span>{row.context.hostName}</span>
@@ -440,6 +457,8 @@ function HostRevenueWorkspace({
       title: "团队名称",
       key: "teamName",
       width: 180,
+      sortValue: (row) =>
+        row.context.teamBreakdown.map((item) => item.teamName ?? "未知团队").join("、"),
       render: (_, row) => {
         const names = row.context.teamBreakdown.map((item) => item.teamName ?? "未知团队");
         if (!names.length) return "—";
@@ -455,6 +474,7 @@ function HostRevenueWorkspace({
       key: "revenue",
       width: 150,
       align: "right",
+      sortValue: (row) => row.context.revenueCents,
       // 无方案时跨「直播时长 + 全部方案列」（1 + 1 + schemeColumns.length）。
       onCell: (row) => (row.hasScheme ? {} : { colSpan: schemeColumns.length + 2 }),
       render: (_, row) =>
@@ -470,6 +490,7 @@ function HostRevenueWorkspace({
       width: 120,
       align: "right",
       onCell: noSchemeCell,
+      sortValue: (row) => row.context.broadcastMinutes,
       render: (_, row) =>
         row.context.broadcastMinutes > 0 ? formatDurationSeconds(row.context.broadcastMinutes * 60) : "—",
     },
@@ -552,13 +573,11 @@ function HostRevenueWorkspace({
 
           <QueryMessage loading={contextsQuery.isLoading} error={contextsQuery.error} />
 
-          <Table<HostRow>
+          <ResizableTable<HostRow>
             rowClassName={zebraRowClassName}
             rowKey={(row) => row.context.hostProfileId}
             dataSource={filteredRows}
             columns={columns}
-            pagination={false}
-            scroll={{ x: "max-content" }}
             locale={{ emptyText: "该周期暂无主持流水" }}
             rowSelection={{
               preserveSelectedRowKeys: true,
@@ -614,10 +633,11 @@ function HostRevenueWorkspace({
         width={600}
       >
         {breakdownHost ? (
-          <Table
+          <ResizableTable
             rowKey="teamId"
             size="small"
             pagination={false}
+            minColumnWidth={80}
             dataSource={breakdownHost.teamBreakdown}
             columns={[
               { title: "团队", dataIndex: "teamName", render: (value: string | null) => value ?? "未知团队" },

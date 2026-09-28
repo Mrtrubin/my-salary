@@ -1,11 +1,12 @@
 "use client";
 
-import { Button, Card, Col, Form, Input, InputNumber, Modal, Row, Select, Table, Typography } from "antd";
+import { Button, Card, Col, Form, Input, InputNumber, Modal, Row, Select, Typography } from "antd";
 import dayjs from "dayjs";
 import { useMemo, useState } from "react";
 import { FormField } from "@/components/admin/form-field";
 import { PageHeader } from "@/components/admin/page-header";
 import { QueryMessage } from "@/components/admin/query-message";
+import { ResizableTable } from "@/components/admin/resizable-table";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
 import {
   useCreateScheme,
@@ -58,8 +59,12 @@ export default function AnchorsPage() {
   const template = latestTemplateScheme(schemes.data, anchorPositionId);
   const listError = members.error ?? schemes.error;
 
+  function effectiveScheme(member: Member) {
+    return latestPersonalScheme(schemes.data, member.id) ?? template;
+  }
+
   function openEditor(member: Member) {
-    const effective = latestPersonalScheme(schemes.data, member.id) ?? template;
+    const effective = effectiveScheme(member);
     setError("");
     setEditing({
       id: member.id,
@@ -133,50 +138,62 @@ export default function AnchorsPage() {
         {listError ? (
           <QueryMessage loading={false} error={listError} />
         ) : (
-          <Table
+          <ResizableTable<Member>
             rowClassName={zebraRowClassName}
             rowKey="id"
             loading={members.isLoading || schemes.isLoading}
             dataSource={anchors}
-            pagination={false}
             locale={{ emptyText: "暂无主播" }}
-            scroll={{ x: "max-content" }}
             columns={[
-              { title: "主播", dataIndex: "name", fixed: "left", width: 180 },
+              { title: "主播", dataIndex: "name", fixed: "left", width: 160 },
               {
                 title: "抖音号",
-                width: 200,
+                key: "douyin_id",
+                width: 180,
+                sortValue: (record) => record.douyin_id,
                 render: (_, record) =>
                   record.douyin_id ? record.douyin_id : <Typography.Text type="secondary">未填写</Typography.Text>,
               },
               {
                 title: "主播类型",
-                width: 140,
+                key: "anchor_type",
+                width: 120,
+                sortValue: (record) => (record.anchor_type === "new" ? "新主播" : "老主播"),
                 render: (_, record) => (record.anchor_type === "new" ? "新主播" : "老主播"),
               },
               {
                 title: "基础提成率",
-                width: 140,
+                key: "base_commission",
+                align: "right",
+                width: 130,
+                sortValue: (record) => record.anchor_base_commission_bps,
                 render: (_, record) => `${record.anchor_base_commission_bps / 100}%`,
               },
               {
                 title: "初始保底",
-                width: 140,
+                key: "base_salary",
+                align: "right",
+                width: 130,
+                sortValue: (record) => effectiveScheme(record)?.base_salary_cents ?? null,
                 render: (_, record) => {
-                  const effective = latestPersonalScheme(schemes.data, record.id) ?? template;
+                  const effective = effectiveScheme(record);
                   return effective ? formatCentsToYuan(effective.base_salary_cents) : "—";
                 },
               },
               {
                 title: "降级保底",
-                width: 140,
+                key: "guaranteed_salary",
+                align: "right",
+                width: 130,
+                sortValue: (record) => effectiveScheme(record)?.guaranteed_salary_cents ?? null,
                 render: (_, record) => {
-                  const effective = latestPersonalScheme(schemes.data, record.id) ?? template;
+                  const effective = effectiveScheme(record);
                   return effective ? formatCentsToYuan(effective.guaranteed_salary_cents) : "—";
                 },
               },
               {
                 title: "操作",
+                key: "action",
                 fixed: "right",
                 width: 100,
                 render: (_, record) => (
