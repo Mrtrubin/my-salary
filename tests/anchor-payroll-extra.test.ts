@@ -13,9 +13,9 @@ const THRESHOLD = 2120000; // 800000 × 2.65
 describe("主播工资计算器 - 服务费费率", () => {
   it("自定义服务费费率 5%：对总工资按 500 bps 计提", () => {
     const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: 0, tenureMonth: 1, serviceFeeRateBps: 500 });
-    // 流水 0 不达标 → 基础收益 = 降级保底 500000，服务费 = ceil(500000 × 5%) = 25000
-    expect(r.serviceFeeInCents).toBe(25000);
-    expect(r.netSalaryInCents).toBe(475000);
+    // 第1月无责期保底保护 → 基础收益 = 初始保底 800000，服务费 = ceil(800000 × 5%) = 40000
+    expect(r.serviceFeeInCents).toBe(40000);
+    expect(r.netSalaryInCents).toBe(760000);
   });
 
   it("零服务费：实发等于总工资", () => {

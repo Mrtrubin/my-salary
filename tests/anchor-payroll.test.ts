@@ -54,23 +54,31 @@ describe("主播工资计算器 - 保底基准与门槛边界", () => {
   });
 });
 
-describe("主播工资计算器 - 前3个月无责期", () => {
-  it("第1月不达标：基础收益降级为降级保底 5000，无提成", () => {
+describe("主播工资计算器 - 前3个月无责期保底保护", () => {
+  it("第1月不达标：无责期保底保护，基础收益仍为初始保底 8000，无提成", () => {
     const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: 0, tenureMonth: 1 });
     expect(r.isGracefulPeriod).toBe(true);
     expect(r.isQualified).toBe(false);
-    expect(r.baseGuaranteeInCents).toBe(500000);
-    expect(r.guaranteedComponentInCents).toBe(500000);
+    expect(r.baseGuaranteeInCents).toBe(800000);
+    expect(r.guaranteedComponentInCents).toBe(800000);
     expect(r.performanceComponentInCents).toBe(0);
-    expect(r.grossSalaryInCents).toBe(500000);
-    expect(r.serviceFeeInCents).toBe(15000);
-    expect(r.netSalaryInCents).toBe(485000);
+    expect(r.grossSalaryInCents).toBe(800000);
+    expect(r.serviceFeeInCents).toBe(24000);
+    expect(r.netSalaryInCents).toBe(776000);
+    // 前后端（前端引擎 / Deno 引擎）口径必须一致
+    expect(computePayroll({ scheme, monthlyRevenueInCents: 0, tenureMonth: 1 })).toEqual(r);
   });
 
   it("无责期当月达标：基础收益为初始保底 8000", () => {
     const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: THRESHOLD, tenureMonth: 2 });
     expect(r.isGracefulPeriod).toBe(true);
     expect(r.baseGuaranteeInCents).toBe(800000);
+  });
+
+  it("脱离无责期后不再保底保护：不达标降级为降级保底 5000", () => {
+    const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: 0, tenureMonth: 4 });
+    expect(r.isGracefulPeriod).toBe(false);
+    expect(r.baseGuaranteeInCents).toBe(500000);
   });
 });
 

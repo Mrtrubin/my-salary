@@ -3,7 +3,7 @@
  * 金额以「分」整数存储，比例以「基点」(bps) 表示（10000 bps = 100%）。
  * 「保底/提成互斥模式」规则：
  *  - 门槛 = ceil(初始保底 × thresholdMultiplierBps / 10000)，达标判定按当月流水
- *  - 基础收益（保底工资）：当月达标 → 初始保底；不达标 → 降级保底
+ *  - 基础收益（保底工资）：无责期 → 初始保底（保底保护）；非无责期 → 达标初始保底、不达标降级保底
  *  - 拿提点门槛（提成起征）= 初始保底 × 5（固定），无责期同样适用
  *  - 提成互斥：流水 >= 拿提点门槛 → 总工资 = 总流水 × 最终提成率（不叠加保底工资）；否则 = 保底工资全额
  *  - 阶梯提成：20% 起步，超过拿提点门槛每满 1万 +1%，阶梯加点封顶 5%，最终提成率不封顶
@@ -86,10 +86,11 @@ export function computePayroll(input: PayrollInput): PayrollResult {
   );
   const isQualified = monthlyRevenueInCents >= thresholdInCents;
 
-  // 基础收益：当月达标 → 初始保底；不达标 → 降级保底。
-  const baseGuaranteeInCents = isQualified
-    ? scheme.baseSalaryInCents
-    : scheme.guaranteedSalaryInCents;
+  // 基础收益：无责期一律初始保底（保底保护）；非无责期按当月达标，达标初始、不达标降级。
+  const baseGuaranteeInCents =
+    isGracefulPeriod || isQualified
+      ? scheme.baseSalaryInCents
+      : scheme.guaranteedSalaryInCents;
 
   // 拿提点门槛（提成起征）= 初始保底 × 5（固定），无责期同样适用。
   const commissionStartInCents = scheme.baseSalaryInCents * 5;
