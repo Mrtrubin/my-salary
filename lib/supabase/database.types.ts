@@ -14,28 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      system_settlement_settings: {
-        Row: {
-          id: boolean
-          settlement_type: Database["public"]["Enums"]["settlement_type"]
-          settlement_start_day: number
-          last_settled_period_end: string | null
-          updated_at: string
-        }
-        Insert: {
-          id?: boolean
-          settlement_type?: Database["public"]["Enums"]["settlement_type"]
-          settlement_start_day?: number
-          last_settled_period_end?: string | null
-          updated_at?: string
-        }
-        Update: {
-          settlement_type?: Database["public"]["Enums"]["settlement_type"]
-          settlement_start_day?: number
-          last_settled_period_end?: string | null
-        }
-        Relationships: []
-      }
       performance_points: {
         Row: {
           created_at: string
@@ -881,9 +859,6 @@ export type Database = {
           team_code: string
           status: Database["public"]["Enums"]["employment_status"]
           updated_at: string
-          settlement_type: Database["public"]["Enums"]["settlement_type"]
-          settlement_start_day: number
-          last_settled_period_end: string | null
         }
         Insert: {
           created_at?: string
@@ -893,9 +868,6 @@ export type Database = {
           team_code: string
           status?: Database["public"]["Enums"]["employment_status"]
           updated_at?: string
-      settlement_type?: Database["public"]["Enums"]["settlement_type"]
-          settlement_start_day?: number
-          last_settled_period_end?: string | null
         }
         Update: {
           created_at?: string
@@ -905,9 +877,6 @@ export type Database = {
           team_code?: string
           status?: Database["public"]["Enums"]["employment_status"]
           updated_at?: string
-          settlement_type?: Database["public"]["Enums"]["settlement_type"]
-          settlement_start_day?: number
-          last_settled_period_end?: string | null
         }
         Relationships: [
           {
@@ -1020,7 +989,6 @@ export type Database = {
       salary_record_status: "pending_review" | "pending_confirm" | "confirmed" | "completed"
       scheme_status: "active" | "archived"
       system_role: "admin" | "user"
-      settlement_type: "monthly" | "custom"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1154,7 +1122,6 @@ export const Constants = {
       salary_record_status: ["pending_review", "pending_confirm", "confirmed", "completed"],
       scheme_status: ["active", "archived"],
       system_role: ["admin", "user"],
-      settlement_type: ["monthly", "custom"],
     },
   },
 } as const

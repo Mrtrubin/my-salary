@@ -44,10 +44,7 @@ import {
   updateTeam,
   listAnchorRevenuePerf,
   getAnchorSettlementContexts,
-  getTeamEarliestPerfDate,
   settleAnchorRevenue,
-  getSystemSettlementSettings,
-  updateSystemSettlementSettings,
   listHostSchemes,
   createHostScheme,
   listHostSalaryRecords,
@@ -73,8 +70,6 @@ export const keys = {
   notifications: ["notifications"] as const,
   anchorRevenuePerf: ["anchorRevenuePerf"] as const,
   anchorSettlementContexts: ["anchorSettlementContexts"] as const,
-  systemSettlementSettings: ["systemSettlementSettings"] as const,
-  teamEarliestPerfDate: ["teamEarliestPerfDate"] as const,
   salaryStatusLogs: ["salaryStatusLogs"] as const,
   hostSchemes: ["hostSchemes"] as const,
   hostSalary: ["hostSalary"] as const,
@@ -86,7 +81,6 @@ function invalidateSettlementQueries(client: QueryClient) {
   return Promise.all([
     keys.anchorRevenuePerf,
     keys.anchorSettlementContexts,
-    keys.teamEarliestPerfDate,
   ].map((queryKey) => client.invalidateQueries({ queryKey })));
 }
 
@@ -95,22 +89,6 @@ function invalidateRelatedQueries(client: QueryClient, queryKey: readonly string
     client.invalidateQueries({ queryKey }),
     invalidateSettlementQueries(client),
   ]);
-}
-
-export function useSystemSettlementSettings() {
-  return useQuery({ queryKey: keys.systemSettlementSettings, queryFn: getSystemSettlementSettings });
-}
-
-export function useUpdateSystemSettlementSettings() {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: updateSystemSettlementSettings,
-    onSuccess: () => Promise.all([
-      ...[keys.systemSettlementSettings, keys.teams, keys.salary, keys.teamPerformance, keys.salaryStatusLogs]
-        .map((queryKey) => client.invalidateQueries({ queryKey })),
-      invalidateSettlementQueries(client),
-    ]),
-  });
 }
 
 export function useCurrentProfile() {
@@ -350,20 +328,11 @@ export function useAnchorSettlementContexts(teamId: string | null, period: Perio
   });
 }
 
-/** teamId 为空时查询系统最早流水日期。 */
-export function useTeamEarliestPerfDate(teamId: string | null) {
-  return useQuery({
-    queryKey: [...keys.teamEarliestPerfDate, teamId],
-    queryFn: () => getTeamEarliestPerfDate(teamId),
-  });
-}
-
-
 /** 手动结算主播流水（勾选主播 + 调整项 → 落库进四态审核流）。 */
 export function useSettleAnchorRevenue() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: { teamId: string | null; period: PeriodRange; members: AnchorSettleMember[] }) => settleAnchorRevenue(input),
+    mutationFn: (input: { teamId: string | null; period: PeriodRange; members: AnchorSettleMember[]; replaceOverlapping?: boolean }) => settleAnchorRevenue(input),
     onSuccess: () => Promise.all([
       client.invalidateQueries({ queryKey: keys.salary }),
       client.invalidateQueries({ queryKey: keys.salaryStatusLogs }),
@@ -402,7 +371,7 @@ export function useHostSettlementContexts(period: PeriodRange | null) {
 export function useSettleHostPayroll() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: { period: PeriodRange; hosts: HostSettleMember[] }) => settleHostPayroll(input),
+    mutationFn: (input: { period: PeriodRange; hosts: HostSettleMember[]; replaceOverlapping?: boolean }) => settleHostPayroll(input),
     onSuccess: () => Promise.all([
       client.invalidateQueries({ queryKey: keys.hostSalary }),
       client.invalidateQueries({ queryKey: keys.hostSalaryStatusLogs }),

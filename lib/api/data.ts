@@ -4,8 +4,7 @@ import { REST_NOTE } from "@/lib/domain/performance/status";
 import { getBrowserSupabase } from "@/lib/supabase/client";
 import type { Database, Json } from "@/lib/supabase/database.types";
 import type { SettlementMemberContext } from "@/lib/domain/settlement/aggregate";
-import { getPeriodRange } from "@/lib/domain/settlement/cycle";
-import type { PeriodRange, SettlementType } from "@/lib/domain/settlement/cycle";
+import type { PeriodRange } from "@/lib/domain/settlement/cycle";
 import type { PayrollAdjustment } from "@/lib/domain/payroll/adjustment";
 import type { HostSalaryScheme } from "@/lib/domain/payroll/host";
 
@@ -13,19 +12,21 @@ export type SalaryRecordStatus = Database["public"]["Enums"]["salary_record_stat
 export type Profile = Database["public"]["Tables"]["profiles"]["Row"];
 export type Position = Database["public"]["Tables"]["positions"]["Row"];
 export type SalaryScheme = Database["public"]["Tables"]["salary_schemes"]["Row"] & { profile: Pick<Profile, "name"> | null; position: Pick<Position, "name"> | null };
-export type SalaryRecord = Database["public"]["Tables"]["salary_records"]["Row"] & { profile: Pick<Profile, "name"> | null; position: Pick<Position, "code" | "name"> | null; team: Pick<Team, "id" | "name" | "settlement_type" | "settlement_start_day"> | null };
+export type SalaryRecord = Database["public"]["Tables"]["salary_records"]["Row"] & { profile: Pick<Profile, "name"> | null; position: Pick<Position, "code" | "name"> | null; team: Pick<Team, "id" | "name"> | null };
 export type SalaryStatusLog = Database["public"]["Tables"]["salary_record_status_logs"]["Row"] & { operator: Pick<Profile, "name"> | null };
 export type Member = Profile & { user_positions: { position: Position | null }[] };
 
 const settlementErrors: Record<string, string> = {
-  SYSTEM_SETTLEMENT_SETTINGS_MISSING: "系统结算配置不存在，请先完成数据库迁移",
-  SETTLEMENT_PERIOD_MUST_MATCH_SYSTEM: "周期已与系统配置不一致，请刷新后重新选择",
-  INVALID_SETTLEMENT_PERIOD: "结算周期无效",
+  INVALID_SETTLEMENT_PERIOD: "结算起止日期无效",
+  INVALID_SALARY_PERIOD: "结算起止日期无效",
   INVALID_SETTLEMENT_MEMBERS: "结算名单格式无效",
   DUPLICATE_SETTLEMENT_MEMBER_POSITION: "同一成员同一岗位不能重复结算",
   SALARY_RECORD_NOT_PENDING_REVIEW: "工资已进入审核后续流程，不能覆盖",
   INVALID_SALARY_ADJUSTMENTS: "工资调整项格式无效",
   SALARY_PERIOD_OVERLAP: "该成员岗位已有重叠周期工资，请先核对历史记录",
+  SALARY_OVERLAP_COMPLETED: "所选区间与已完成的工资记录重叠，无法覆盖结算",
+  HOST_SALARY_PERIOD_OVERLAP: "该主持已有重叠周期工资，请先核对历史记录",
+  HOST_SALARY_OVERLAP_COMPLETED: "所选区间与已完成的主持工资记录重叠，无法覆盖结算",
   TEAM_NOT_FOUND: "团队不存在",
 };
 function fail(error: { message: string; code?: string } | null): never {
@@ -58,25 +59,6 @@ async function readSettlementRows<T>(query: (from: number, to: number) => Promis
     rows.push(...(data ?? []));
     if (!data || data.length < pageSize) return rows;
   }
-}
-
-export type SystemSettlementSettings = Database["public"]["Tables"]["system_settlement_settings"]["Row"];
-export async function getSystemSettlementSettings(): Promise<SystemSettlementSettings> {
-  const { data, error } = await getBrowserSupabase().from("system_settlement_settings").select("*").eq("id", true).maybeSingle();
-  if (error) fail(error);
-  if (!data) fail({ message: "SYSTEM_SETTLEMENT_SETTINGS_MISSING" });
-  return data;
-}
-export async function updateSystemSettlementSettings(input: { settlementType: SettlementType; settlementStartDay: number }) {
-  if (!Number.isInteger(input.settlementStartDay) || input.settlementStartDay < 1 || input.settlementStartDay > 28) {
-    throw new ApiError(ApiErrorCode.INVALID_INPUT, "周期起始日必须为 1～28 的整数");
-  }
-  const { data, error } = await getBrowserSupabase().from("system_settlement_settings").update({
-    settlement_type: input.settlementType,
-    settlement_start_day: input.settlementType === "monthly" ? 1 : input.settlementStartDay,
-  }).eq("id", true).select("id").maybeSingle();
-  if (error) fail(error);
-  if (!data) throw new ApiError(ApiErrorCode.FORBIDDEN, "系统配置未更新，请检查管理员权限或配置是否存在");
 }
 
 export function settlementMemberKey(member: { profileId: string; positionId: number }): string {
@@ -478,7 +460,7 @@ export async function createScheme(input: Database["public"]["Tables"]["salary_s
 }
 
 export async function listSalaryRecords(): Promise<SalaryRecord[]> {
-  const { data, error } = await getBrowserSupabase().from("salary_records").select("*, profile:profiles!salary_records_profile_id_fkey(name), position:positions(code, name), team:teams(id, name, settlement_type, settlement_start_day)").order("month", { ascending: false });
+  const { data, error } = await getBrowserSupabase().from("salary_records").select("*, profile:profiles!salary_records_profile_id_fkey(name), position:positions(code, name), team:teams(id, name)").order("month", { ascending: false });
   if (error) fail(error);
   return data as unknown as SalaryRecord[];
 }
@@ -891,19 +873,7 @@ export async function submitPasswordChange(input: { currentPassword: string; new
   return { batchId: (result.batchId as string) ?? "" };
 }
 
-// ==================== 主播流水结算（PLAN-001：/admin/anchor-revenue）====================
-
-/** 按系统唯一配置解析周期；默认使用本地日历日。 */
-export function resolveSystemPeriod(settings: Pick<SystemSettlementSettings, "settlement_type" | "settlement_start_day">, asOfDate?: string): PeriodRange {
-  const now = new Date();
-  const date = asOfDate ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  return getPeriodRange(settings.settlement_type, settings.settlement_start_day, date);
-}
-
-/** 兼容旧调用方；团队字段仅是系统配置的镜像。 */
-export function resolveTeamPeriod(team: Pick<Team, "settlement_type" | "settlement_start_day">, asOfDate?: string): PeriodRange {
-  return resolveSystemPeriod(team, asOfDate);
-}
+// ==================== 主播流水结算（/admin/anchor-revenue）====================
 
 /** 历史关系与流水发现离组人员，系统范围另外包含无团队主播。 */
 async function getSettlementProfileIds(teamId: string | null, period?: PeriodRange): Promise<string[]> {
@@ -978,21 +948,6 @@ async function readProfileRevenue(profileIds: string[], period: PeriodRange): Pr
     })));
   }
   return rows.sort((a, b) => b.perfDate.localeCompare(a.perfDate) || b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
-}
-
-/** 名单人员跨团最早流水日期；空团队查询全系统，用于历史周期下界。 */
-export async function getTeamEarliestPerfDate(teamId: string | null): Promise<string | null> {
-  const supabase = getBrowserSupabase();
-  const ids = teamId ? await getSettlementProfileIds(teamId) : null;
-  let earliest: string | null = null;
-  for (let i = 0; i < (ids?.length ?? 1); i += 100) {
-    let query = supabase.from("anchor_revenue_records").select("perf_date");
-    if (ids) query = query.in("profile_id", ids.slice(i, i + 100));
-    const { data, error } = await query.order("perf_date").limit(1).maybeSingle();
-    if (error) fail(error);
-    if (data && (!earliest || data.perf_date < earliest)) earliest = data.perf_date;
-  }
-  return earliest;
 }
 
 /**
@@ -1099,7 +1054,7 @@ export interface AnchorSettleMember {
  * 重算总工资/服务费/实发 → 组装 p_members 调 settle_anchor_revenue RPC（单事务 upsert + 日志，
  * 仅允许管理员手动写入，不再提供自动结算入口）。
  */
-export async function settleAnchorRevenue(input: { teamId: string | null; period: PeriodRange; members: AnchorSettleMember[] }): Promise<{ settledRecords: number }> {
+export async function settleAnchorRevenue(input: { teamId: string | null; period: PeriodRange; members: AnchorSettleMember[]; replaceOverlapping?: boolean }): Promise<{ settledRecords: number }> {
   if (!input.members.length) throw new ApiError(ApiErrorCode.INVALID_INPUT, "请至少勾选一名主播");
   const selectedKeys = new Set(input.members.map(settlementMemberKey));
   if (selectedKeys.size !== input.members.length) {
@@ -1142,12 +1097,14 @@ export async function settleAnchorRevenue(input: { teamId: string | null; period
     p_period_start: input.period.start,
     p_period_end: input.period.end,
     p_members: payload as unknown as Json,
+    p_replace_overlapping: input.replaceOverlapping ?? false,
   }));
   if (error) {
     const msg = error.message ?? "";
     if (msg.includes("ADMIN_REQUIRED") || msg.includes("FORBIDDEN_TRANSITION")) throw new ApiError(ApiErrorCode.FORBIDDEN, "无权手动结算");
     if (msg.includes("TEAM_NOT_FOUND")) throw new ApiError(ApiErrorCode.NOT_FOUND, "团队不存在");
     if (msg.includes("SALARY_SCHEME_MISSING")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "部分主播缺少生效工资方案，无法结算");
+    if (msg.includes("SALARY_OVERLAP_COMPLETED")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "所选区间与已完成的工资记录重叠，无法覆盖结算");
     if (msg.includes("SALARY_RECORD_COMPLETED")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "该周期工资已「已完成」，无法重新结算");
     fail(error);
   }
@@ -1328,7 +1285,7 @@ export async function getHostSettlementContexts(period: PeriodRange): Promise<Ho
  * 管理员手动结算主持工资：仅传主持身份 + 调整项，数据库按周期流水与方案权威重算，
  * 写入独立主持工资表并进入四态审核流。
  */
-export async function settleHostPayroll(input: { period: PeriodRange; hosts: HostSettleMember[] }): Promise<{ settledRecords: number }> {
+export async function settleHostPayroll(input: { period: PeriodRange; hosts: HostSettleMember[]; replaceOverlapping?: boolean }): Promise<{ settledRecords: number }> {
   if (!input.hosts.length) throw new ApiError(ApiErrorCode.INVALID_INPUT, "请至少勾选一位主持");
   const unique = new Set(input.hosts.map((h) => h.hostProfileId));
   if (unique.size !== input.hosts.length) {
@@ -1343,11 +1300,13 @@ export async function settleHostPayroll(input: { period: PeriodRange; hosts: Hos
     p_period_start: input.period.start,
     p_period_end: input.period.end,
     p_hosts: payload as unknown as Json,
+    p_replace_overlapping: input.replaceOverlapping ?? false,
   }));
   if (error) {
     const msg = error.message ?? "";
     if (msg.includes("ADMIN_REQUIRED") || msg.includes("FORBIDDEN_TRANSITION")) throw new ApiError(ApiErrorCode.FORBIDDEN, "无权手动结算");
     if (msg.includes("HOST_SALARY_SCHEME_MISSING")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "部分主持缺少生效工资方案，无法结算");
+    if (msg.includes("HOST_SALARY_OVERLAP_COMPLETED")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "所选区间与已完成的主持工资记录重叠，无法覆盖结算");
     if (msg.includes("HOST_SALARY_RECORD_NOT_PENDING_REVIEW")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "主持工资已进入审核后续流程，不能覆盖");
     fail(error);
   }

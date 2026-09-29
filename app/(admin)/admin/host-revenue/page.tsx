@@ -26,11 +26,12 @@ import { useConfirm } from "@/components/admin/use-confirm";
 import {
   useHostSettlementContexts,
   useSettleHostPayroll,
-  useSystemSettlementSettings,
+  useHostSalaryRecords,
 } from "@/lib/api/hooks";
-import { resolveSystemPeriod } from "@/lib/api/data";
-import type { HostSettleMember, HostSettlementContext, SystemSettlementSettings } from "@/lib/api/data";
-import { getPeriodRange, getPreviousPeriodRange } from "@/lib/domain/settlement/cycle";
+import type { HostSalaryRecord, HostSettleMember, HostSettlementContext } from "@/lib/api/data";
+import { SalaryRecordStatusBadge } from "@/components/admin/status-tag";
+import { PeriodRangeFilter } from "@/components/admin/period-range-filter";
+import { getPresetRange } from "@/lib/domain/settlement/cycle";
 import type { PeriodRange } from "@/lib/domain/settlement/cycle";
 import { parseAdjustmentAmountYuan } from "@/lib/domain/payroll/adjustment";
 import {
@@ -39,9 +40,7 @@ import {
   HOST_PENALTY_NAME,
   HOST_REWARD_NAME,
 } from "@/lib/domain/payroll/host";
-import { formatBpsAsPercent, formatCentsToYuan, formatDate, formatDurationSeconds } from "@/lib/format";
-
-const PERIOD_OPTION_COUNT = 12;
+import { formatBpsAsPercent, formatCentsToYuan, formatDurationSeconds } from "@/lib/format";
 
 interface AdjustmentDraft {
   id: string;
@@ -74,37 +73,21 @@ interface HostRow {
 }
 
 export default function HostRevenuePage() {
-  const settings = useSystemSettlementSettings();
   return (
     <>
       <PageHeader
         title="主持流水"
-        description="按结算周期汇总每位主持的团总流水与直播时长，支持违约/奖励调整后勾选结算进入工资核算"
+        description="按自定义起止日期汇总每位主持的团总流水与直播时长，支持违约/奖励调整后勾选结算进入工资核算"
       />
-      <QueryMessage loading={settings.isLoading} error={settings.error} />
-      {settings.data && !settings.isError ? (
-        <HostRevenueWorkspace
-          key={`${settings.data.settlement_type}:${settings.data.settlement_start_day}:${settings.data.updated_at}`}
-          settings={settings.data}
-          settingsRefreshing={settings.isFetching}
-        />
-      ) : null}
-      {settings.isError ? (
-        <Button onClick={() => void settings.refetch()}>重试加载系统周期</Button>
-      ) : null}
+      <HostRevenueWorkspace />
     </>
   );
 }
 
-function HostRevenueWorkspace({
-  settings,
-  settingsRefreshing,
-}: {
-  settings: SystemSettlementSettings;
-  settingsRefreshing: boolean;
-}) {
+function HostRevenueWorkspace() {
   const confirm = useConfirm();
-  const [hostDate, setHostDate] = useState<string | null>(null);
+  // 进入页面默认查询本月；快捷区间与日期选择需点击「查询」后才应用。
+  const [period, setPeriod] = useState<PeriodRange>(() => getPresetRange("thisMonth"));
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [adjustments, setAdjustments] = useState<Record<string, AdjustmentDraft[]>>({});
   const [adjustingHost, setAdjustingHost] = useState<HostSettlementContext | null>(null);
@@ -113,25 +96,25 @@ function HostRevenueWorkspace({
   const [validationError, setValidationError] = useState<string | null>(null);
   const seededRef = useRef<Set<string>>(new Set());
 
-  const period = useMemo(
-    () =>
-      hostDate
-        ? getPeriodRange(settings.settlement_type, settings.settlement_start_day, hostDate)
-        : resolveSystemPeriod(settings),
-    [settings, hostDate],
-  );
-
-  const periodOptions: PeriodRange[] = useMemo(() => {
-    const list: PeriodRange[] = [];
-    let cursor = resolveSystemPeriod(settings);
-    for (let i = 0; i < PERIOD_OPTION_COUNT; i += 1) {
-      list.push(cursor);
-      cursor = getPreviousPeriodRange(settings.settlement_type, settings.settlement_start_day, cursor.start);
-    }
-    return list;
-  }, [settings]);
-
   const contextsQuery = useHostSettlementContexts(period);
+  const hostSalaryRecordsQuery = useHostSalaryRecords();
+
+  // 同区间的工资记录（覆盖重算）与重叠但不同区间的记录（删除未完成记录后重算）。
+  const { existingByHost, overlapByHost } = useMemo(() => {
+    const existing = new Map<string, HostSalaryRecord>();
+    const overlap = new Map<string, HostSalaryRecord[]>();
+    for (const record of hostSalaryRecordsQuery.data ?? []) {
+      if (record.period_start === period.start && record.period_end === period.end) {
+        existing.set(record.host_profile_id, record);
+        continue;
+      }
+      if (record.period_start > period.end || record.period_end < period.start) continue;
+      const list = overlap.get(record.host_profile_id) ?? [];
+      list.push(record);
+      overlap.set(record.host_profile_id, list);
+    }
+    return { existingByHost: existing, overlapByHost: overlap };
+  }, [hostSalaryRecordsQuery.data, period]);
   const settleMutation = useSettleHostPayroll();
 
   const rows: HostRow[] = useMemo(() => {
@@ -190,7 +173,8 @@ function HostRevenueWorkspace({
     return rows.filter((row) => row.context.hostName.toLowerCase().includes(kw));
   }, [rows, keyword]);
 
-  const dataUnavailable = settingsRefreshing || contextsQuery.isFetching || !contextsQuery.isSuccess;
+  const dataUnavailable =
+    contextsQuery.isFetching || !contextsQuery.isSuccess || !hostSalaryRecordsQuery.isSuccess;
   const selectedRows = rows.filter((row) => selectedIds.has(row.context.hostProfileId));
   const selectionValid = selectedRows.length === selectedIds.size && selectedRows.every((row) => row.hasScheme);
   const selectedRowKeys = useMemo(() => [...selectedIds], [selectedIds]);
@@ -253,18 +237,77 @@ function HostRevenueWorkspace({
       setValidationError(`请检查「${invalidRow.context.hostName}」的调整项金额：须为非负数且最多两位小数。`);
       return;
     }
-    const ok = await confirm({
-      title: "确认结算所选主持",
-      content: `将为 ${selectedRows.length} 位主持生成工资记录并进入待审核，确认继续？`,
-      okText: "确认结算",
+    const completedRow = selectedRows.find((row) => {
+      const exact = existingByHost.get(row.context.hostProfileId);
+      // 精确记录仅「待审核」可覆盖；其余状态不可重算。
+      if (exact && exact.status !== "pending_review") return true;
+      return (overlapByHost.get(row.context.hostProfileId) ?? []).some(
+        (record) => record.status === "completed",
+      );
     });
-    if (!ok) return;
+    if (completedRow) {
+      setValidationError(
+        `「${completedRow.context.hostName}」存在不可覆盖的工资记录与所选区间重叠，请先核对工资核算。`,
+      );
+      return;
+    }
+    const affectedRows = selectedRows.filter(
+      (row) =>
+        existingByHost.has(row.context.hostProfileId) ||
+        (overlapByHost.get(row.context.hostProfileId) ?? []).length > 0,
+    );
+    if (affectedRows.length) {
+      const ok = await confirm({
+        title: "所选区间已有主持工资记录，重新结算将覆盖",
+        content: (
+          <div>
+            <p style={{ marginTop: 0 }}>
+              以下 {affectedRows.length} 位主持在所选区间内已有工资记录，将覆盖同区间记录并删除未完成的重叠记录：
+            </p>
+            <Flex vertical gap={6} style={{ maxHeight: 260, overflow: "auto" }}>
+              {affectedRows.map((row) => {
+                const exact = existingByHost.get(row.context.hostProfileId);
+                const overlaps = overlapByHost.get(row.context.hostProfileId) ?? [];
+                return (
+                  <div key={row.context.hostProfileId} style={{ fontSize: 13 }}>
+                    <span style={{ fontWeight: 600 }}>{row.context.hostName}</span>{" "}
+                    {exact ? (
+                      <>
+                        <SalaryRecordStatusBadge status={exact.status} /> 实发{" "}
+                        {formatCentsToYuan(exact.gross_cents)}（同区间，覆盖）
+                      </>
+                    ) : null}
+                    {exact && overlaps.length ? "；" : null}
+                    {overlaps.length ? (
+                      <>
+                        重叠 {overlaps.map((r) => `${r.period_start}~${r.period_end}`).join("、")}{" "}
+                        （未完成，删除）
+                      </>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </Flex>
+          </div>
+        ),
+        okText: "覆盖并重算",
+        okButtonProps: { danger: true },
+      });
+      if (!ok) return;
+    } else {
+      const ok = await confirm({
+        title: "确认结算所选主持",
+        content: `将为 ${selectedRows.length} 位主持生成工资记录并进入待审核，确认继续？`,
+        okText: "确认结算",
+      });
+      if (!ok) return;
+    }
     const hosts: HostSettleMember[] = selectedRows.map((row) => ({
       hostProfileId: row.context.hostProfileId,
       adjustments: validAdjustments(adjustments[row.context.hostProfileId] ?? []),
     }));
     settleMutation.mutate(
-      { period, hosts },
+      { period, hosts, replaceOverlapping: true },
       {
         onSuccess: () => {
           setSelectedIds(new Set());
@@ -446,12 +489,22 @@ function HostRevenueWorkspace({
       fixed: "left",
       width: 160,
       sortValue: (row) => row.context.hostName,
-      render: (_, row) => (
-        <Flex align="center" gap={6}>
-          <span>{row.context.hostName}</span>
-          {row.hasScheme ? null : <Tag color="orange">未配置方案</Tag>}
-        </Flex>
-      ),
+      render: (_, row) => {
+        const exact = existingByHost.get(row.context.hostProfileId);
+        const overlaps = overlapByHost.get(row.context.hostProfileId) ?? [];
+        return (
+          <Flex align="center" gap={6}>
+            <span>{row.context.hostName}</span>
+            {row.hasScheme ? null : <Tag color="orange">未配置方案</Tag>}
+            {exact ? (
+              <Tag color={exact.status === "completed" ? "red" : "blue"}>
+                {exact.status === "completed" ? "已完成" : "已结算"}
+              </Tag>
+            ) : null}
+            {overlaps.length ? <Tag color="gold">重叠</Tag> : null}
+          </Flex>
+        );
+      },
     },
     {
       title: "团队名称",
@@ -500,26 +553,16 @@ function HostRevenueWorkspace({
   return (
     <>
       <Card style={{ marginBottom: 16 }}>
-        <Flex align="center" gap={12} wrap>
-          {period ? (
-            <Select
-              aria-label="系统结算周期"
-              style={{ minWidth: 320 }}
-              value={period.start}
-              onChange={(value: string) => {
-                setHostDate(value);
-                resetDraft();
-              }}
-              disabled={settleMutation.isPending}
-              options={periodOptions.map((p, index) => ({
-                value: p.start,
-                label: `${formatDate(p.start)} ~ ${formatDate(p.end)}${index === 0 ? "（当前）" : ""}`,
-              }))}
-            />
-          ) : null}
-        </Flex>
+        <PeriodRangeFilter
+          value={period}
+          onChange={(range) => {
+            setPeriod(range);
+            resetDraft();
+          }}
+          disabled={settleMutation.isPending}
+        />
         <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
-          统一使用系统周期；团总流水 = 该主持名下所有团队在本周期内的主播流水合计，团队明细可点击行内标签查看。工资由管理员勾选后手动结算。
+          默认为本月；可快捷切换当日/昨日/本周或自选起止日期，点击「查询」后应用。团总流水 = 该主持名下所有团队在该区间内的主播流水合计，团队明细可点击行内标签查看。工资由管理员勾选后手动结算。
         </Typography.Paragraph>
       </Card>
 
@@ -596,10 +639,21 @@ function HostRevenueWorkspace({
                   return next;
                 });
               },
-              getCheckboxProps: (row) => ({
-                disabled: !row.hasScheme,
-                title: row.hasScheme ? undefined : "该主持未配置生效工资方案，无法结算",
-              }),
+              getCheckboxProps: (row) => {
+                const exact = existingByHost.get(row.context.hostProfileId);
+                const overlaps = overlapByHost.get(row.context.hostProfileId) ?? [];
+                const blocked =
+                  (exact !== undefined && exact.status !== "pending_review") ||
+                  overlaps.some((record) => record.status === "completed");
+                return {
+                  disabled: !row.hasScheme || blocked,
+                  title: !row.hasScheme
+                    ? "该主持未配置生效工资方案，无法结算"
+                    : blocked
+                      ? "该主持存在不可覆盖的工资记录与所选区间重叠，无法重新结算"
+                      : undefined,
+                };
+              },
             }}
           />
         </fieldset>

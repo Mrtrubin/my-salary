@@ -27,19 +27,17 @@ import {
   useAnchorSettlementContexts,
   useSalaryRecords,
   useSettleAnchorRevenue,
-  useSystemSettlementSettings,
-  useTeamEarliestPerfDate,
   useTeams,
 } from "@/lib/api/hooks";
-import { resolveSystemPeriod, settlementMemberKey } from "@/lib/api/data";
+import { settlementMemberKey } from "@/lib/api/data";
 import type {
   AnchorRevenuePerfRow,
   AnchorSettleMember,
   SalaryRecord,
-  SystemSettlementSettings,
 } from "@/lib/api/data";
 import { SalaryRecordStatusBadge } from "@/components/admin/status-tag";
-import { getPeriodRange, getPreviousPeriodRange } from "@/lib/domain/settlement/cycle";
+import { PeriodRangeFilter } from "@/components/admin/period-range-filter";
+import { getPresetRange } from "@/lib/domain/settlement/cycle";
 import type { PeriodRange } from "@/lib/domain/settlement/cycle";
 import { aggregateSettlement } from "@/lib/domain/settlement/aggregate";
 import {
@@ -52,9 +50,6 @@ import { OFF_AIR_NOTE, statusFromRecord } from "@/lib/domain/performance/status"
 import { formatAdjustmentItems } from "@/lib/domain/performance/recordView";
 import { calculateAnchorPayroll, parseCommissionBonusPoints } from "@/lib/domain/payroll/anchor";
 import { formatCentsToYuan, formatDate, formatDurationSeconds } from "@/lib/format";
-
-/** 周期下拉可选的历史周期数量（含当前周期）。 */
-const PERIOD_OPTION_COUNT = 12;
 
 /** 编辑草稿与结算数据分离，允许清空名称、金额及连续输入小数。 */
 interface AdjustmentDraft {
@@ -137,46 +132,23 @@ interface AnchorRow {
 }
 
 export default function AnchorRevenuePage() {
-  const settings = useSystemSettlementSettings();
   return (
     <>
       <PageHeader
         title="主播流水"
-        description="按结算周期实时聚合每位主播的流水与工资，支持添加调整项后勾选结算进入工资待审核"
+        description="按自定义起止日期实时聚合每位主播的流水与工资，支持添加调整项后勾选结算进入工资待审核"
       />
-      <QueryMessage loading={settings.isLoading} error={settings.error} />
-      {settings.data && !settings.isError ? (
-        <AnchorRevenueWorkspace
-          key={`${settings.data.settlement_type}:${settings.data.settlement_start_day}:${settings.data.updated_at}`}
-          settings={settings.data}
-          settingsRefreshing={settings.isFetching}
-        />
-      ) : null}
-      {settings.isError ? (
-        <Button
-          onClick={() => {
-            void settings.refetch();
-          }}
-        >
-          重试加载系统周期
-        </Button>
-      ) : null}
+      <AnchorRevenueWorkspace />
     </>
   );
 }
 
-function AnchorRevenueWorkspace({
-  settings,
-  settingsRefreshing,
-}: {
-  settings: SystemSettlementSettings;
-  settingsRefreshing: boolean;
-}) {
+function AnchorRevenueWorkspace() {
   const teamsQuery = useTeams();
   const confirm = useConfirm();
   const [teamId, setSelectedTeamId] = useState<string | null>(null);
-  // 配置版本变化时整个工作区重新挂载，避免提交旧周期草稿。
-  const [anchorDate, setAnchorDate] = useState<string | null>(null);
+  // 进入页面默认查询本月；快捷区间与日期选择需点击「查询」后才应用。
+  const [period, setPeriod] = useState<PeriodRange>(() => getPresetRange("thisMonth"));
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bonuses, setBonuses] = useState<Record<string, CommissionBonusDraft>>({});
   const [adjustments, setAdjustments] = useState<Record<string, AdjustmentDraft[]>>({});
@@ -189,33 +161,6 @@ function AnchorRevenueWorkspace({
   const seededKeysRef = useRef<Set<string>>(new Set());
   // 已从既有工资记录回填过草稿的 memberKey 集合，避免重复回填覆盖用户编辑。
   const prefilledKeysRef = useRef<Set<string>>(new Set());
-
-  const period = useMemo(
-    () =>
-      anchorDate
-        ? getPeriodRange(settings.settlement_type, settings.settlement_start_day, anchorDate)
-        : resolveSystemPeriod(settings),
-    [settings, anchorDate],
-  );
-
-  // 团队仅筛名单，最早日期与金额均按名单成员的跨团队流水计算。
-  const earliestPerfQuery = useTeamEarliestPerfDate(teamId);
-  const periodOptions: PeriodRange[] = useMemo(() => {
-    const earliestPerfDate = earliestPerfQuery.data ?? null;
-    const list: PeriodRange[] = [];
-    let cursor = resolveSystemPeriod(settings);
-    for (let i = 0; i < PERIOD_OPTION_COUNT; i += 1) {
-      list.push(cursor);
-      const prev = getPreviousPeriodRange(
-        settings.settlement_type,
-        settings.settlement_start_day,
-        cursor.start,
-      );
-      if (!earliestPerfDate || prev.end < earliestPerfDate) break;
-      cursor = prev;
-    }
-    return list;
-  }, [settings, earliestPerfQuery.data]);
 
   const perfQuery = useAnchorRevenuePerf(teamId, period);
   const contextsQuery = useAnchorSettlementContexts(teamId, period);
@@ -231,6 +176,20 @@ function AnchorRevenueWorkspace({
         settlementMemberKey({ profileId: record.profile_id, positionId: record.position_id }),
         record,
       );
+    }
+    return map;
+  }, [salaryRecordsQuery.data, period]);
+
+  // 与所选区间重叠但不完全相同的工资记录（覆盖结算时会删除这些未完成记录）。
+  const overlappingRecordsByMember = useMemo(() => {
+    const map = new Map<string, SalaryRecord[]>();
+    for (const record of salaryRecordsQuery.data ?? []) {
+      if (record.period_start === period.start && record.period_end === period.end) continue;
+      if (record.period_start > period.end || record.period_end < period.start) continue;
+      const key = settlementMemberKey({ profileId: record.profile_id, positionId: record.position_id });
+      const list = map.get(key) ?? [];
+      list.push(record);
+      map.set(key, list);
     }
     return map;
   }, [salaryRecordsQuery.data, period]);
@@ -451,11 +410,11 @@ function AnchorRevenueWorkspace({
   }, [perfQuery.data]);
 
   const dataUnavailable =
-    settingsRefreshing ||
     perfQuery.isFetching ||
     contextsQuery.isFetching ||
     !perfQuery.isSuccess ||
-    !contextsQuery.isSuccess;
+    !contextsQuery.isSuccess ||
+    !salaryRecordsQuery.isSuccess;
   const selectedRows = rows.filter((row) => selectedIds.has(row.memberKey));
   const selectionValid =
     selectedRows.length === selectedIds.size && selectedRows.every((row) => row.hasScheme);
@@ -534,25 +493,57 @@ function AnchorRevenueWorkspace({
       );
       return;
     }
-    // 已有工资记录的主播：展示原记录并二次确认，避免误覆盖；无记录时走普通确认。
+    // 已有精确周期或重叠记录的主播：展示原记录并二次确认，避免误覆盖/误删；无记录时走普通确认。
     const existingRows = selectedRows.filter((row) => existingRecordsByMember.has(row.memberKey));
-    if (existingRows.length) {
+    const overlapRows = selectedRows.filter(
+      (row) => (overlappingRecordsByMember.get(row.memberKey) ?? []).length > 0,
+    );
+    const completedRow = selectedRows.find((row) => {
+      const exact = existingRecordsByMember.get(row.memberKey);
+      if (exact?.status === "completed") return true;
+      return (overlappingRecordsByMember.get(row.memberKey) ?? []).some(
+        (record) => record.status === "completed",
+      );
+    });
+    if (completedRow) {
+      setValidationError(
+        `「${completedRow.profileName}」存在「已完成」的工资记录与所选区间重叠，无法覆盖结算。`,
+      );
+      return;
+    }
+    if (existingRows.length || overlapRows.length) {
+      const affectedCount = selectedRows.filter(
+        (row) => existingRecordsByMember.has(row.memberKey) ||
+          (overlappingRecordsByMember.get(row.memberKey) ?? []).length > 0,
+      ).length;
       const ok = await confirm({
-        title: "该周期已存在工资记录，重新结算将覆盖",
+        title: "所选区间已有工资记录，重新结算将覆盖",
         content: (
           <div>
             <p style={{ marginTop: 0 }}>
-              以下 {existingRows.length} 位主播本周期已有工资记录，重新结算会覆盖原记录并重置为「待审核」：
+              以下 {affectedCount} 位主播在所选区间内已有工资记录，将覆盖同区间记录并删除未完成的重叠记录：
             </p>
-            <Flex vertical gap={6} style={{ maxHeight: 220, overflow: "auto" }}>
-              {existingRows.map((row) => {
-                const record = existingRecordsByMember.get(row.memberKey)!;
+            <Flex vertical gap={6} style={{ maxHeight: 260, overflow: "auto" }}>
+              {selectedRows.map((row) => {
+                const exact = existingRecordsByMember.get(row.memberKey);
+                const overlaps = overlappingRecordsByMember.get(row.memberKey) ?? [];
+                if (!exact && !overlaps.length) return null;
                 return (
                   <div key={row.memberKey} style={{ fontSize: 13 }}>
                     <span style={{ fontWeight: 600 }}>{row.profileName}</span>{" "}
-                    <SalaryRecordStatusBadge status={record.status} /> 实发{" "}
-                    {formatCentsToYuan(record.gross_cents)}
-                    {record.note ? ` · 备注：${record.note}` : ""}
+                    {exact ? (
+                      <>
+                        <SalaryRecordStatusBadge status={exact.status} /> 实发{" "}
+                        {formatCentsToYuan(exact.gross_cents)}（同区间，覆盖）
+                      </>
+                    ) : null}
+                    {exact && overlaps.length ? "；" : null}
+                    {overlaps.length ? (
+                      <>
+                        重叠 {overlaps.map((r) => `${r.period_start}~${r.period_end}`).join("、")}{" "}
+                        （未完成，删除）
+                      </>
+                    ) : null}
                   </div>
                 );
               })}
@@ -580,7 +571,7 @@ function AnchorRevenueWorkspace({
       note: (notes[row.memberKey] ?? "").trim(),
     }));
     settleMutation.mutate(
-      { teamId, period, members },
+      { teamId, period, members, replaceOverlapping: true },
       {
         onSuccess: () => {
           // 刚结算的行已是最新记录，标记为已回填，避免刷新后又被回填进草稿。
@@ -782,6 +773,7 @@ function AnchorRevenueWorkspace({
       sortValue: (row: AnchorRow) => row.profileName,
       render: (_: unknown, row: AnchorRow) => {
         const existing = existingRecordsByMember.get(row.memberKey);
+        const overlaps = overlappingRecordsByMember.get(row.memberKey) ?? [];
         return (
           <Flex align="center" gap={6}>
             <span>{row.profileName}</span>
@@ -791,6 +783,7 @@ function AnchorRevenueWorkspace({
                 {existing.status === "completed" ? "已完成" : "已结算"}
               </Tag>
             ) : null}
+            {overlaps.length ? <Tag color="gold">重叠</Tag> : null}
           </Flex>
         );
       },
@@ -867,7 +860,6 @@ function AnchorRevenueWorkspace({
             value={teamId ?? ""}
             onChange={(value: string) => {
               setSelectedTeamId(value || null);
-              setAnchorDate(null);
               resetDraft();
             }}
             disabled={settleMutation.isPending}
@@ -876,33 +868,22 @@ function AnchorRevenueWorkspace({
               ...(teamsQuery.data ?? []).map((t) => ({ value: t.id, label: t.name })),
             ]}
           />
-          {period ? (
-            <Select
-              aria-label="系统结算周期"
-              style={{ minWidth: 320 }}
-              value={period.start}
-              onChange={(value: string) => {
-                setAnchorDate(value);
-                resetDraft();
-              }}
-              disabled={settleMutation.isPending || earliestPerfQuery.isFetching}
-              options={periodOptions.map((p, index) => ({
-                value: p.start,
-                label: `${formatDate(p.start)} ~ ${formatDate(p.end)}${index === 0 ? "（当前）" : ""}`,
-              }))}
-            />
-          ) : null}
+          <PeriodRangeFilter
+            value={period}
+            onChange={(range) => {
+              setPeriod(range);
+              resetDraft();
+            }}
+            disabled={settleMutation.isPending}
+          />
         </Flex>
         <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
-          统一使用系统周期；团队仅筛选主播名单，流水跨团队汇总。工资全部由管理员勾选后手动结算。
+          默认为本月；可快捷切换当日/昨日/本周或自选起止日期，点击「查询」后应用。团队仅筛选主播名单，流水跨团队汇总。工资全部由管理员勾选后手动结算。
         </Typography.Paragraph>
       </Card>
 
       <Card title="流水结算">
-        <QueryMessage
-          loading={teamsQuery.isLoading || earliestPerfQuery.isLoading}
-          error={teamsQuery.error || earliestPerfQuery.error}
-        />
+        <QueryMessage loading={teamsQuery.isLoading} error={teamsQuery.error} />
 
         {validationError || settleMutation.isError ? (
           <Alert
@@ -995,14 +976,17 @@ function AnchorRevenueWorkspace({
                 });
               },
               getCheckboxProps: (row) => {
+                const exact = existingRecordsByMember.get(row.memberKey);
+                const overlaps = overlappingRecordsByMember.get(row.memberKey) ?? [];
                 const completed =
-                  existingRecordsByMember.get(row.memberKey)?.status === "completed";
+                  exact?.status === "completed" ||
+                  overlaps.some((record) => record.status === "completed");
                 return {
                   disabled: !row.hasScheme || completed,
                   title: !row.hasScheme
                     ? "该主播未配置生效工资方案，无法结算"
                     : completed
-                      ? "该主播本周期工资已「已完成」，无法重新结算"
+                      ? "该主播存在「已完成」的工资记录与所选区间重叠，无法重新结算"
                       : undefined,
                 };
               },

@@ -252,8 +252,14 @@ describe("手动结算（方案 B：前端只透传身份+加点+调整项，金
       p_team_id: null, p_period_start: period.start, p_period_end: period.end,
       p_members: [{ profileId: "p1", positionId: 7, attendanceBonusBps: 0, dyTaskBonusBps: 0,
         adjustments: [{ name: " 奖金 ", amountCents: 10001 }, { name: "扣款", amountCents: -5000 }], note: "" }],
+      p_replace_overlapping: false,
     });
     expect(queries.some((q) => q.table === "system_settlement_settings")).toBe(false);
+  });
+
+  it("覆盖重叠结算：replaceOverlapping 透传为 true", async () => {
+    await settleAnchorRevenue({ ...input(), replaceOverlapping: true, members: [{ profileId: "p1", positionId: 7 }] });
+    expect(client.rpc.mock.calls[0][1].p_replace_overlapping).toBe(true);
   });
 });
 
