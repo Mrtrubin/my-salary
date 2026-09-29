@@ -23,6 +23,7 @@ import {
 import { zebraRowClassName } from "@/components/admin/table-zebra";
 import { useConfirm } from "@/components/admin/use-confirm";
 import {
+  useAnchorDelays,
   useAnchorRevenuePerf,
   useAnchorSettlementContexts,
   useSalaryRecords,
@@ -42,6 +43,8 @@ import type { PeriodRange } from "@/lib/domain/settlement/cycle";
 import { aggregateSettlement } from "@/lib/domain/settlement/aggregate";
 import {
   applyAdjustments,
+  delayDeductionCents,
+  DELAY_ADJUSTMENT_NAME,
   getAdjustmentPresets,
   parseAdjustmentAmountYuan,
 } from "@/lib/domain/payroll/adjustment";
@@ -159,11 +162,14 @@ function AnchorRevenueWorkspace() {
   const [validationError, setValidationError] = useState<string | null>(null);
   // 已自动预填过「停播」扣款的 (memberKey:周期) 集合，避免重复追加或覆盖手动编辑。
   const seededKeysRef = useRef<Set<string>>(new Set());
+  // 已自动预填过「延误」扣款的 (memberKey:周期) 集合。
+  const delaySeededRef = useRef<Set<string>>(new Set());
   // 已从既有工资记录回填过草稿的 memberKey 集合，避免重复回填覆盖用户编辑。
   const prefilledKeysRef = useRef<Set<string>>(new Set());
 
   const perfQuery = useAnchorRevenuePerf(teamId, period);
   const contextsQuery = useAnchorSettlementContexts(teamId, period);
+  const delayQuery = useAnchorDelays(period ? { start: period.start, end: period.end } : undefined);
   const settleMutation = useSettleAnchorRevenue();
   const salaryRecordsQuery = useSalaryRecords();
 
@@ -204,6 +210,17 @@ function AnchorRevenueWorkspace() {
     }
     return map;
   }, [perfQuery.data]);
+
+  // 每名主播在本周期内被标记的「延误」次数：由化妆师登记 → 结算按次数预填扣款。
+  const delayCountByProfile = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const row of delayQuery.data ?? []) {
+      if (row.isDelayed) {
+        map[row.anchorProfileId] = (map[row.anchorProfileId] ?? 0) + 1;
+      }
+    }
+    return map;
+  }, [delayQuery.data]);
 
   // 实时聚合 + 调整项叠加（不落库）。
   const rows: AnchorRow[] = useMemo(() => {
@@ -377,6 +394,41 @@ function AnchorRevenueWorkspace() {
     });
   }, [rows, offAirCountByProfile, existingRecordsByMember, period]);
 
+  // 结算草稿自动预填：把本周期「延误」按次数折算为「延误」扣款，每条 = round(初始保底 ÷ 260)。
+  // 与停播预填一致：每个 (memberKey, 周期) 只预填一次，不覆盖用户编辑。
+  useEffect(() => {
+    const seeds: { memberKey: string; seedKey: string; drafts: AdjustmentDraft[] }[] = [];
+    for (const row of rows) {
+      if (!row.hasScheme) continue;
+      if (existingRecordsByMember.has(row.memberKey)) continue;
+      const count = delayCountByProfile[row.profileId] ?? 0;
+      if (count <= 0) continue;
+      const seedKey = `${row.memberKey}:${period?.start ?? ""}:${period?.end ?? ""}`;
+      if (delaySeededRef.current.has(seedKey)) continue;
+      const perDayYuan = (delayDeductionCents(row.initialGuaranteeCents) / 100).toFixed(2);
+      seeds.push({
+        memberKey: row.memberKey,
+        seedKey,
+        drafts: Array.from({ length: count }, () => ({
+          id: crypto.randomUUID(),
+          name: DELAY_ADJUSTMENT_NAME,
+          direction: "deduction" as const,
+          amountYuan: perDayYuan,
+        })),
+      });
+    }
+    if (!seeds.length) return;
+    seeds.forEach((seed) => delaySeededRef.current.add(seed.seedKey));
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 依据加载完成的延误数据同步预填调整项
+    setAdjustments((prev) => {
+      const next = { ...prev };
+      for (const seed of seeds) {
+        next[seed.memberKey] = [...(next[seed.memberKey] ?? []), ...seed.drafts];
+      }
+      return next;
+    });
+  }, [rows, delayCountByProfile, existingRecordsByMember, period]);
+
   // 预设常驻，自定义项按名称排序；搜索主播不改变列顺序。
   const adjustmentColumns = useMemo(() => {
     const presets = getAdjustmentPresets(0).map((item) => item.name);
@@ -433,6 +485,7 @@ function AnchorRevenueWorkspace() {
     setNotes({});
     setExpandedKeys([]);
     seededKeysRef.current.clear();
+    delaySeededRef.current.clear();
     prefilledKeysRef.current.clear();
     clearFeedback();
   }

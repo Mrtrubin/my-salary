@@ -1359,3 +1359,197 @@ export async function listHostSalaryStatusLogs(salaryRecordId: string): Promise<
   if (error) fail(error);
   return data as unknown as HostSalaryStatusLog[];
 }
+
+// ==================== 化妆师收益管理 + 主播延误记录 ====================
+
+export type MakeupSalaryRecord = Database["public"]["Tables"]["makeup_salary_records"]["Row"] & {
+  makeup: Pick<Profile, "name"> | null;
+};
+export type MakeupSalaryStatusLog = Database["public"]["Tables"]["makeup_salary_record_status_logs"]["Row"] & {
+  operator: Pick<Profile, "name"> | null;
+};
+
+/** 新增化妆师收益记录的单项入参（金额单位：分）。 */
+export interface MakeupSalaryCreateItem {
+  makeupProfileId: string;
+  /** 总违约（≤0）。 */
+  penaltyCents: number;
+  /** 总奖励（≥0）。 */
+  rewardCents: number;
+  note?: string;
+}
+
+/** 化妆师收益记录（管理员看全部；化妆师本人只看非待审核记录，由 RLS 决定）。 */
+export async function listMakeupSalaryRecords(): Promise<MakeupSalaryRecord[]> {
+  const { data, error } = await getBrowserSupabase()
+    .from("makeup_salary_records")
+    .select("*, makeup:profiles!makeup_salary_records_makeup_profile_id_fkey(name)")
+    .order("month", { ascending: false });
+  if (error) fail(error);
+  return data as unknown as MakeupSalaryRecord[];
+}
+
+/**
+ * 管理员新增/覆盖化妆师收益记录：仅传化妆师 + 总违约 + 总奖励，
+ * 基础收益由数据库从 profiles.makeup_base_income_cents 快照并权威计算合计。
+ */
+export async function createMakeupSalaryRecords(input: {
+  period: PeriodRange;
+  records: MakeupSalaryCreateItem[];
+}): Promise<{ settledRecords: number }> {
+  if (!input.records.length) throw new ApiError(ApiErrorCode.INVALID_INPUT, "请至少选择一位化妆师");
+  const unique = new Set(input.records.map((record) => record.makeupProfileId));
+  if (unique.size !== input.records.length) {
+    throw new ApiError(ApiErrorCode.INVALID_INPUT, "同一化妆师不能重复新增记录");
+  }
+  const supabase = getBrowserSupabase();
+  const { data, error } = await retrySettlement(() => supabase.rpc("create_makeup_salary_records", {
+    p_period_start: input.period.start,
+    p_period_end: input.period.end,
+    p_records: input.records.map((record) => ({
+      makeupProfileId: record.makeupProfileId,
+      penaltyCents: record.penaltyCents,
+      rewardCents: record.rewardCents,
+      note: record.note ?? "",
+    })) as unknown as Json,
+  }));
+  if (error) {
+    const msg = error.message ?? "";
+    if (msg.includes("ADMIN_REQUIRED") || msg.includes("FORBIDDEN")) {
+      throw new ApiError(ApiErrorCode.FORBIDDEN, "无权新增化妆师收益记录");
+    }
+    if (msg.includes("MAKEUP_PROFILE_NOT_FOUND")) throw new ApiError(ApiErrorCode.NOT_FOUND, "化妆师不存在");
+    if (msg.includes("SALARY_RECORD_NOT_PENDING_REVIEW")) {
+      throw new ApiError(ApiErrorCode.INVALID_INPUT, "该化妆师所选周期的记录已进入审核后续流程，不能覆盖");
+    }
+    if (msg.includes("INVALID_SALARY_ADJUSTMENTS")) {
+      throw new ApiError(ApiErrorCode.INVALID_INPUT, "总违约须不大于 0 元，总奖励须不小于 0 元");
+    }
+    fail(error);
+  }
+  return { settledRecords: (data as number) ?? 0 };
+}
+
+/** 化妆师收益四态流转。 */
+export async function transitionMakeupSalaryStatus(
+  id: string,
+  toStatus: SalaryRecordStatus,
+  options?: { operatorProfileId?: string; note?: string },
+): Promise<void> {
+  const supabase = getBrowserSupabase();
+  const { error } = await supabase.rpc("transition_makeup_salary_status", {
+    p_id: id,
+    p_to_status: toStatus,
+    p_operator_profile_id: options?.operatorProfileId ?? null,
+    p_note: options?.note ?? null,
+  });
+  if (error) {
+    const msg = error.message ?? "";
+    if (msg.includes("MAKEUP_SALARY_RECORD_NOT_FOUND")) throw new ApiError(ApiErrorCode.NOT_FOUND, "化妆师收益记录不存在");
+    if (msg.includes("FORBIDDEN_TRANSITION")) throw new ApiError(ApiErrorCode.FORBIDDEN, "无权执行该状态流转");
+    if (msg.includes("INVALID_TRANSITION")) throw new ApiError(ApiErrorCode.INVALID_INPUT, `不允许流转到「${toStatus}」`);
+    fail(error);
+  }
+}
+
+/** 驳回重算：金额不变，重置为待审核并重算合计。 */
+export async function rejectAndRecomputeMakeupSalary(id: string): Promise<void> {
+  const supabase = getBrowserSupabase();
+  const { error } = await retrySettlement(() => supabase.rpc("recompute_makeup_salary_record", {
+    p_id: id,
+    p_note: "管理员驳回，已重新计算化妆师收益并保留原金额",
+  }));
+  if (error) {
+    const msg = error.message ?? "";
+    if (msg.includes("MAKEUP_SALARY_RECORD_NOT_FOUND")) throw new ApiError(ApiErrorCode.NOT_FOUND, "化妆师收益记录不存在");
+    if (msg.includes("FORBIDDEN_TRANSITION")) throw new ApiError(ApiErrorCode.FORBIDDEN, "无权驳回重算");
+    if (msg.includes("INVALID_TRANSITION")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "仅待审核记录可驳回重算");
+    fail(error);
+  }
+}
+
+export async function listMakeupSalaryStatusLogs(salaryRecordId: string): Promise<MakeupSalaryStatusLog[]> {
+  const { data, error } = await getBrowserSupabase()
+    .from("makeup_salary_record_status_logs")
+    .select("*, operator:profiles!makeup_salary_record_status_logs_operator_profile_id_fkey(name)")
+    .eq("salary_record_id", salaryRecordId)
+    .order("created_at", { ascending: true });
+  if (error) fail(error);
+  return data as unknown as MakeupSalaryStatusLog[];
+}
+
+/** 管理员设置某化妆师的基础收益（每人一个当前值）。 */
+export async function updateMakeupBaseIncome(id: string, baseIncomeInCents: number): Promise<void> {
+  if (!Number.isInteger(baseIncomeInCents) || baseIncomeInCents < 0) {
+    throw new ApiError(ApiErrorCode.INVALID_INPUT, "基础收益须为不小于 0 的金额");
+  }
+  const { data, error } = await getBrowserSupabase()
+    .from("profiles")
+    .update({ makeup_base_income_cents: baseIncomeInCents, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select("id")
+    .maybeSingle();
+  if (error) fail(error);
+  if (!data) throw new ApiError(ApiErrorCode.FORBIDDEN, "基础收益未更新，请检查管理员权限");
+}
+
+/** 主播延误记录（含主播名 / 登记化妆师名）。 */
+export interface AnchorDelayRow {
+  id: string;
+  anchorProfileId: string;
+  anchorName: string;
+  delayDate: string;
+  isDelayed: boolean;
+  registeredBy: string | null;
+  registeredName: string | null;
+  note: string | null;
+  updatedAt: string;
+}
+
+/** 全部在职主播（供化妆师标记延误时搜索多选）。 */
+export async function listAnchorMembers(): Promise<{ id: string; name: string }[]> {
+  const { data, error } = await getBrowserSupabase().rpc("list_anchor_members");
+  if (error) fail(error);
+  return (data ?? []) as { id: string; name: string }[];
+}
+
+/** 查询延误记录；不传区间返回全部（页面自行取最新日期）。 */
+export async function listAnchorDelays(range?: { start?: string; end?: string }): Promise<AnchorDelayRow[]> {
+  const { data, error } = await getBrowserSupabase().rpc("list_anchor_delays", {
+    p_start: range?.start ?? null,
+    p_end: range?.end ?? null,
+  });
+  if (error) fail(error);
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    anchorProfileId: row.anchor_profile_id,
+    anchorName: row.anchor_name,
+    delayDate: row.delay_date,
+    isDelayed: row.is_delayed,
+    registeredBy: row.registered_by,
+    registeredName: row.registered_name,
+    note: row.note,
+    updatedAt: row.updated_at,
+  }));
+}
+
+/** 批量设置延误状态（唯一键 upsert，后改覆盖登记人）；备注可为空。 */
+export async function setAnchorDelays(input: {
+  date: string;
+  anchorIds: string[];
+  isDelayed: boolean;
+  note?: string;
+}): Promise<number> {
+  const { data, error } = await getBrowserSupabase().rpc("set_anchor_delays", {
+    p_delay_date: input.date,
+    p_anchor_ids: input.anchorIds,
+    p_is_delayed: input.isDelayed,
+    p_note: input.note ?? null,
+  });
+  if (error) {
+    const msg = error.message ?? "";
+    if (msg.includes("FORBIDDEN")) throw new ApiError(ApiErrorCode.FORBIDDEN, "无权设置延误");
+    fail(error);
+  }
+  return (data as number) ?? 0;
+}

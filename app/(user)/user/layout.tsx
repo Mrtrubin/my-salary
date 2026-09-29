@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { AuthGuard } from "@/components/auth-guard";
 import { NotificationBell } from "@/components/notification-bell";
+import { useCurrentProfile } from "@/lib/api/hooks";
 
 type Tab = { href: string; label: string; icon: ReactNode };
 
@@ -17,9 +18,26 @@ const TABS: Tab[] = [
 
 export default function UserLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const profile = useCurrentProfile();
+
+  // 化妆师把「业绩」标签换成「延误」；其它角色保持「业绩」。
+  const isMakeup = useMemo(
+    () => profile.data?.user_positions?.some(({ position }) => position?.code === "makeup") ?? false,
+    [profile.data],
+  );
+
+  const tabs = useMemo<Tab[]>(() => {
+    if (!isMakeup) return TABS;
+    return [
+      TABS[0],
+      { href: "/user/delay", label: "延误", icon: <IconClock /> },
+      TABS[2],
+      TABS[3],
+    ];
+  }, [isMakeup]);
 
   // 仅在主 tab 页显示底部导航栏；二级页面（如设置）隐藏
-  const showTabBar = TABS.some((tab) => pathname.startsWith(tab.href));
+  const showTabBar = tabs.some((tab) => pathname.startsWith(tab.href));
 
   return (
     <AuthGuard role="user">
@@ -42,7 +60,7 @@ export default function UserLayout({ children }: { children: ReactNode }) {
           {showTabBar ? (
             <nav className="fixed bottom-0 left-1/2 z-20 w-full max-w-[430px] -translate-x-1/2 border-t border-slate-200/70 bg-white/90 backdrop-blur-md">
               <div className="grid grid-cols-4">
-                {TABS.map((tab) => {
+                {tabs.map((tab) => {
                   const active = pathname.startsWith(tab.href);
                   return (
                     <Link
@@ -81,6 +99,9 @@ function IconHome() {
 }
 function IconChart() {
   return <IconBase><path d="M4 20V4" /><path d="M4 20h16" /><rect x="8" y="11" width="3" height="6" /><rect x="14" y="7" width="3" height="10" /></IconBase>;
+}
+function IconClock() {
+  return <IconBase><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></IconBase>;
 }
 function IconWallet() {
   return <IconBase><rect x="3" y="6" width="18" height="13" rx="2" /><path d="M3 10h18" /><circle cx="17" cy="14" r="1" /></IconBase>;

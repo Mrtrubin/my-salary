@@ -23,6 +23,7 @@ import type { SalaryRecord } from "@/lib/api/data";
 import { formatBpsAsPercent, formatCentsToYuan, formatDateTime, formatDurationSeconds } from "@/lib/format";
 import { bpsToRatio, centsToYuanNumber, downloadExcel, fileStamp, type ExcelColumn } from "@/lib/excel";
 import { HostPayrollPanel } from "./HostPayrollPanel";
+import { MakeupPayrollPanel } from "./MakeupPayrollPanel";
 
 /** 状态变更历史时间轴（展开某条工资条时按需加载，精确到秒）。 */
 function StatusTimeline({ recordId }: { recordId: string }) {
@@ -733,6 +734,8 @@ export default function PayrollPage() {
               </>
             ) : position.code === "host" ? (
               <HostPayrollPanel operatorProfileId={operatorProfileId} />
+            ) : position.code === "makeup" ? (
+              <MakeupPayrollPanel operatorProfileId={operatorProfileId} />
             ) : (
               <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}

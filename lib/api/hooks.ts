@@ -53,8 +53,17 @@ import {
   transitionHostSalaryStatus,
   rejectAndRecomputeHostSalary,
   listHostSalaryStatusLogs,
+  listMakeupSalaryRecords,
+  createMakeupSalaryRecords,
+  transitionMakeupSalaryStatus,
+  rejectAndRecomputeMakeupSalary,
+  listMakeupSalaryStatusLogs,
+  updateMakeupBaseIncome,
+  listAnchorMembers,
+  listAnchorDelays,
+  setAnchorDelays,
 } from "./data";
-import type { Member, AnchorSettleMember, HostSettleMember } from "./data";
+import type { Member, AnchorSettleMember, HostSettleMember, MakeupSalaryCreateItem } from "./data";
 import type { PeriodRange } from "@/lib/domain/settlement/cycle";
 import { readCachedProfile, writeCachedProfile } from "./profile-cache";
 
@@ -75,6 +84,10 @@ export const keys = {
   hostSalary: ["hostSalary"] as const,
   hostSettlementContexts: ["hostSettlementContexts"] as const,
   hostSalaryStatusLogs: ["hostSalaryStatusLogs"] as const,
+  makeupSalary: ["makeupSalary"] as const,
+  makeupSalaryStatusLogs: ["makeupSalaryStatusLogs"] as const,
+  anchorMembers: ["anchorMembers"] as const,
+  anchorDelays: ["anchorDelays"] as const,
 };
 /** 成员、方案、流水或工资快照变化后，刷新跨团队试算依赖。 */
 function invalidateSettlementQueries(client: QueryClient) {
@@ -409,5 +422,84 @@ export function useHostSalaryStatusLogs(salaryRecordId: string | null) {
     queryKey: ["hostSalaryStatusLogs", salaryRecordId],
     queryFn: () => listHostSalaryStatusLogs(salaryRecordId as string),
     enabled: !!salaryRecordId,
+  });
+}
+
+// ==================== 化妆师收益 + 主播延误记录 ====================
+
+export function useMakeupSalaryRecords() {
+  return useQuery({ queryKey: keys.makeupSalary, queryFn: listMakeupSalaryRecords });
+}
+
+export function useCreateMakeupSalaryRecords() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { period: PeriodRange; records: MakeupSalaryCreateItem[] }) =>
+      createMakeupSalaryRecords(input),
+    onSuccess: () => Promise.all([
+      client.invalidateQueries({ queryKey: keys.makeupSalary }),
+      client.invalidateQueries({ queryKey: keys.makeupSalaryStatusLogs }),
+    ]),
+  });
+}
+
+export function useTransitionMakeupSalaryStatus() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, status, operatorProfileId, note }: { id: string; status: import("./data").SalaryRecordStatus; operatorProfileId?: string; note?: string }) =>
+      transitionMakeupSalaryStatus(id, status, { operatorProfileId, note }),
+    onSuccess: () => Promise.all([
+      client.invalidateQueries({ queryKey: keys.makeupSalary }),
+      client.invalidateQueries({ queryKey: keys.makeupSalaryStatusLogs }),
+    ]),
+  });
+}
+
+export function useRejectAndRecomputeMakeupSalary() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => rejectAndRecomputeMakeupSalary(id),
+    onSuccess: () => Promise.all([
+      client.invalidateQueries({ queryKey: keys.makeupSalary }),
+      client.invalidateQueries({ queryKey: keys.makeupSalaryStatusLogs }),
+    ]),
+  });
+}
+
+export function useMakeupSalaryStatusLogs(salaryRecordId: string | null) {
+  return useQuery({
+    queryKey: ["makeupSalaryStatusLogs", salaryRecordId],
+    queryFn: () => listMakeupSalaryStatusLogs(salaryRecordId as string),
+    enabled: !!salaryRecordId,
+  });
+}
+
+export function useUpdateMakeupBaseIncome() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, baseIncomeInCents }: { id: string; baseIncomeInCents: number }) =>
+      updateMakeupBaseIncome(id, baseIncomeInCents),
+    onSuccess: () => invalidateRelatedQueries(client, keys.members),
+  });
+}
+
+export function useAnchorMembers() {
+  return useQuery({ queryKey: keys.anchorMembers, queryFn: listAnchorMembers });
+}
+
+/** range 为空返回全部延误记录（页面自行取最新日期）。 */
+export function useAnchorDelays(range?: { start?: string; end?: string }) {
+  return useQuery({
+    queryKey: [...keys.anchorDelays, range?.start ?? "", range?.end ?? ""],
+    queryFn: () => listAnchorDelays(range),
+  });
+}
+
+export function useSetAnchorDelays() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { date: string; anchorIds: string[]; isDelayed: boolean; note?: string }) =>
+      setAnchorDelays(input),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.anchorDelays }),
   });
 }

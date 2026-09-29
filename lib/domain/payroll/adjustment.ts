@@ -29,13 +29,27 @@ export interface PayrollAdjustment {
   amountCents: AmountInCents;
 }
 
+/** 延误调整项名称（扣除）。 */
+export const DELAY_ADJUSTMENT_NAME = "延误";
+
+/**
+ * 单条延误扣款（正数，分）= round(保底 / 260)。
+ * 口径：保底 ÷ 26 × 0.1（与主播「延误」预设一致）。
+ */
+export function delayDeductionCents(guaranteeInCents: AmountInCents): AmountInCents {
+  if (!Number.isSafeInteger(guaranteeInCents) || guaranteeInCents < 0) {
+    throw new ApiError(ApiErrorCode.INVALID_INPUT, "保底金额须为非负整数分");
+  }
+  return Math.round(guaranteeInCents / 260) || 0;
+}
+
 /** 三种快捷预设，按本周期生效保底计算；先计算完整公式，再四舍五入到分。 */
 export function getAdjustmentPresets(guaranteeInCents: AmountInCents): PayrollAdjustment[] {
   if (!Number.isSafeInteger(guaranteeInCents) || guaranteeInCents < 0) {
     throw new ApiError(ApiErrorCode.INVALID_INPUT, "保底金额须为非负整数分");
   }
   return [
-    { name: "延误", amountCents: -Math.round(guaranteeInCents / 260) || 0 },
+    { name: DELAY_ADJUSTMENT_NAME, amountCents: -delayDeductionCents(guaranteeInCents) || 0 },
     { name: OFF_AIR_NOTE, amountCents: -Math.round(guaranteeInCents / 26) || 0 },
     { name: "奖励", amountCents: 0 },
   ];
