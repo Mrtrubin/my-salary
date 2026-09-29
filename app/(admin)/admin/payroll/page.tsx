@@ -453,6 +453,13 @@ export default function PayrollPage() {
       render: (_, record) => formatCentsToYuan(record.gross_cents),
     },
     {
+      title: "服务率",
+      width: 90,
+      align: "right",
+      exportValue: (record) => bpsToRatio(record.service_fee_rate_bps),
+      render: (_, record) => formatBpsAsPercent(record.service_fee_rate_bps),
+    },
+    {
       title: "服务费",
       width: 110,
       align: "right",

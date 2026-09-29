@@ -253,6 +253,7 @@ export type Database = {
           revenue_cents: number
           scheme_id: string | null
           service_fee_cents: number
+          service_fee_rate_bps: number
           status: Database["public"]["Enums"]["salary_record_status"]
           tenure_month: number
           threshold_cents: number
@@ -292,6 +293,7 @@ export type Database = {
           revenue_cents: number
           scheme_id?: string | null
           service_fee_cents: number
+          service_fee_rate_bps?: number
           status?: Database["public"]["Enums"]["salary_record_status"]
           tenure_month: number
           threshold_cents: number
@@ -331,6 +333,7 @@ export type Database = {
           revenue_cents?: number
           scheme_id?: string | null
           service_fee_cents?: number
+          service_fee_rate_bps?: number
           status?: Database["public"]["Enums"]["salary_record_status"]
           tenure_month?: number
           threshold_cents?: number
@@ -380,6 +383,7 @@ export type Database = {
           name: string
           position_id: number | null
           profile_id: string | null
+          service_fee_rate_bps: number
           status: Database["public"]["Enums"]["scheme_status"]
           threshold_multiplier_bps: number
           version: number
@@ -393,6 +397,7 @@ export type Database = {
           name: string
           position_id?: number | null
           profile_id?: string | null
+          service_fee_rate_bps?: number
           status?: Database["public"]["Enums"]["scheme_status"]
           threshold_multiplier_bps?: number
           version: number
@@ -406,6 +411,7 @@ export type Database = {
           name?: string
           position_id?: number | null
           profile_id?: string | null
+          service_fee_rate_bps?: number
           status?: Database["public"]["Enums"]["scheme_status"]
           threshold_multiplier_bps?: number
           version?: number

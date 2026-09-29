@@ -43,6 +43,8 @@ type Editing = {
   commissionPercent: number | null;
   baseSalary: number | null;
   guaranteedSalary: number | null;
+  /** 服务率（%）。 */
+  servicePercent: number | null;
 };
 
 export default function AnchorsPage() {
@@ -74,6 +76,7 @@ export default function AnchorsPage() {
       commissionPercent: member.anchor_base_commission_bps / 100,
       baseSalary: effective ? effective.base_salary_cents / 100 : null,
       guaranteedSalary: effective ? effective.guaranteed_salary_cents / 100 : null,
+      servicePercent: effective ? effective.service_fee_rate_bps / 100 : 3,
     });
   }
 
@@ -87,10 +90,15 @@ export default function AnchorsPage() {
       return;
     }
     const commissionBps = Math.round(Number(editing.commissionPercent) * 100);
+    const serviceBps = Math.round(Number(editing.servicePercent) * 100);
     const baseSalary = Number(editing.baseSalary);
     const guaranteedSalary = Number(editing.guaranteedSalary);
     if (!Number.isInteger(commissionBps) || commissionBps < 1 || commissionBps > 10000) {
       setError("基础提成率必须在 0.01%～100% 之间，最多两位小数");
+      return;
+    }
+    if (!Number.isInteger(serviceBps) || serviceBps < 0 || serviceBps > 10000) {
+      setError("服务率必须在 0%～100% 之间，最多两位小数");
       return;
     }
     if (
@@ -118,6 +126,7 @@ export default function AnchorsPage() {
         version,
         base_salary_cents: Math.round(baseSalary * 100),
         guaranteed_salary_cents: Math.round(guaranteedSalary * 100),
+        service_fee_rate_bps: serviceBps,
         // 用本地日期而非 toISOString()（UTC）：CST 凌晨会写成前一天
         effective_from: dayjs().format("YYYY-MM-DD"),
       });
@@ -131,7 +140,7 @@ export default function AnchorsPage() {
     <>
       <PageHeader
         title="主播管理"
-        description="统一管理主播抖音号、主播类型、基础提成率、初始保底和降级保底"
+        description="统一管理主播抖音号、主播类型、基础提成率、初始保底、降级保底与服务率"
       />
 
       <Card>
@@ -189,6 +198,17 @@ export default function AnchorsPage() {
                 render: (_, record) => {
                   const effective = effectiveScheme(record);
                   return effective ? formatCentsToYuan(effective.guaranteed_salary_cents) : "—";
+                },
+              },
+              {
+                title: "服务率",
+                key: "service_fee",
+                align: "right",
+                width: 110,
+                sortValue: (record) => effectiveScheme(record)?.service_fee_rate_bps ?? null,
+                render: (_, record) => {
+                  const effective = effectiveScheme(record);
+                  return effective ? `${effective.service_fee_rate_bps / 100}%` : "—";
                 },
               },
               {
@@ -280,6 +300,18 @@ export default function AnchorsPage() {
                     step={0.01}
                     value={editing.guaranteedSalary}
                     onChange={(value) => setEditing({ ...editing, guaranteedSalary: value })}
+                    style={{ width: "100%" }}
+                  />
+                </FormField>
+              </Col>
+              <Col span={12}>
+                <FormField label="服务率（%）" hint="服务费 = 实发收益 × 服务率。">
+                  <InputNumber
+                    min={0}
+                    max={100}
+                    step={0.01}
+                    value={editing.servicePercent}
+                    onChange={(value) => setEditing({ ...editing, servicePercent: value })}
                     style={{ width: "100%" }}
                   />
                 </FormField>

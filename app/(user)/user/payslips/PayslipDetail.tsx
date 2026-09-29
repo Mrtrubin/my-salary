@@ -257,6 +257,11 @@ export function PayslipDetail({
             <Row label="基础收益" value={formatCentsToYuan(baseIncome)} hint="实发收益扣除调整项合计" />
             <AdjustmentSummary adjustments={adjustments} total={adjustmentTotal} />
             <Row label="实发收益" value={formatCentsToYuan(item.gross_cents)} />
+            <Row
+              label="服务率"
+              value={formatBpsAsPercent(item.service_fee_rate_bps ?? 0)}
+              hint="服务费 = 实发收益 × 服务率"
+            />
             <Row label="服务费" value={`−${formatCentsToYuan(item.service_fee_cents)}`} tone="muted" />
             <Row label="到手工资" value={formatCentsToYuan(item.net_cents)} tone={item.net_cents < 0 ? "danger" : "strong"} />
           </Section>

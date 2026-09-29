@@ -7,7 +7,7 @@
  *  - 拿提点门槛（提成起征）= 初始保底 × 5（固定用初始保底），无责期同样适用。
  *  - 提成互斥：流水 >= 拿提点门槛 → 总工资 = 总流水 × 最终提成率（不叠加保底工资）；否则总工资 = 保底工资全额（无提成）。
  *  - 阶梯提成：20% 起步，超过拿提点门槛每满 1万 提点 +1%，最高 +5 个百分点；最终提成率不封顶。
- *  - 服务费 = ceil(总工资 × serviceFeeRateBps / 10000)
+ *  - 服务费 = ceil(实发收益 × 服务率)，服务率优先取调用方入参，其次取方案手动配置，缺省 3%。
  *  - 实发 = 总工资 − 服务费，允许为负。
  */
 import { ApiError, ApiErrorCode } from "@/lib/api/contracts/errors";
@@ -104,7 +104,12 @@ export function calculateAnchorPayroll(
     dyTaskBonusBps = 0,
     baseCommissionRateBps = COMMISSION_BASE_RATE_BPS,
   } = input;
-  const serviceFeeRateBps = input.serviceFeeRateBps ?? DEFAULT_SERVICE_FEE_RATE_BPS;
+  // 服务率优先取调用方入参，其次取方案手动配置，缺省 3%；非法值直接抛错。
+  const serviceFeeRateBps =
+    input.serviceFeeRateBps ?? scheme.serviceFeeRateBps ?? DEFAULT_SERVICE_FEE_RATE_BPS;
+  if (!Number.isInteger(serviceFeeRateBps) || serviceFeeRateBps < 0 || serviceFeeRateBps > 10000) {
+    throw new ApiError(ApiErrorCode.INVALID_INPUT, "服务率范围为 0%～100%");
+  }
   const isGracefulPeriod = isWithinGracePeriod(tenureMonth, GRACE_PERIOD_MONTHS);
 
   // 达标门槛固定用「初始保底 × 系数」计算（向上取整到分），不随保底基准变动。

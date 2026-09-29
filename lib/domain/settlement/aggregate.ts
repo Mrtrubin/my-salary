@@ -92,7 +92,7 @@ function periodMonth(periodStart: string): string {
  * @param period 结算周期区间（含端点）
  * @param members 参与结算的成员上下文，由调用方保证人员岗位身份唯一
  * @param perfRows 已排除无绩效记录的跨团流水明细
- * @param serviceFeeRateBps 服务费率（默认走计算器内置 300 bps）
+ * @param serviceFeeRateBps 服务费率兜底值（方案未配置时使用，缺省走计算器内置 300 bps）
  */
 export function aggregateSettlement(
   period: PeriodRange,
@@ -148,7 +148,8 @@ export function aggregateSettlement(
       tenureMonth,
       lastMonthQualified: member.lastMonthQualified,
       baseCommissionRateBps: member.baseCommissionRateBps,
-      serviceFeeRateBps,
+      // 服务率优先取方案手动配置，其次取调用方入参，缺省由计算器兜底 300 bps。
+      serviceFeeRateBps: member.scheme.serviceFeeRateBps ?? serviceFeeRateBps,
     });
     return {
       profileId: member.profileId,

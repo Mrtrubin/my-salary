@@ -223,6 +223,17 @@ describe("aggregate.aggregateSettlement", () => {
     expect(draft.isQualified).toBe(false);
   });
 
+  it("服务率取方案手动配置：服务费 = ceil(实发收益 × 方案服务率)", () => {
+    const member: SettlementMemberContext = {
+      ...members[0],
+      scheme: { ...scheme, serviceFeeRateBps: 500 },
+    };
+    const [draft] = aggregateSettlement(period, [member], []);
+    expect(draft.grossCents).toBe(800000);
+    expect(draft.serviceFeeCents).toBe(40000);
+    expect(draft.netCents).toBe(760000);
+  });
+
   it("多日流水按日累加（DB 唯一约束保证每日每主播仅一条）", () => {
     const perf: SettlementPerfRow[] = [
       { profileId: "p1", perfDate: "2026-01-10", revenueCents: 3500000, createdAt: "2026-01-10T12:00:00Z" },

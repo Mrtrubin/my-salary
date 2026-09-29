@@ -26,6 +26,8 @@ export interface AnchorSalaryScheme {
    * 规则1 示例：保底 × (1.65 + 1) = 保底 × 2.65 → 26500 bps。
    */
   thresholdMultiplierBps: RateInBps;
+  /** 服务率（基点，手动配置），默认 300 bps = 3%。服务费 = ceil(实发收益 × 服务率)。 */
+  serviceFeeRateBps?: RateInBps;
 }
 
 /** 单次工资计算的输入。 */

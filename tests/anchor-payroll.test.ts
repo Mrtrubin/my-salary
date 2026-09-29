@@ -212,6 +212,36 @@ describe("主播工资计算器 - 服务费与实发", () => {
     expect(r.serviceFeeInCents).toBe(24000);
     expect(r.netSalaryInCents).toBe(776000);
   });
+
+  it("方案手动配置服务率：服务费 = ceil(实发收益 × 方案服务率)", () => {
+    const r = calculateAnchorPayroll({
+      scheme: { ...scheme, serviceFeeRateBps: 500 },
+      monthlyRevenueInCents: 4000000,
+      tenureMonth: 5,
+    });
+    // ceil(800000 × 5%) = 40000
+    expect(r.serviceFeeInCents).toBe(40000);
+    expect(r.netSalaryInCents).toBe(760000);
+  });
+
+  it("调用方入参服务率优先于方案配置", () => {
+    const r = calculateAnchorPayroll({
+      scheme: { ...scheme, serviceFeeRateBps: 500 },
+      monthlyRevenueInCents: 4000000,
+      tenureMonth: 5,
+      serviceFeeRateBps: 0,
+    });
+    expect(r.serviceFeeInCents).toBe(0);
+    expect(r.netSalaryInCents).toBe(800000);
+  });
+
+  it("服务率超出 0%～100% 抛 INVALID_INPUT", () => {
+    expect(() => calculateAnchorPayroll({
+      scheme: { ...scheme, serviceFeeRateBps: 10001 },
+      monthlyRevenueInCents: 0,
+      tenureMonth: 1,
+    })).toThrow(expect.objectContaining({ code: ApiErrorCode.INVALID_INPUT }));
+  });
 });
 
 describe("主播考勤与 dy 任务加点", () => {

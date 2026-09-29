@@ -310,7 +310,11 @@ function AnchorRevenueWorkspace({
           bonusError = error instanceof Error ? error.message : "加点试算失败";
         }
       }
-      const adjusted = applyAdjustments(base, validAdjustments(adjustments[memberKey] ?? []));
+      const adjusted = applyAdjustments(
+        base,
+        validAdjustments(adjustments[memberKey] ?? []),
+        ctx.scheme.serviceFeeRateBps,
+      );
       return {
         profileId: draft.profileId,
         positionId: draft.positionId,

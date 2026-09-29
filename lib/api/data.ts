@@ -1073,6 +1073,7 @@ async function loadSettlementContexts(
         baseSalaryInCents: scheme.base_salary_cents,
         guaranteedSalaryInCents: scheme.guaranteed_salary_cents,
         thresholdMultiplierBps: scheme.threshold_multiplier_bps,
+        serviceFeeRateBps: scheme.service_fee_rate_bps,
       } : null,
       lastMonthQualified: qualified.get(key) ?? true,
     };
