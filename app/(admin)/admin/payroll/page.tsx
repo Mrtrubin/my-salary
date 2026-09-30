@@ -23,7 +23,10 @@ import type { SalaryRecord } from "@/lib/api/data";
 import { formatBpsAsPercent, formatCentsToYuan, formatDateTime, formatDurationSeconds } from "@/lib/format";
 import { bpsToRatio, centsToYuanNumber, downloadExcel, fileStamp, type ExcelColumn } from "@/lib/excel";
 import { HostPayrollPanel } from "./HostPayrollPanel";
-import { MakeupPayrollPanel } from "./MakeupPayrollPanel";
+import { StaffPayrollPanel } from "./StaffPayrollPanel";
+
+/** 使用「固定薪资 + 调整项」工资条的职位编码。 */
+const FIXED_SALARY_POSITIONS = new Set(["makeup", "dance", "executive", "camera", "hr"]);
 
 /** 状态变更历史时间轴（展开某条工资条时按需加载，精确到秒）。 */
 function StatusTimeline({ recordId }: { recordId: string }) {
@@ -71,6 +74,9 @@ const DEFAULT_POSITION_TABS = [
   { code: "host", name: "主持" },
   { code: "dance", name: "舞蹈老师" },
   { code: "makeup", name: "化妆师" },
+  { code: "executive", name: "行政" },
+  { code: "camera", name: "运镜" },
+  { code: "hr", name: "人事" },
 ];
 
 /** 读取结算时保存的调整项，不读取流水页尚未结算的临时输入。 */
@@ -734,8 +740,12 @@ export default function PayrollPage() {
               </>
             ) : position.code === "host" ? (
               <HostPayrollPanel operatorProfileId={operatorProfileId} />
-            ) : position.code === "makeup" ? (
-              <MakeupPayrollPanel operatorProfileId={operatorProfileId} />
+            ) : FIXED_SALARY_POSITIONS.has(position.code) ? (
+              <StaffPayrollPanel
+                positionCode={position.code}
+                positionName={position.name}
+                operatorProfileId={operatorProfileId}
+              />
             ) : (
               <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}

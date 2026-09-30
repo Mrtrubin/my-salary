@@ -1360,67 +1360,79 @@ export async function listHostSalaryStatusLogs(salaryRecordId: string): Promise<
   return data as unknown as HostSalaryStatusLog[];
 }
 
-// ==================== 化妆师收益管理 + 主播延误记录 ====================
+// ==================== 固定薪资工资条（化妆师/舞蹈老师/行政/运镜/人事）+ 主播延误记录 ====================
 
-export type MakeupSalaryRecord = Database["public"]["Tables"]["makeup_salary_records"]["Row"] & {
-  makeup: Pick<Profile, "name"> | null;
+export type StaffSalaryRecord = Database["public"]["Tables"]["staff_salary_records"]["Row"] & {
+  profile: Pick<Profile, "name"> | null;
+  position: Pick<Position, "code" | "name"> | null;
 };
-export type MakeupSalaryStatusLog = Database["public"]["Tables"]["makeup_salary_record_status_logs"]["Row"] & {
+export type StaffSalaryStatusLog = Database["public"]["Tables"]["staff_salary_record_status_logs"]["Row"] & {
   operator: Pick<Profile, "name"> | null;
 };
 
-/** 新增化妆师收益记录的单项入参（金额单位：分）。 */
-export interface MakeupSalaryCreateItem {
-  makeupProfileId: string;
+/** 新增固定薪资工资条的单项入参（金额单位：分）。 */
+export interface StaffSalaryCreateItem {
+  profileId: string;
+  positionId: number;
   /** 总违约（≤0）。 */
   penaltyCents: number;
   /** 总奖励（≥0）。 */
   rewardCents: number;
+  /** 个税（≥0）：管理员手动输入。 */
+  taxCents: number;
   note?: string;
 }
 
-/** 化妆师收益记录（管理员看全部；化妆师本人只看非待审核记录，由 RLS 决定）。 */
-export async function listMakeupSalaryRecords(): Promise<MakeupSalaryRecord[]> {
+/** 固定薪资工资条（管理员看全部；成员本人只看非待审核记录，由 RLS 决定）。 */
+export async function listStaffSalaryRecords(): Promise<StaffSalaryRecord[]> {
   const { data, error } = await getBrowserSupabase()
-    .from("makeup_salary_records")
-    .select("*, makeup:profiles!makeup_salary_records_makeup_profile_id_fkey(name)")
+    .from("staff_salary_records")
+    .select("*, profile:profiles!staff_salary_records_profile_id_fkey(name), position:positions(code, name)")
     .order("month", { ascending: false });
   if (error) fail(error);
-  return data as unknown as MakeupSalaryRecord[];
+  return data as unknown as StaffSalaryRecord[];
 }
 
 /**
- * 管理员新增/覆盖化妆师收益记录：仅传化妆师 + 总违约 + 总奖励，
- * 基础收益由数据库从 profiles.makeup_base_income_cents 快照并权威计算合计。
+ * 管理员新增/覆盖固定薪资工资条：仅传成员 + 职位 + 总违约 + 总奖励 + 个税，
+ * 基础薪资由数据库按职位从 profiles 对应列快照并权威计算合计与到手。
  */
-export async function createMakeupSalaryRecords(input: {
+export async function createStaffSalaryRecords(input: {
   period: PeriodRange;
-  records: MakeupSalaryCreateItem[];
+  records: StaffSalaryCreateItem[];
 }): Promise<{ settledRecords: number }> {
-  if (!input.records.length) throw new ApiError(ApiErrorCode.INVALID_INPUT, "请至少选择一位化妆师");
-  const unique = new Set(input.records.map((record) => record.makeupProfileId));
-  if (unique.size !== input.records.length) {
-    throw new ApiError(ApiErrorCode.INVALID_INPUT, "同一化妆师不能重复新增记录");
+  if (!input.records.length) throw new ApiError(ApiErrorCode.INVALID_INPUT, "请至少选择一位成员");
+  const keys = new Set(input.records.map((record) => `${record.profileId}:${record.positionId}`));
+  if (keys.size !== input.records.length) {
+    throw new ApiError(ApiErrorCode.INVALID_INPUT, "同一成员同一职位不能重复新增记录");
   }
   const supabase = getBrowserSupabase();
-  const { data, error } = await retrySettlement(() => supabase.rpc("create_makeup_salary_records", {
+  const { data, error } = await retrySettlement(() => supabase.rpc("create_staff_salary_records", {
     p_period_start: input.period.start,
     p_period_end: input.period.end,
     p_records: input.records.map((record) => ({
-      makeupProfileId: record.makeupProfileId,
+      profileId: record.profileId,
+      positionId: record.positionId,
       penaltyCents: record.penaltyCents,
       rewardCents: record.rewardCents,
+      taxCents: record.taxCents,
       note: record.note ?? "",
     })) as unknown as Json,
   }));
   if (error) {
     const msg = error.message ?? "";
     if (msg.includes("ADMIN_REQUIRED") || msg.includes("FORBIDDEN")) {
-      throw new ApiError(ApiErrorCode.FORBIDDEN, "无权新增化妆师收益记录");
+      throw new ApiError(ApiErrorCode.FORBIDDEN, "无权新增工资条");
     }
-    if (msg.includes("MAKEUP_PROFILE_NOT_FOUND")) throw new ApiError(ApiErrorCode.NOT_FOUND, "化妆师不存在");
+    if (
+      msg.includes("INVALID_STAFF_POSITION") ||
+      msg.includes("MEMBER_POSITION_MISMATCH") ||
+      msg.includes("UNSUPPORTED_POSITION")
+    ) {
+      throw new ApiError(ApiErrorCode.INVALID_INPUT, "所选成员或职位不支持该工资条");
+    }
     if (msg.includes("SALARY_RECORD_NOT_PENDING_REVIEW")) {
-      throw new ApiError(ApiErrorCode.INVALID_INPUT, "该化妆师所选周期的记录已进入审核后续流程，不能覆盖");
+      throw new ApiError(ApiErrorCode.INVALID_INPUT, "该成员所选周期的记录已进入审核后续流程，不能覆盖");
     }
     if (msg.includes("INVALID_SALARY_ADJUSTMENTS")) {
       throw new ApiError(ApiErrorCode.INVALID_INPUT, "总违约须不大于 0 元，总奖励须不小于 0 元");
@@ -1430,14 +1442,14 @@ export async function createMakeupSalaryRecords(input: {
   return { settledRecords: (data as number) ?? 0 };
 }
 
-/** 化妆师收益四态流转。 */
-export async function transitionMakeupSalaryStatus(
+/** 固定薪资工资条四态流转。 */
+export async function transitionStaffSalaryStatus(
   id: string,
   toStatus: SalaryRecordStatus,
   options?: { operatorProfileId?: string; note?: string },
 ): Promise<void> {
   const supabase = getBrowserSupabase();
-  const { error } = await supabase.rpc("transition_makeup_salary_status", {
+  const { error } = await supabase.rpc("transition_staff_salary_status", {
     p_id: id,
     p_to_status: toStatus,
     p_operator_profile_id: options?.operatorProfileId ?? null,
@@ -1445,53 +1457,73 @@ export async function transitionMakeupSalaryStatus(
   });
   if (error) {
     const msg = error.message ?? "";
-    if (msg.includes("MAKEUP_SALARY_RECORD_NOT_FOUND")) throw new ApiError(ApiErrorCode.NOT_FOUND, "化妆师收益记录不存在");
+    if (msg.includes("STAFF_SALARY_RECORD_NOT_FOUND")) throw new ApiError(ApiErrorCode.NOT_FOUND, "工资条记录不存在");
     if (msg.includes("FORBIDDEN_TRANSITION")) throw new ApiError(ApiErrorCode.FORBIDDEN, "无权执行该状态流转");
     if (msg.includes("INVALID_TRANSITION")) throw new ApiError(ApiErrorCode.INVALID_INPUT, `不允许流转到「${toStatus}」`);
     fail(error);
   }
 }
 
-/** 驳回重算：金额不变，重置为待审核并重算合计。 */
-export async function rejectAndRecomputeMakeupSalary(id: string): Promise<void> {
+/** 驳回重算：重算合计与个税，重置为待审核。 */
+export async function rejectAndRecomputeStaffSalary(id: string): Promise<void> {
   const supabase = getBrowserSupabase();
-  const { error } = await retrySettlement(() => supabase.rpc("recompute_makeup_salary_record", {
+  const { error } = await retrySettlement(() => supabase.rpc("recompute_staff_salary_record", {
     p_id: id,
-    p_note: "管理员驳回，已重新计算化妆师收益并保留原金额",
+    p_note: "管理员驳回，已重新计算工资条",
   }));
   if (error) {
     const msg = error.message ?? "";
-    if (msg.includes("MAKEUP_SALARY_RECORD_NOT_FOUND")) throw new ApiError(ApiErrorCode.NOT_FOUND, "化妆师收益记录不存在");
+    if (msg.includes("STAFF_SALARY_RECORD_NOT_FOUND")) throw new ApiError(ApiErrorCode.NOT_FOUND, "工资条记录不存在");
     if (msg.includes("FORBIDDEN_TRANSITION")) throw new ApiError(ApiErrorCode.FORBIDDEN, "无权驳回重算");
     if (msg.includes("INVALID_TRANSITION")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "仅待审核记录可驳回重算");
     fail(error);
   }
 }
 
-export async function listMakeupSalaryStatusLogs(salaryRecordId: string): Promise<MakeupSalaryStatusLog[]> {
+export async function listStaffSalaryStatusLogs(salaryRecordId: string): Promise<StaffSalaryStatusLog[]> {
   const { data, error } = await getBrowserSupabase()
-    .from("makeup_salary_record_status_logs")
-    .select("*, operator:profiles!makeup_salary_record_status_logs_operator_profile_id_fkey(name)")
+    .from("staff_salary_record_status_logs")
+    .select("*, operator:profiles!staff_salary_record_status_logs_operator_profile_id_fkey(name)")
     .eq("salary_record_id", salaryRecordId)
     .order("created_at", { ascending: true });
   if (error) fail(error);
-  return data as unknown as MakeupSalaryStatusLog[];
+  return data as unknown as StaffSalaryStatusLog[];
 }
 
-/** 管理员设置某化妆师的基础收益（每人一个当前值）。 */
-export async function updateMakeupBaseIncome(id: string, baseIncomeInCents: number): Promise<void> {
-  if (!Number.isInteger(baseIncomeInCents) || baseIncomeInCents < 0) {
-    throw new ApiError(ApiErrorCode.INVALID_INPUT, "基础收益须为不小于 0 的金额");
+/** 管理员设置某成员某职位的基础薪资（写 profiles 对应职位列）。 */
+export async function setStaffBaseIncome(input: {
+  profileId: string;
+  positionCode: string;
+  baseIncomeInCents: number;
+}): Promise<void> {
+  if (!Number.isInteger(input.baseIncomeInCents) || input.baseIncomeInCents < 0) {
+    throw new ApiError(ApiErrorCode.INVALID_INPUT, "基础薪资须为不小于 0 的金额");
   }
-  const { data, error } = await getBrowserSupabase()
-    .from("profiles")
-    .update({ makeup_base_income_cents: baseIncomeInCents, updated_at: new Date().toISOString() })
-    .eq("id", id)
-    .select("id")
-    .maybeSingle();
-  if (error) fail(error);
-  if (!data) throw new ApiError(ApiErrorCode.FORBIDDEN, "基础收益未更新，请检查管理员权限");
+  const { error } = await getBrowserSupabase().rpc("set_staff_base_income", {
+    p_profile_id: input.profileId,
+    p_position_code: input.positionCode,
+    p_cents: input.baseIncomeInCents,
+  });
+  if (error) {
+    const msg = error.message ?? "";
+    if (msg.includes("ADMIN_REQUIRED") || msg.includes("FORBIDDEN")) {
+      throw new ApiError(ApiErrorCode.FORBIDDEN, "无权设置基础薪资");
+    }
+    if (msg.includes("UNSUPPORTED_POSITION")) {
+      throw new ApiError(ApiErrorCode.INVALID_INPUT, "该职位不支持设置基础薪资");
+    }
+    fail(error);
+  }
 }
+
+/** 职位基础薪资列名映射（管理页读取 profiles 对应字段）。 */
+export const STAFF_BASE_INCOME_COLUMN: Record<string, "makeup_base_income_cents" | "dance_base_income_cents" | "executive_base_income_cents" | "camera_base_income_cents" | "hr_base_income_cents"> = {
+  makeup: "makeup_base_income_cents",
+  dance: "dance_base_income_cents",
+  executive: "executive_base_income_cents",
+  camera: "camera_base_income_cents",
+  hr: "hr_base_income_cents",
+};
 
 /** 主播延误记录（含主播名 / 登记化妆师名）。 */
 export interface AnchorDelayRow {
@@ -1553,3 +1585,4 @@ export async function setAnchorDelays(input: {
   }
   return (data as number) ?? 0;
 }
+

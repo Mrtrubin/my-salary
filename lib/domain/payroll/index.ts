@@ -8,4 +8,4 @@ export * from "./money";
 export * from "./anchor";
 export * from "./adjustment";
 export * from "./host";
-export * from "./makeup";
+export * from "./fixed";

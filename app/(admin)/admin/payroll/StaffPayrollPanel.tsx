@@ -10,15 +10,15 @@ import { SalaryRecordStatusBadge } from "@/components/admin/status-tag";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
 import { useConfirm } from "@/components/admin/use-confirm";
 import {
-  useCreateMakeupSalaryRecords,
-  useCurrentProfile,
-  useMakeupSalaryRecords,
-  useMakeupSalaryStatusLogs,
+  useCreateStaffSalaryRecords,
   useMembers,
-  useRejectAndRecomputeMakeupSalary,
-  useTransitionMakeupSalaryStatus,
+  useRejectAndRecomputeStaffSalary,
+  useStaffSalaryRecords,
+  useStaffSalaryStatusLogs,
+  useTransitionStaffSalaryStatus,
 } from "@/lib/api/hooks";
-import type { MakeupSalaryRecord } from "@/lib/api/data";
+import type { Member, StaffSalaryRecord } from "@/lib/api/data";
+import { STAFF_BASE_INCOME_COLUMN } from "@/lib/api/data";
 import { getPresetRange } from "@/lib/domain/settlement/cycle";
 import type { PeriodRange } from "@/lib/domain/settlement/cycle";
 import { parseAdjustmentAmountYuan } from "@/lib/domain/payroll/adjustment";
@@ -32,7 +32,7 @@ const STATUS_LABELS: Record<string, string> = {
   completed: "已完成",
 };
 
-function periodLabel(item: MakeupSalaryRecord): string {
+function periodLabel(item: StaffSalaryRecord): string {
   return `${item.period_start} ~ ${item.period_end}`;
 }
 
@@ -40,10 +40,23 @@ function signedAmount(cents: number): string {
   return `${cents > 0 ? "+" : ""}${formatCentsToYuan(cents)}`;
 }
 
-type MakeupColumn = ResizableColumnType<MakeupSalaryRecord> & ExcelColumn<MakeupSalaryRecord>;
+/** 空串视为 0；非法（含负数或超过两位小数）返回 null。 */
+function parseOptionalYuan(value: string): number | null {
+  if (!value.trim()) return 0;
+  return parseAdjustmentAmountYuan(value);
+}
 
-function MakeupStatusTimeline({ recordId }: { recordId: string }) {
-  const logs = useMakeupSalaryStatusLogs(recordId);
+function baseIncomeOf(member: Member | undefined, positionCode: string): number {
+  if (!member) return 0;
+  const column = STAFF_BASE_INCOME_COLUMN[positionCode];
+  if (!column) return 0;
+  return member[column] ?? 0;
+}
+
+type StaffColumn = ResizableColumnType<StaffSalaryRecord> & ExcelColumn<StaffSalaryRecord>;
+
+function StaffStatusTimeline({ recordId }: { recordId: string }) {
+  const logs = useStaffSalaryStatusLogs(recordId);
   return (
     <div style={{ background: "#fafafa", padding: 12, fontSize: 12 }}>
       <QueryMessage loading={logs.isLoading} error={logs.error} empty={!logs.data?.length} />
@@ -67,48 +80,56 @@ function MakeupStatusTimeline({ recordId }: { recordId: string }) {
 interface DraftRow {
   penalty: string;
   reward: string;
+  tax: string;
   note: string;
 }
 
-/** 空串视为 0；非法（含负数或超过两位小数）返回 null。 */
-function parseOptionalYuan(value: string): number | null {
-  if (!value.trim()) return 0;
-  return parseAdjustmentAmountYuan(value);
-}
-
-export function MakeupPayrollPanel({ operatorProfileId }: { operatorProfileId?: string }) {
+export function StaffPayrollPanel({
+  positionCode,
+  positionName,
+  operatorProfileId,
+}: {
+  positionCode: string;
+  positionName: string;
+  operatorProfileId?: string;
+}) {
   const { message } = App.useApp();
   const confirm = useConfirm();
-  const me = useCurrentProfile();
-  const salary = useMakeupSalaryRecords();
+  const salary = useStaffSalaryRecords();
   const members = useMembers();
-  const create = useCreateMakeupSalaryRecords();
-  const transition = useTransitionMakeupSalaryStatus();
-  const reject = useRejectAndRecomputeMakeupSalary();
+  const create = useCreateStaffSalaryRecords();
+  const transition = useTransitionStaffSalaryStatus();
+  const reject = useRejectAndRecomputeStaffSalary();
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
   const [period, setPeriod] = useState("");
   const [status, setStatus] = useState("");
   const [recomputeFeedback, setRecomputeFeedback] = useState<{ id: string; ok: boolean; message: string } | null>(null);
 
-  // 新增记录弹窗
   const [createOpen, setCreateOpen] = useState(false);
   const [draftPeriod, setDraftPeriod] = useState<PeriodRange>(() => getPresetRange("thisMonth"));
-  const [selectedMakeupIds, setSelectedMakeupIds] = useState<string[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [draftRows, setDraftRows] = useState<Record<string, DraftRow>>({});
   const [formError, setFormError] = useState<string | null>(null);
 
-  const operatorId = operatorProfileId ?? me.data?.id;
-
-  const makeups = useMemo(
-    () =>
-      (members.data ?? []).filter(
-        (m) => m.status === "active" && m.user_positions.some(({ position }) => position?.code === "makeup"),
-      ),
-    [members.data],
+  const positionId = useMemo(
+    () => members.data?.flatMap((m) => m.user_positions).find((up) => up.position?.code === positionCode)?.position?.id,
+    [members.data, positionCode],
   );
 
-  const records = useMemo(() => salary.data ?? [], [salary.data]);
+  const candidates = useMemo(
+    () =>
+      (members.data ?? []).filter(
+        (m) => m.status === "active" && m.user_positions.some((up) => up.position?.code === positionCode),
+      ),
+    [members.data, positionCode],
+  );
+  const memberById = useMemo(() => new Map(candidates.map((m) => [m.id, m])), [candidates]);
+
+  const records = useMemo(
+    () => (salary.data ?? []).filter((item) => item.position?.code === positionCode),
+    [salary.data, positionCode],
+  );
   const periods = useMemo(
     () => Array.from(new Set(records.map(periodLabel))).sort((a, b) => b.localeCompare(a)),
     [records],
@@ -133,25 +154,29 @@ export function MakeupPayrollPanel({ operatorProfileId }: { operatorProfileId?: 
 
   function openCreate() {
     setDraftPeriod(getPresetRange("thisMonth"));
-    setSelectedMakeupIds([]);
+    setSelectedIds([]);
     setDraftRows({});
     setFormError(null);
     setCreateOpen(true);
   }
 
-  function onSelectMakeups(ids: string[]) {
-    setSelectedMakeupIds(ids);
+  function onSelectMembers(ids: string[]) {
+    setSelectedIds(ids);
     setDraftRows((prev) => {
       const next = { ...prev };
-      for (const id of ids) next[id] ??= { penalty: "", reward: "", note: "" };
+      for (const id of ids) next[id] ??= { penalty: "", reward: "", tax: "", note: "" };
       return next;
     });
   }
 
   async function submitCreate() {
     setFormError(null);
-    if (!selectedMakeupIds.length) {
-      setFormError("请至少选择一位化妆师");
+    if (!selectedIds.length) {
+      setFormError("请至少选择一位成员");
+      return;
+    }
+    if (!positionId) {
+      setFormError("未找到该职位，无法新增记录");
       return;
     }
     if (draftPeriod.start > draftPeriod.end) {
@@ -159,19 +184,22 @@ export function MakeupPayrollPanel({ operatorProfileId }: { operatorProfileId?: 
       return;
     }
     const recordsToCreate = [];
-    for (const id of selectedMakeupIds) {
-      const row = draftRows[id] ?? { penalty: "", reward: "", note: "" };
+    for (const id of selectedIds) {
+      const row = draftRows[id] ?? { penalty: "", reward: "", tax: "", note: "" };
       const penalty = parseOptionalYuan(row.penalty);
       const reward = parseOptionalYuan(row.reward);
-      if (penalty === null || reward === null) {
-        const name = makeups.find((m) => m.id === id)?.name ?? "化妆师";
-        setFormError(`「${name}」的总违约/总奖励须为非负金额且最多两位小数`);
+      const tax = parseOptionalYuan(row.tax);
+      if (penalty === null || reward === null || tax === null) {
+        const name = memberById.get(id)?.name ?? "成员";
+        setFormError(`「${name}」的总违约/总奖励/个税须为非负金额且最多两位小数`);
         return;
       }
       recordsToCreate.push({
-        makeupProfileId: id,
+        profileId: id,
+        positionId,
         penaltyCents: -penalty,
         rewardCents: reward,
+        taxCents: tax,
         note: row.note,
       });
     }
@@ -186,7 +214,7 @@ export function MakeupPayrollPanel({ operatorProfileId }: { operatorProfileId?: 
   async function handleReject(id: string) {
     const ok = await confirm({
       title: "确认驳回并重算",
-      content: "驳回后会重新计算该化妆师收益条的合计并重置为待审核。确认继续？",
+      content: "驳回后会重新计算该工资条的合计与个税并重置为待审核。确认继续？",
       okText: "确认驳回",
       okButtonProps: { danger: true },
     });
@@ -198,12 +226,12 @@ export function MakeupPayrollPanel({ operatorProfileId }: { operatorProfileId?: 
     });
   }
 
-  function transitionTo(record: MakeupSalaryRecord, next: "pending_confirm" | "completed") {
+  function transitionTo(record: StaffSalaryRecord, next: "pending_confirm" | "completed") {
     transition.mutate(
       {
         id: record.id,
         status: next,
-        operatorProfileId: operatorId,
+        operatorProfileId,
         note: next === "pending_confirm" ? "管理员审核通过" : "管理员确认到账",
       },
       {
@@ -212,29 +240,29 @@ export function MakeupPayrollPanel({ operatorProfileId }: { operatorProfileId?: 
     );
   }
 
-  const columns: MakeupColumn[] = [
+  const columns: StaffColumn[] = [
     {
-      title: "化妆师姓名",
+      title: "姓名",
       fixed: "left",
       width: 140,
-      exportValue: (record) => record.makeup?.name ?? "未关联",
+      exportValue: (record) => record.profile?.name ?? "未关联",
       render: (_, record) => (
         <Button
           type="link"
           size="small"
           onClick={() => setExpandedKeys(expandedKeys.includes(record.id) ? [] : [record.id])}
         >
-          {record.makeup?.name ?? "未关联"}
+          {record.profile?.name ?? "未关联"}
         </Button>
       ),
     },
     {
-      title: "基础收益",
+      title: "基础薪资",
       width: 120,
       align: "right",
       exportValue: (record) => centsToYuanNumber(record.base_income_cents),
       render: (_, record) => (
-        <span title="来源：化妆师管理-设置">{formatCentsToYuan(record.base_income_cents)}</span>
+        <span title="来源：基础薪资管理-设置">{formatCentsToYuan(record.base_income_cents)}</span>
       ),
     },
     {
@@ -244,7 +272,7 @@ export function MakeupPayrollPanel({ operatorProfileId }: { operatorProfileId?: 
       exportValue: (record) => (record.penalty_cents ? centsToYuanNumber(record.penalty_cents) : null),
       render: (_, record) =>
         record.penalty_cents ? (
-          <span title="来源：工资核算-化妆师-新增记录（管理员设置）" style={{ color: "#cf1322" }}>
+          <span title="来源：工资核算-新增记录（管理员设置）" style={{ color: "#cf1322" }}>
             {signedAmount(record.penalty_cents)}
           </span>
         ) : (
@@ -258,7 +286,7 @@ export function MakeupPayrollPanel({ operatorProfileId }: { operatorProfileId?: 
       exportValue: (record) => (record.reward_cents ? centsToYuanNumber(record.reward_cents) : null),
       render: (_, record) =>
         record.reward_cents ? (
-          <span title="来源：工资核算-化妆师-新增记录（管理员设置）" style={{ color: "#389e0d" }}>
+          <span title="来源：工资核算-新增记录（管理员设置）" style={{ color: "#389e0d" }}>
             {signedAmount(record.reward_cents)}
           </span>
         ) : (
@@ -288,7 +316,16 @@ export function MakeupPayrollPanel({ operatorProfileId }: { operatorProfileId?: 
       align: "right",
       exportValue: (record) => centsToYuanNumber(record.gross_cents),
       render: (_, record) => (
-        <span title="系统计算：基础收益 + 调整合计">{formatCentsToYuan(record.gross_cents)}</span>
+        <span title="系统计算：基础薪资 + 调整合计">{formatCentsToYuan(record.gross_cents)}</span>
+      ),
+    },
+    {
+      title: "个税",
+      width: 120,
+      align: "right",
+      exportValue: (record) => centsToYuanNumber(record.tax_cents),
+      render: (_, record) => (
+        <span title="来源：工资核算-新增记录（手动输入）">{formatCentsToYuan(record.tax_cents)}</span>
       ),
     },
     {
@@ -297,7 +334,11 @@ export function MakeupPayrollPanel({ operatorProfileId }: { operatorProfileId?: 
       align: "right",
       exportValue: (record) => centsToYuanNumber(record.net_cents),
       render: (_, record) => (
-        <Typography.Text title="系统计算：到手收益 = 实发收益" type={record.net_cents < 0 ? "danger" : undefined} strong>
+        <Typography.Text
+          title="系统计算：到手收益 = 实发收益 − 个税"
+          type={record.net_cents < 0 ? "danger" : undefined}
+          strong
+        >
           {formatCentsToYuan(record.net_cents)}
         </Typography.Text>
       ),
@@ -367,14 +408,14 @@ export function MakeupPayrollPanel({ operatorProfileId }: { operatorProfileId?: 
   const tableColumns = columns.map((column) => {
     const exportValue = column.exportValue;
     const sortValue =
-      column.sortValue ?? (exportValue ? (record: MakeupSalaryRecord) => exportValue(record) : undefined);
+      column.sortValue ?? (exportValue ? (record: StaffSalaryRecord) => exportValue(record) : undefined);
     return { ...column, sortValue };
   });
 
   function handleDownload() {
     downloadExcel({
-      fileName: `化妆师收益管理_${fileStamp()}.xlsx`,
-      sheetName: "化妆师收益管理",
+      fileName: `${positionName}工资条_${fileStamp()}.xlsx`,
+      sheetName: `${positionName}工资条`,
       columns,
       records: exportRecords,
     });
@@ -416,7 +457,7 @@ export function MakeupPayrollPanel({ operatorProfileId }: { operatorProfileId?: 
       </Card>
 
       <Card
-        title="化妆师收益管理"
+        title={`${positionName}工资条`}
         extra={
           <Flex align="center" gap={12}>
             <Typography.Text type="secondary">共 {filtered.length} 条记录 · 金额单位：元</Typography.Text>
@@ -432,13 +473,13 @@ export function MakeupPayrollPanel({ operatorProfileId }: { operatorProfileId?: 
         {salary.error ? (
           <QueryMessage loading={false} error={salary.error} />
         ) : (
-          <ResizableTable<MakeupSalaryRecord>
+          <ResizableTable<StaffSalaryRecord>
             rowClassName={zebraRowClassName}
             rowKey="id"
             loading={salary.isLoading}
             dataSource={filtered}
             columns={tableColumns}
-            locale={{ emptyText: "暂无化妆师收益记录" }}
+            locale={{ emptyText: `暂无${positionName}工资条` }}
             rowSelection={{
               selectedRowKeys,
               onChange: (keys) => setSelectedRowKeys(keys),
@@ -447,14 +488,14 @@ export function MakeupPayrollPanel({ operatorProfileId }: { operatorProfileId?: 
             expandable={{
               expandedRowKeys: expandedKeys,
               onExpand: (expanded, record) => setExpandedKeys(expanded ? [record.id] : []),
-              expandedRowRender: (record) => <MakeupStatusTimeline recordId={record.id} />,
+              expandedRowRender: (record) => <StaffStatusTimeline recordId={record.id} />,
             }}
           />
         )}
       </Card>
 
       <Modal
-        title="新增化妆师收益记录"
+        title={`新增${positionName}工资条`}
         open={createOpen}
         onCancel={() => setCreateOpen(false)}
         onOk={submitCreate}
@@ -482,41 +523,38 @@ export function MakeupPayrollPanel({ operatorProfileId }: { operatorProfileId?: 
           </Flex>
 
           <div>
-            <Typography.Text>选择化妆师</Typography.Text>
+            <Typography.Text>选择成员</Typography.Text>
             <Select
               mode="multiple"
               showSearch
               optionFilterProp="label"
               style={{ width: "100%", marginTop: 8 }}
               placeholder="可搜索、多选"
-              value={selectedMakeupIds}
-              onChange={onSelectMakeups}
-              options={makeups.map((m) => ({ value: m.id, label: m.name }))}
+              value={selectedIds}
+              onChange={onSelectMembers}
+              options={candidates.map((m) => ({ value: m.id, label: m.name }))}
             />
           </div>
 
-          {selectedMakeupIds.length ? (
+          {selectedIds.length ? (
             <div style={{ maxHeight: 320, overflow: "auto" }}>
-              {selectedMakeupIds.map((id) => {
-                const member = makeups.find((m) => m.id === id);
-                const row = draftRows[id] ?? { penalty: "", reward: "", note: "" };
+              {selectedIds.map((id) => {
+                const member = memberById.get(id);
+                const row = draftRows[id] ?? { penalty: "", reward: "", tax: "", note: "" };
                 return (
-                  <div
-                    key={id}
-                    style={{ border: "1px solid #f0f0f0", borderRadius: 8, padding: 12, marginBottom: 8 }}
-                  >
+                  <div key={id} style={{ border: "1px solid #f0f0f0", borderRadius: 8, padding: 12, marginBottom: 8 }}>
                     <Flex align="center" justify="space-between" gap={12}>
-                      <Typography.Text strong>{member?.name ?? "化妆师"}</Typography.Text>
+                      <Typography.Text strong>{member?.name ?? "成员"}</Typography.Text>
                       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                        基础收益 {formatCentsToYuan(member?.makeup_base_income_cents ?? 0)}
+                        基础薪资 {formatCentsToYuan(baseIncomeOf(member, positionCode))}
                       </Typography.Text>
                     </Flex>
                     <Row gutter={12} style={{ marginTop: 8 }}>
-                      <Col span={8}>
+                      <Col span={6}>
                         <Input
-                          aria-label={`${member?.name ?? "化妆师"}总违约（元）`}
+                          aria-label={`${member?.name ?? "成员"}总违约（元）`}
                           inputMode="decimal"
-                          placeholder="总违约（元，扣款）"
+                          placeholder="总违约（扣款）"
                           value={row.penalty}
                           status={parseOptionalYuan(row.penalty) === null ? "error" : undefined}
                           onChange={(event) =>
@@ -524,11 +562,11 @@ export function MakeupPayrollPanel({ operatorProfileId }: { operatorProfileId?: 
                           }
                         />
                       </Col>
-                      <Col span={8}>
+                      <Col span={6}>
                         <Input
-                          aria-label={`${member?.name ?? "化妆师"}总奖励（元）`}
+                          aria-label={`${member?.name ?? "成员"}总奖励（元）`}
                           inputMode="decimal"
-                          placeholder="总奖励（元，增加）"
+                          placeholder="总奖励（增加）"
                           value={row.reward}
                           status={parseOptionalYuan(row.reward) === null ? "error" : undefined}
                           onChange={(event) =>
@@ -536,9 +574,21 @@ export function MakeupPayrollPanel({ operatorProfileId }: { operatorProfileId?: 
                           }
                         />
                       </Col>
-                      <Col span={8}>
+                      <Col span={6}>
                         <Input
-                          aria-label={`${member?.name ?? "化妆师"}备注`}
+                          aria-label={`${member?.name ?? "成员"}个税（元）`}
+                          inputMode="decimal"
+                          placeholder="个税"
+                          value={row.tax}
+                          status={parseOptionalYuan(row.tax) === null ? "error" : undefined}
+                          onChange={(event) =>
+                            setDraftRows((prev) => ({ ...prev, [id]: { ...row, tax: event.target.value } }))
+                          }
+                        />
+                      </Col>
+                      <Col span={6}>
+                        <Input
+                          aria-label={`${member?.name ?? "成员"}备注`}
                           placeholder="备注（选填）"
                           value={row.note}
                           maxLength={200}
@@ -554,7 +604,7 @@ export function MakeupPayrollPanel({ operatorProfileId }: { operatorProfileId?: 
             </div>
           ) : (
             <Typography.Text type="secondary">
-              选择化妆师后可分别填写总违约、总奖励；基础收益自动带入，实发收益 = 基础收益 + 调整合计。
+              选择成员后分别填写总违约、总奖励、个税；基础薪资自动带入，实发收益 = 基础薪资 + 调整合计，到手 = 实发 − 个税。
             </Typography.Text>
           )}
 

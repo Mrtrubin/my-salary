@@ -53,17 +53,17 @@ import {
   transitionHostSalaryStatus,
   rejectAndRecomputeHostSalary,
   listHostSalaryStatusLogs,
-  listMakeupSalaryRecords,
-  createMakeupSalaryRecords,
-  transitionMakeupSalaryStatus,
-  rejectAndRecomputeMakeupSalary,
-  listMakeupSalaryStatusLogs,
-  updateMakeupBaseIncome,
+  listStaffSalaryRecords,
+  createStaffSalaryRecords,
+  transitionStaffSalaryStatus,
+  rejectAndRecomputeStaffSalary,
+  listStaffSalaryStatusLogs,
+  setStaffBaseIncome,
   listAnchorMembers,
   listAnchorDelays,
   setAnchorDelays,
 } from "./data";
-import type { Member, AnchorSettleMember, HostSettleMember, MakeupSalaryCreateItem } from "./data";
+import type { Member, AnchorSettleMember, HostSettleMember, StaffSalaryCreateItem } from "./data";
 import type { PeriodRange } from "@/lib/domain/settlement/cycle";
 import { readCachedProfile, writeCachedProfile } from "./profile-cache";
 
@@ -84,8 +84,8 @@ export const keys = {
   hostSalary: ["hostSalary"] as const,
   hostSettlementContexts: ["hostSettlementContexts"] as const,
   hostSalaryStatusLogs: ["hostSalaryStatusLogs"] as const,
-  makeupSalary: ["makeupSalary"] as const,
-  makeupSalaryStatusLogs: ["makeupSalaryStatusLogs"] as const,
+  staffSalary: ["staffSalary"] as const,
+  staffSalaryStatusLogs: ["staffSalaryStatusLogs"] as const,
   anchorMembers: ["anchorMembers"] as const,
   anchorDelays: ["anchorDelays"] as const,
 };
@@ -427,58 +427,58 @@ export function useHostSalaryStatusLogs(salaryRecordId: string | null) {
 
 // ==================== 化妆师收益 + 主播延误记录 ====================
 
-export function useMakeupSalaryRecords() {
-  return useQuery({ queryKey: keys.makeupSalary, queryFn: listMakeupSalaryRecords });
+export function useStaffSalaryRecords() {
+  return useQuery({ queryKey: keys.staffSalary, queryFn: listStaffSalaryRecords });
 }
 
-export function useCreateMakeupSalaryRecords() {
+export function useCreateStaffSalaryRecords() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: { period: PeriodRange; records: MakeupSalaryCreateItem[] }) =>
-      createMakeupSalaryRecords(input),
+    mutationFn: (input: { period: PeriodRange; records: StaffSalaryCreateItem[] }) =>
+      createStaffSalaryRecords(input),
     onSuccess: () => Promise.all([
-      client.invalidateQueries({ queryKey: keys.makeupSalary }),
-      client.invalidateQueries({ queryKey: keys.makeupSalaryStatusLogs }),
+      client.invalidateQueries({ queryKey: keys.staffSalary }),
+      client.invalidateQueries({ queryKey: keys.staffSalaryStatusLogs }),
     ]),
   });
 }
 
-export function useTransitionMakeupSalaryStatus() {
+export function useTransitionStaffSalaryStatus() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ id, status, operatorProfileId, note }: { id: string; status: import("./data").SalaryRecordStatus; operatorProfileId?: string; note?: string }) =>
-      transitionMakeupSalaryStatus(id, status, { operatorProfileId, note }),
+      transitionStaffSalaryStatus(id, status, { operatorProfileId, note }),
     onSuccess: () => Promise.all([
-      client.invalidateQueries({ queryKey: keys.makeupSalary }),
-      client.invalidateQueries({ queryKey: keys.makeupSalaryStatusLogs }),
+      client.invalidateQueries({ queryKey: keys.staffSalary }),
+      client.invalidateQueries({ queryKey: keys.staffSalaryStatusLogs }),
     ]),
   });
 }
 
-export function useRejectAndRecomputeMakeupSalary() {
+export function useRejectAndRecomputeStaffSalary() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => rejectAndRecomputeMakeupSalary(id),
+    mutationFn: (id: string) => rejectAndRecomputeStaffSalary(id),
     onSuccess: () => Promise.all([
-      client.invalidateQueries({ queryKey: keys.makeupSalary }),
-      client.invalidateQueries({ queryKey: keys.makeupSalaryStatusLogs }),
+      client.invalidateQueries({ queryKey: keys.staffSalary }),
+      client.invalidateQueries({ queryKey: keys.staffSalaryStatusLogs }),
     ]),
   });
 }
 
-export function useMakeupSalaryStatusLogs(salaryRecordId: string | null) {
+export function useStaffSalaryStatusLogs(salaryRecordId: string | null) {
   return useQuery({
-    queryKey: ["makeupSalaryStatusLogs", salaryRecordId],
-    queryFn: () => listMakeupSalaryStatusLogs(salaryRecordId as string),
+    queryKey: ["staffSalaryStatusLogs", salaryRecordId],
+    queryFn: () => listStaffSalaryStatusLogs(salaryRecordId as string),
     enabled: !!salaryRecordId,
   });
 }
 
-export function useUpdateMakeupBaseIncome() {
+export function useSetStaffBaseIncome() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, baseIncomeInCents }: { id: string; baseIncomeInCents: number }) =>
-      updateMakeupBaseIncome(id, baseIncomeInCents),
+    mutationFn: ({ profileId, positionCode, baseIncomeInCents }: { profileId: string; positionCode: string; baseIncomeInCents: number }) =>
+      setStaffBaseIncome({ profileId, positionCode, baseIncomeInCents }),
     onSuccess: () => invalidateRelatedQueries(client, keys.members),
   });
 }
@@ -503,3 +503,4 @@ export function useSetAnchorDelays() {
     onSuccess: () => client.invalidateQueries({ queryKey: keys.anchorDelays }),
   });
 }
+

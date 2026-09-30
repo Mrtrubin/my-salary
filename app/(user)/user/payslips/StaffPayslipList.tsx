@@ -5,8 +5,8 @@ import { SalaryRecordStatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { QueryMessage } from "@/components/query-message";
-import { useMakeupSalaryStatusLogs, useTransitionMakeupSalaryStatus } from "@/lib/api/hooks";
-import type { MakeupSalaryRecord } from "@/lib/api/data";
+import { useStaffSalaryStatusLogs, useTransitionStaffSalaryStatus } from "@/lib/api/hooks";
+import type { StaffSalaryRecord } from "@/lib/api/data";
 import { formatCentsToYuan, formatDateTime } from "@/lib/format";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -21,7 +21,7 @@ function signedAmount(cents: number): string {
 }
 
 function StatusTimeline({ recordId }: { recordId: string }) {
-  const logs = useMakeupSalaryStatusLogs(recordId);
+  const logs = useStaffSalaryStatusLogs(recordId);
   return (
     <>
       <QueryMessage loading={logs.isLoading} error={logs.error} empty={!logs.data?.length} />
@@ -61,9 +61,9 @@ function Row({ label, value, tone }: { label: string; value: string; tone?: "mut
   );
 }
 
-/** 化妆师收益工资条：列表 + 全屏详情（成员端确认收款）。 */
-export function MakeupPayslipList({ records }: { records: MakeupSalaryRecord[] }) {
-  const transition = useTransitionMakeupSalaryStatus();
+/** 固定薪资工资条（化妆师/舞蹈老师/行政/运镜/人事）：列表 + 全屏详情（成员端确认收款）。 */
+export function StaffPayslipList({ records }: { records: StaffSalaryRecord[] }) {
+  const transition = useTransitionStaffSalaryStatus();
   const [detailId, setDetailId] = useState<string | null>(null);
   const detailItem = useMemo(() => records.find((item) => item.id === detailId) ?? null, [records, detailId]);
 
@@ -71,7 +71,7 @@ export function MakeupPayslipList({ records }: { records: MakeupSalaryRecord[] }
 
   return (
     <section className="space-y-3">
-      <h2 className="text-sm font-semibold">化妆师收益</h2>
+      <h2 className="text-sm font-semibold">固定薪资工资条</h2>
       <ul className="space-y-3">
         {records.map((item) => (
           <li key={item.id}>
@@ -79,11 +79,11 @@ export function MakeupPayslipList({ records }: { records: MakeupSalaryRecord[] }
               <button
                 type="button"
                 onClick={() => setDetailId(item.id)}
-                aria-label={`查看 ${item.period_start} 至 ${item.period_end} 化妆师收益详情`}
+                aria-label={`查看 ${item.period_start} 至 ${item.period_end} 工资条详情`}
                 className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50/80 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-indigo-500"
               >
                 <span className="min-w-0 truncate text-sm">
-                  {item.period_start} ~ {item.period_end}
+                  {item.position?.name ?? "固定薪资"} · {item.period_start} ~ {item.period_end}
                   <span className="text-muted"> · 基础 {formatCentsToYuan(item.base_income_cents)}</span>
                 </span>
                 <span className="flex shrink-0 items-center gap-2">
@@ -104,7 +104,7 @@ export function MakeupPayslipList({ records }: { records: MakeupSalaryRecord[] }
           <div className="flex h-full w-full max-w-[430px] flex-col bg-slate-50">
             <header className="flex items-start justify-between gap-3 border-b border-slate-200/70 bg-white px-4 pt-[calc(14px+env(safe-area-inset-top))] pb-3">
               <div className="min-w-0 space-y-1">
-                <p className="truncate text-sm font-semibold">化妆师收益条</p>
+                <p className="truncate text-sm font-semibold">{detailItem.position?.name ?? "固定薪资"}工资条</p>
                 <p className="truncate text-xs text-muted">
                   {detailItem.period_start} ~ {detailItem.period_end}
                 </p>
@@ -121,7 +121,7 @@ export function MakeupPayslipList({ records }: { records: MakeupSalaryRecord[] }
             <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4 pb-[calc(24px+env(safe-area-inset-bottom))]">
               <div className="rounded-2xl bg-white px-4 py-4 shadow-sm shadow-slate-200/60">
                 <div className="flex items-start justify-between gap-2">
-                  <p className="truncate text-sm font-semibold">{detailItem.makeup?.name ?? "我"}</p>
+                  <p className="truncate text-sm font-semibold">{detailItem.profile?.name ?? "我"}</p>
                   <SalaryRecordStatusBadge status={detailItem.status} />
                 </div>
                 <div className="mt-3 rounded-xl bg-slate-50 px-4 py-3">
@@ -135,7 +135,7 @@ export function MakeupPayslipList({ records }: { records: MakeupSalaryRecord[] }
               <section className="rounded-2xl bg-white px-4 py-3 shadow-sm shadow-slate-200/60">
                 <h3 className="mb-2.5 text-xs font-semibold text-slate-500">收益构成</h3>
                 <dl className="space-y-2.5 text-sm">
-                  <Row label="基础收益" value={formatCentsToYuan(detailItem.base_income_cents)} />
+                  <Row label="基础薪资" value={formatCentsToYuan(detailItem.base_income_cents)} />
                   <Row
                     label="总违约"
                     value={detailItem.penalty_cents ? signedAmount(detailItem.penalty_cents) : "—"}
@@ -152,6 +152,7 @@ export function MakeupPayslipList({ records }: { records: MakeupSalaryRecord[] }
                     tone={detailItem.adjustment_cents < 0 ? "danger" : detailItem.adjustment_cents > 0 ? "success" : "muted"}
                   />
                   <Row label="实发收益" value={formatCentsToYuan(detailItem.gross_cents)} />
+                  <Row label="个税" value={formatCentsToYuan(detailItem.tax_cents)} tone="muted" />
                   <Row label="到手收益" value={formatCentsToYuan(detailItem.net_cents)} tone="strong" />
                   {detailItem.note ? <Row label="备注" value={detailItem.note} tone="muted" /> : null}
                 </dl>

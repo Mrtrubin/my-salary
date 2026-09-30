@@ -163,6 +163,10 @@ export type Database = {
           hire_date: string
           id: string
           id_card: string | null
+          camera_base_income_cents: number
+          dance_base_income_cents: number
+          executive_base_income_cents: number
+          hr_base_income_cents: number
           makeup_base_income_cents: number
           name: string
           phone: string
@@ -181,6 +185,10 @@ export type Database = {
           hire_date: string
           id?: string
           id_card?: string | null
+          camera_base_income_cents?: number
+          dance_base_income_cents?: number
+          executive_base_income_cents?: number
+          hr_base_income_cents?: number
           makeup_base_income_cents?: number
           name: string
           phone?: string
@@ -199,6 +207,10 @@ export type Database = {
           hire_date?: string
           id?: string
           id_card?: string | null
+          camera_base_income_cents?: number
+          dance_base_income_cents?: number
+          executive_base_income_cents?: number
+          hr_base_income_cents?: number
           makeup_base_income_cents?: number
           name?: string
           phone?: string
@@ -832,7 +844,7 @@ export type Database = {
           },
         ]
       }
-      makeup_salary_record_status_logs: {
+      staff_salary_record_status_logs: {
         Row: {
           created_at: string
           from_status: Database["public"]["Enums"]["salary_record_status"] | null
@@ -862,15 +874,15 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "makeup_salary_record_status_logs_salary_record_id_fkey"
+            foreignKeyName: "staff_salary_record_status_logs_salary_record_id_fkey"
             columns: ["salary_record_id"]
             isOneToOne: false
-            referencedRelation: "makeup_salary_records"
+            referencedRelation: "staff_salary_records"
             referencedColumns: ["id"]
           },
         ]
       }
-      makeup_salary_records: {
+      staff_salary_records: {
         Row: {
           adjustment_cents: number
           base_income_cents: number
@@ -882,17 +894,19 @@ export type Database = {
           created_at: string
           gross_cents: number
           id: string
-          makeup_profile_id: string
           month: string
           net_cents: number
           note: string | null
           penalty_cents: number
           period_end: string
           period_start: string
+          position_id: number
+          profile_id: string
           review_pending_at: string | null
           reviewed_by: string | null
           reward_cents: number
           status: Database["public"]["Enums"]["salary_record_status"]
+          tax_cents: number
           updated_at: string
         }
         Insert: {
@@ -906,17 +920,19 @@ export type Database = {
           created_at?: string
           gross_cents: number
           id?: string
-          makeup_profile_id: string
           month: string
           net_cents: number
           note?: string | null
           penalty_cents?: number
           period_end: string
           period_start: string
+          position_id: number
+          profile_id: string
           review_pending_at?: string | null
           reviewed_by?: string | null
           reward_cents?: number
           status?: Database["public"]["Enums"]["salary_record_status"]
+          tax_cents?: number
           updated_at?: string
         }
         Update: {
@@ -930,23 +946,32 @@ export type Database = {
           created_at?: string
           gross_cents?: number
           id?: string
-          makeup_profile_id?: string
           month?: string
           net_cents?: number
           note?: string | null
           penalty_cents?: number
           period_end?: string
           period_start?: string
+          position_id?: number
+          profile_id?: string
           review_pending_at?: string | null
           reviewed_by?: string | null
           reward_cents?: number
           status?: Database["public"]["Enums"]["salary_record_status"]
+          tax_cents?: number
           updated_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: "makeup_salary_records_makeup_profile_id_fkey"
-            columns: ["makeup_profile_id"]
+            foreignKeyName: "staff_salary_records_position_id_fkey"
+            columns: ["position_id"]
+            isOneToOne: false
+            referencedRelation: "positions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_salary_records_profile_id_fkey"
+            columns: ["profile_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -1181,7 +1206,15 @@ export type Database = {
         }
         Returns: number
       }
-      create_makeup_salary_records: {
+      set_staff_base_income: {
+        Args: {
+          p_profile_id: string
+          p_position_code: string
+          p_cents: number
+        }
+        Returns: undefined
+      }
+      create_staff_salary_records: {
         Args: {
           p_period_start: string
           p_period_end: string
@@ -1189,11 +1222,11 @@ export type Database = {
         }
         Returns: number
       }
-      recompute_makeup_salary_record: {
+      recompute_staff_salary_record: {
         Args: { p_id: string; p_note?: string | null }
         Returns: undefined
       }
-      transition_makeup_salary_status: {
+      transition_staff_salary_status: {
         Args: {
           p_id: string
           p_to_status: "pending_review" | "pending_confirm" | "confirmed" | "completed"
