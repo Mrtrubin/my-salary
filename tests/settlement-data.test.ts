@@ -151,7 +151,7 @@ describe("结算名单与跨团读取", () => {
 });
 
 describe("方案与人岗位上下文", () => {
-  it("有效个人方案优先，同日按版本与 ID 稳定选择；其他成员回退模板", async () => {
+  it("个人方案优先且不再按生效日期过滤，取最新一条；其他成员回退模板", async () => {
     tables.team_members.push(membership("p2"));
     tables.profiles.push(profile("p2"));
     tables.salary_schemes = [
@@ -169,8 +169,9 @@ describe("方案与人岗位上下文", () => {
       { id: "wrong", profile_id: "p1", position_id: 2, period_end: "2026-03-31", is_qualified: true },
     ];
     const { members } = await getAnchorSettlementContexts("t1", period);
+    // 「future」生效日期晚于周期结束，但新口径下不再过滤，仍按最新一条被选用。
     expect(members.map((m) => [m.profileId, m.schemeId, m.lastMonthQualified]))
-      .toEqual([["p1", "a", false], ["p2", "template", true]]);
+      .toEqual([["p1", "future", false], ["p2", "template", true]]);
     expect(queried("salary_records", "eq")).toEqual([]);
   });
 

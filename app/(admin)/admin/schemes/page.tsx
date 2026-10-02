@@ -4,7 +4,6 @@ import {
   Button,
   Card,
   Col,
-  DatePicker,
   Empty,
   Flex,
   Form,
@@ -31,26 +30,17 @@ type FormValues = {
   positionId: string;
   baseSalary: number | null;
   guaranteedSalary: number | null;
-  effectiveFrom: string;
 };
 
-/**
- * effectiveFrom 刻意留空：模块作用域求值会在服务端与浏览器各跑一次，
- * 两边时区不同时 SSR/CSR 会拿到不同日期。改为打开表单时现算，见 formDefaults。
- */
 const DEFAULTS: FormValues = {
   name: "",
   profileId: "",
   positionId: "",
   baseSalary: null,
   guaranteedSalary: null,
-  effectiveFrom: "",
 };
 
-const formDefaults = (): FormValues => ({
-  ...DEFAULTS,
-  effectiveFrom: dayjs().format("YYYY-MM-DD"),
-});
+const formDefaults = (): FormValues => ({ ...DEFAULTS });
 
 export default function SchemesPage() {
   const schemes = useSchemes();
@@ -82,7 +72,8 @@ export default function SchemesPage() {
         version,
         base_salary_cents: Math.round(Number(value.baseSalary) * 100),
         guaranteed_salary_cents: Math.round(Number(value.guaranteedSalary) * 100),
-        effective_from: value.effectiveFrom,
+        // 方案不再按生效日期筛选，仅保留该列做创建时间记录。
+        effective_from: dayjs().format("YYYY-MM-DD"),
       });
       reset(formDefaults());
       setShow(false);
@@ -173,26 +164,6 @@ export default function SchemesPage() {
               </Col>
               <Col xs={24} md={12}>
                 <FormField
-                  label="生效日期"
-                  error={errors.effectiveFrom ? "请选择生效日期" : undefined}
-                  required
-                >
-                  <Controller
-                    control={control}
-                    name="effectiveFrom"
-                    rules={{ required: true }}
-                    render={({ field }) => (
-                      <DatePicker
-                        style={{ width: "100%" }}
-                        value={field.value ? dayjs(field.value) : null}
-                        onChange={(date) => field.onChange(date ? date.format("YYYY-MM-DD") : "")}
-                      />
-                    )}
-                  />
-                </FormField>
-              </Col>
-              <Col xs={24} md={12}>
-                <FormField
                   label="初始保底（元）"
                   hint="无责期及上月达标时的保底基准，示例 8000"
                   error={errors.baseSalary ? "请填写初始保底" : undefined}
@@ -267,8 +238,7 @@ export default function SchemesPage() {
                 }
               >
                 <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-                  {item.profile?.name ?? "岗位模板"} · {item.position?.name ?? "未分配"} ·{" "}
-                  {item.effective_from}
+                  {item.profile?.name ?? "岗位模板"} · {item.position?.name ?? "未分配"}
                 </Typography.Paragraph>
                 <Typography.Text>
                   初始保底 {formatCentsToYuan(item.base_salary_cents)} · 降级保底{" "}

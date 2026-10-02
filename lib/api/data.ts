@@ -1005,7 +1005,7 @@ async function loadSettlementContexts(
   const schemes = await readSettlementRows((from, to) => supabase.from("salary_schemes")
     .select("*").in("position_id", positionIds)
     .or(`profile_id.is.null,profile_id.in.(${profileIds.join(",")})`)
-    .eq("status", "active").lte("effective_from", period.end)
+    .eq("status", "active")
     .order("effective_from", { ascending: false }).order("version", { ascending: false }).order("id")
     .range(from, to));
   const previous = await readSettlementRows((from, to) => supabase.from("salary_records")
@@ -1097,7 +1097,12 @@ export async function settleAnchorRevenue(input: { teamId: string | null; period
       positionId: context.positionId,
       attendanceBonusBps,
       dyTaskBonusBps,
-      adjustments: adjustments.map((a) => ({ name: a.name, amountCents: a.amountCents })),
+      adjustments: adjustments.map((a) => ({
+        name: a.name,
+        amountCents: a.amountCents,
+        ...(a.sourceDate ? { sourceDate: a.sourceDate } : {}),
+        ...(a.sourceOperator ? { sourceOperator: a.sourceOperator } : {}),
+      })),
       note,
     };
   });
@@ -1249,7 +1254,7 @@ export async function getHostSettlementContexts(period: PeriodRange): Promise<Ho
   // 生效方案：个人优先，其次模板。
   const schemes = await readSettlementRows((from, to) => supabase
     .from("host_salary_schemes")
-    .select("*").eq("status", "active").lte("effective_from", period.end)
+    .select("*").eq("status", "active")
     .order("effective_from", { ascending: false }).order("version", { ascending: false }).order("id")
     .range(from, to));
   const personal = new Map<string, typeof schemes[number]>();
