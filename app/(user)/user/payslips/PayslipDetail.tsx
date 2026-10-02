@@ -32,7 +32,14 @@ export function readAdjustments(value: SalaryRecord["adjustments"]): PayrollAdju
   return value.flatMap((entry) => {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
     if (typeof entry.name !== "string" || typeof entry.amountCents !== "number" || !Number.isSafeInteger(entry.amountCents)) return [];
-    return [{ name: entry.name, amountCents: entry.amountCents }];
+    return [
+      {
+        name: entry.name,
+        amountCents: entry.amountCents,
+        sourceDate: typeof entry.sourceDate === "string" ? entry.sourceDate : undefined,
+        sourceOperator: typeof entry.sourceOperator === "string" ? entry.sourceOperator : undefined,
+      },
+    ];
   });
 }
 
@@ -102,7 +109,15 @@ function AdjustmentSummary({ adjustments, total }: { adjustments: PayrollAdjustm
         <div className="space-y-2 rounded-xl bg-slate-50 px-3 py-2">
           {adjustments.map((adjustment, index) => (
             <div key={`${adjustment.name}-${index}`} className="flex items-start justify-between gap-3">
-              <span className="text-xs text-muted">{adjustment.name || "未命名调整"}</span>
+              <span className="text-xs text-muted">
+                {adjustment.name || "未命名调整"}
+                {adjustment.sourceDate || adjustment.sourceOperator ? (
+                  <span className="mt-0.5 block text-[11px] text-slate-400">
+                    来源：{adjustment.sourceDate ?? "—"}
+                    {adjustment.sourceOperator ? ` · 登记 ${adjustment.sourceOperator}` : ""}
+                  </span>
+                ) : null}
+              </span>
               <span className={`tabular-nums text-xs ${adjustment.amountCents < 0 ? "text-danger" : "text-emerald-600"}`}>
                 {signedAmount(adjustment.amountCents)}
               </span>

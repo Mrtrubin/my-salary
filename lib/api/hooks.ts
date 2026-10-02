@@ -62,6 +62,10 @@ import {
   listAnchorMembers,
   listAnchorDelays,
   setAnchorDelays,
+  listAnchorRewards,
+  setAnchorRewards,
+  updateAnchorReward,
+  deleteAnchorReward,
 } from "./data";
 import type { Member, AnchorSettleMember, HostSettleMember, StaffSalaryCreateItem } from "./data";
 import type { PeriodRange } from "@/lib/domain/settlement/cycle";
@@ -88,6 +92,7 @@ export const keys = {
   staffSalaryStatusLogs: ["staffSalaryStatusLogs"] as const,
   anchorMembers: ["anchorMembers"] as const,
   anchorDelays: ["anchorDelays"] as const,
+  anchorRewards: ["anchorRewards"] as const,
 };
 /** 成员、方案、流水或工资快照变化后，刷新跨团队试算依赖。 */
 function invalidateSettlementQueries(client: QueryClient) {
@@ -515,6 +520,40 @@ export function useSetAnchorDelays() {
     mutationFn: (input: { date: string; anchorIds: string[]; isDelayed: boolean; note?: string }) =>
       setAnchorDelays(input),
     onSuccess: () => client.invalidateQueries({ queryKey: keys.anchorDelays }),
+  });
+}
+
+/** range 为空返回全部奖励记录（页面自行取最新日期）。 */
+export function useAnchorRewards(range?: { start?: string; end?: string }) {
+  return useQuery({
+    queryKey: [...keys.anchorRewards, range?.start ?? "", range?.end ?? ""],
+    queryFn: () => listAnchorRewards(range),
+  });
+}
+
+export function useSetAnchorRewards() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { date: string; anchorIds: string[]; name: string; amountCents: number; note?: string }) =>
+      setAnchorRewards(input),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.anchorRewards }),
+  });
+}
+
+export function useUpdateAnchorReward() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; name: string; amountCents: number; note?: string }) =>
+      updateAnchorReward(input),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.anchorRewards }),
+  });
+}
+
+export function useDeleteAnchorReward() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteAnchorReward(id),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.anchorRewards }),
   });
 }
 

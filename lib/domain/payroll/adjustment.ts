@@ -27,6 +27,10 @@ export interface PayrollAdjustment {
   name: string;
   /** 调整金额（分），正为增、负为减。 */
   amountCents: AmountInCents;
+  /** 来源日期（如舞蹈老师奖励的登记日期），用于工资条/结算明细留痕展示。 */
+  sourceDate?: string;
+  /** 登记人姓名（如登记奖励的舞蹈老师），用于工资条/结算明细留痕展示。 */
+  sourceOperator?: string;
 }
 
 /** 延误调整项名称（扣除）。 */

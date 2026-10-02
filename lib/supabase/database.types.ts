@@ -14,6 +14,57 @@ export type Database = {
   }
   public: {
     Tables: {
+      anchor_reward_records: {
+        Row: {
+          amount_cents: number
+          anchor_profile_id: string
+          created_at: string
+          id: string
+          name: string
+          note: string | null
+          registered_by: string | null
+          reward_date: string
+          updated_at: string
+        }
+        Insert: {
+          amount_cents: number
+          anchor_profile_id: string
+          created_at?: string
+          id?: string
+          name: string
+          note?: string | null
+          registered_by?: string | null
+          reward_date: string
+          updated_at?: string
+        }
+        Update: {
+          amount_cents?: number
+          anchor_profile_id?: string
+          created_at?: string
+          id?: string
+          name?: string
+          note?: string | null
+          registered_by?: string | null
+          reward_date?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "anchor_reward_records_anchor_profile_id_fkey"
+            columns: ["anchor_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "anchor_reward_records_registered_by_fkey"
+            columns: ["registered_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       performance_points: {
         Row: {
           created_at: string
@@ -1229,6 +1280,45 @@ export type Database = {
           p_note?: string | null
         }
         Returns: number
+      }
+      is_dance: { Args: never; Returns: boolean }
+      list_anchor_rewards: {
+        Args: { p_start?: string | null; p_end?: string | null }
+        Returns: {
+          id: string
+          anchor_profile_id: string
+          anchor_name: string
+          reward_date: string
+          name: string
+          amount_cents: number
+          registered_by: string | null
+          registered_name: string | null
+          note: string | null
+          updated_at: string
+        }[]
+      }
+      set_anchor_rewards: {
+        Args: {
+          p_reward_date: string
+          p_anchor_ids: string[]
+          p_name: string
+          p_amount_cents: number
+          p_note?: string | null
+        }
+        Returns: number
+      }
+      update_anchor_reward: {
+        Args: {
+          p_id: string
+          p_name: string
+          p_amount_cents: number
+          p_note?: string | null
+        }
+        Returns: undefined
+      }
+      delete_anchor_reward: {
+        Args: { p_id: string }
+        Returns: undefined
       }
       set_staff_base_income: {
         Args: {

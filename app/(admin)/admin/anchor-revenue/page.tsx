@@ -24,13 +24,14 @@ import { zebraRowClassName } from "@/components/admin/table-zebra";
 import { useConfirm } from "@/components/admin/use-confirm";
 import {
   useAnchorDelays,
+  useAnchorRewards,
   useAnchorRevenuePerf,
   useAnchorSettlementContexts,
   useSalaryRecords,
   useSettleAnchorRevenue,
   useTeams,
 } from "@/lib/api/hooks";
-import { settlementMemberKey } from "@/lib/api/data";
+import { rewardAdjustmentsByProfile, settlementMemberKey } from "@/lib/api/data";
 import type {
   AnchorRevenuePerfRow,
   AnchorSettleMember,
@@ -60,12 +61,21 @@ interface AdjustmentDraft {
   name: string;
   direction: "deduction" | "reward";
   amountYuan: string;
+  /** 来源日期（舞蹈老师奖励），仅用于结算/工资条留痕展示。 */
+  sourceDate?: string;
+  /** 登记人姓名（舞蹈老师），仅用于结算/工资条留痕展示。 */
+  sourceOperator?: string;
 }
 
 function toPayrollAdjustment(draft: AdjustmentDraft): PayrollAdjustment | null {
   const amount = parseAdjustmentAmountYuan(draft.amountYuan);
   if (!draft.name.trim() || amount === null) return null;
-  return { name: draft.name.trim(), amountCents: draft.direction === "deduction" ? -amount : amount };
+  return {
+    name: draft.name.trim(),
+    amountCents: draft.direction === "deduction" ? -amount : amount,
+    sourceDate: draft.sourceDate,
+    sourceOperator: draft.sourceOperator,
+  };
 }
 
 function validAdjustments(drafts: AdjustmentDraft[]): PayrollAdjustment[] {
@@ -88,7 +98,7 @@ function recordAdjustmentDrafts(record: SalaryRecord): AdjustmentDraft[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((entry) => {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
-    const item = entry as { name?: unknown; amountCents?: unknown };
+    const item = entry as { name?: unknown; amountCents?: unknown; sourceDate?: unknown; sourceOperator?: unknown };
     const name = typeof item.name === "string" ? item.name : "";
     const amountCents = typeof item.amountCents === "number" ? item.amountCents : 0;
     if (!name) return [];
@@ -98,6 +108,8 @@ function recordAdjustmentDrafts(record: SalaryRecord): AdjustmentDraft[] {
         name,
         direction: amountCents < 0 ? ("deduction" as const) : ("reward" as const),
         amountYuan: (Math.abs(amountCents) / 100).toFixed(2),
+        sourceDate: typeof item.sourceDate === "string" ? item.sourceDate : undefined,
+        sourceOperator: typeof item.sourceOperator === "string" ? item.sourceOperator : undefined,
       },
     ];
   });
@@ -170,6 +182,7 @@ function AnchorRevenueWorkspace() {
   const perfQuery = useAnchorRevenuePerf(teamId, period);
   const contextsQuery = useAnchorSettlementContexts(teamId, period);
   const delayQuery = useAnchorDelays(period ? { start: period.start, end: period.end } : undefined);
+  const rewardQuery = useAnchorRewards(period ? { start: period.start, end: period.end } : undefined);
   const settleMutation = useSettleAnchorRevenue();
   const salaryRecordsQuery = useSalaryRecords();
 
@@ -221,6 +234,12 @@ function AnchorRevenueWorkspace() {
     }
     return map;
   }, [delayQuery.data]);
+
+  // 每名主播在本周期内的「奖励项」：由舞蹈老师登记 → 结算逐条预填调整项（正数）。
+  const rewardAdjustments = useMemo(
+    () => rewardAdjustmentsByProfile(rewardQuery.data ?? []),
+    [rewardQuery.data],
+  );
 
   // 实时聚合 + 调整项叠加（不落库）。
   const rows: AnchorRow[] = useMemo(() => {
@@ -428,6 +447,47 @@ function AnchorRevenueWorkspace() {
       return next;
     });
   }, [rows, delayCountByProfile, existingRecordsByMember, period]);
+
+  // 结算草稿自动预填：把本周期「奖励项」（舞蹈老师登记）逐条预填为奖励调整项。
+  // 与延误/停播不同：即便已有工资记录也要补填（奖励可能结算后才补录），按「名称+金额」去重，
+  // 不覆盖手动编辑；无新增时返回原状态，避免渲染循环。
+  useEffect(() => {
+    if (!rows.length) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 依据加载完成的奖励数据同步预填调整项
+    setAdjustments((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const row of rows) {
+        if (!row.hasScheme) continue;
+        const rewards = rewardAdjustments[row.profileId] ?? [];
+        if (!rewards.length) continue;
+        const existing = [...(next[row.memberKey] ?? [])];
+        const before = existing.length;
+        for (const reward of rewards) {
+          const duplicate = existing.some(
+            (draft) =>
+              draft.name.trim() === reward.name.trim() &&
+              draft.direction === "reward" &&
+              parseAdjustmentAmountYuan(draft.amountYuan) === reward.amountCents,
+          );
+          if (duplicate) continue;
+          existing.push({
+            id: crypto.randomUUID(),
+            name: reward.name,
+            direction: "reward",
+            amountYuan: (reward.amountCents / 100).toFixed(2),
+            sourceDate: reward.sourceDate,
+            sourceOperator: reward.sourceOperator,
+          });
+        }
+        if (existing.length !== before) {
+          next[row.memberKey] = existing;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [rows, rewardAdjustments]);
 
   // 预设常驻，自定义项按名称排序；搜索主播不改变列顺序。
   const adjustmentColumns = useMemo(() => {
@@ -1243,6 +1303,12 @@ function AnchorRevenueWorkspace() {
                                   ) : null}
                                 </Col>
                               </Row>
+                              {adj.sourceDate || adj.sourceOperator ? (
+                                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                                  来源：{adj.sourceDate ?? "—"}
+                                  {adj.sourceOperator ? ` · 登记 ${adj.sourceOperator}` : ""}
+                                </Typography.Text>
+                              ) : null}
                             </div>
                           );
                         })}

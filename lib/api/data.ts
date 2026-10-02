@@ -1587,3 +1587,113 @@ export async function setAnchorDelays(input: {
   return (data as number) ?? 0;
 }
 
+/** 主播奖励项记录（含主播名 / 登记舞蹈老师名）。 */
+export interface AnchorRewardRow {
+  id: string;
+  anchorProfileId: string;
+  anchorName: string;
+  rewardDate: string;
+  name: string;
+  amountCents: number;
+  registeredBy: string | null;
+  registeredName: string | null;
+  note: string | null;
+  updatedAt: string;
+}
+
+/** 查询奖励记录；不传区间返回全部（页面自行取最新日期）。 */
+export async function listAnchorRewards(range?: { start?: string; end?: string }): Promise<AnchorRewardRow[]> {
+  const { data, error } = await getBrowserSupabase().rpc("list_anchor_rewards", {
+    p_start: range?.start ?? null,
+    p_end: range?.end ?? null,
+  });
+  if (error) fail(error);
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    anchorProfileId: row.anchor_profile_id,
+    anchorName: row.anchor_name,
+    rewardDate: row.reward_date,
+    name: row.name,
+    amountCents: row.amount_cents,
+    registeredBy: row.registered_by,
+    registeredName: row.registered_name,
+    note: row.note,
+    updatedAt: row.updated_at,
+  }));
+}
+
+/** 批量设置奖励（同主播+日期+名称 upsert）；金额为整数分且 > 0。 */
+export async function setAnchorRewards(input: {
+  date: string;
+  anchorIds: string[];
+  name: string;
+  amountCents: number;
+  note?: string;
+}): Promise<number> {
+  const { data, error } = await getBrowserSupabase().rpc("set_anchor_rewards", {
+    p_reward_date: input.date,
+    p_anchor_ids: input.anchorIds,
+    p_name: input.name,
+    p_amount_cents: input.amountCents,
+    p_note: input.note ?? null,
+  });
+  if (error) {
+    const msg = error.message ?? "";
+    if (msg.includes("FORBIDDEN")) throw new ApiError(ApiErrorCode.FORBIDDEN, "无权设置奖励");
+    if (msg.includes("INVALID_REWARD_NAME")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "奖励名称需为 1-50 个字符");
+    if (msg.includes("INVALID_REWARD_AMOUNT")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "奖励金额需大于 0 且不超过 100 万元");
+    if (msg.includes("INVALID_REWARD_DATE")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "奖励日期无效");
+    fail(error);
+  }
+  return (data as number) ?? 0;
+}
+
+/** 编辑单条奖励（名称/金额/备注）。 */
+export async function updateAnchorReward(input: {
+  id: string;
+  name: string;
+  amountCents: number;
+  note?: string;
+}): Promise<void> {
+  const { error } = await getBrowserSupabase().rpc("update_anchor_reward", {
+    p_id: input.id,
+    p_name: input.name,
+    p_amount_cents: input.amountCents,
+    p_note: input.note ?? null,
+  });
+  if (error) {
+    const msg = error.message ?? "";
+    if (msg.includes("FORBIDDEN")) throw new ApiError(ApiErrorCode.FORBIDDEN, "无权修改奖励");
+    if (msg.includes("REWARD_NAME_CONFLICT")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "该主播当天已存在同名奖励");
+    if (msg.includes("REWARD_NOT_FOUND")) throw new ApiError(ApiErrorCode.NOT_FOUND, "奖励记录不存在");
+    if (msg.includes("INVALID_REWARD_NAME")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "奖励名称需为 1-50 个字符");
+    if (msg.includes("INVALID_REWARD_AMOUNT")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "奖励金额需大于 0 且不超过 100 万元");
+    fail(error);
+  }
+}
+
+/** 删除单条奖励。 */
+export async function deleteAnchorReward(id: string): Promise<void> {
+  const { error } = await getBrowserSupabase().rpc("delete_anchor_reward", { p_id: id });
+  if (error) {
+    const msg = error.message ?? "";
+    if (msg.includes("FORBIDDEN")) throw new ApiError(ApiErrorCode.FORBIDDEN, "无权删除奖励");
+    if (msg.includes("REWARD_NOT_FOUND")) throw new ApiError(ApiErrorCode.NOT_FOUND, "奖励记录不存在");
+    fail(error);
+  }
+}
+
+/** 把奖励记录按主播聚合为调整项（正数，携带登记日期/登记人留痕）。 */
+export function rewardAdjustmentsByProfile(rows: AnchorRewardRow[]): Record<string, PayrollAdjustment[]> {
+  const map: Record<string, PayrollAdjustment[]> = {};
+  for (const row of rows) {
+    (map[row.anchorProfileId] ??= []).push({
+      name: row.name,
+      amountCents: row.amountCents,
+      sourceDate: row.rewardDate,
+      sourceOperator: row.registeredName ?? undefined,
+    });
+  }
+  return map;
+}
+

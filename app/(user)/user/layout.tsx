@@ -20,21 +20,35 @@ export default function UserLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const profile = useCurrentProfile();
 
-  // 化妆师把「业绩」标签换成「延误」；其它角色保持「业绩」。
+  // 化妆师把「业绩」标签换成「延误」；舞蹈老师换成「奖励」；其它角色保持「业绩」。
   const isMakeup = useMemo(
     () => profile.data?.user_positions?.some(({ position }) => position?.code === "makeup") ?? false,
     [profile.data],
   );
+  const isDance = useMemo(
+    () => profile.data?.user_positions?.some(({ position }) => position?.code === "dance") ?? false,
+    [profile.data],
+  );
 
   const tabs = useMemo<Tab[]>(() => {
-    if (!isMakeup) return TABS;
-    return [
-      TABS[0],
-      { href: "/user/delay", label: "延误", icon: <IconClock /> },
-      TABS[2],
-      TABS[3],
-    ];
-  }, [isMakeup]);
+    if (isMakeup) {
+      return [
+        TABS[0],
+        { href: "/user/delay", label: "延误", icon: <IconClock /> },
+        TABS[2],
+        TABS[3],
+      ];
+    }
+    if (isDance) {
+      return [
+        TABS[0],
+        { href: "/user/rewards", label: "奖励", icon: <IconGift /> },
+        TABS[2],
+        TABS[3],
+      ];
+    }
+    return TABS;
+  }, [isMakeup, isDance]);
 
   // 仅在主 tab 页显示底部导航栏；二级页面（如设置）隐藏
   const showTabBar = tabs.some((tab) => pathname.startsWith(tab.href));
@@ -102,6 +116,9 @@ function IconChart() {
 }
 function IconClock() {
   return <IconBase><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></IconBase>;
+}
+function IconGift() {
+  return <IconBase><rect x="3" y="8" width="18" height="13" rx="2" /><path d="M3 12h18" /><path d="M12 8v13" /><path d="M12 8c-1.5 0-3-1-3-2.5S10 3 12 8Zm0 0c1.5 0 3-1 3-2.5S14 3 12 8Z" /></IconBase>;
 }
 function IconWallet() {
   return <IconBase><rect x="3" y="6" width="18" height="13" rx="2" /><path d="M3 10h18" /><circle cx="17" cy="14" r="1" /></IconBase>;

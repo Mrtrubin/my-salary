@@ -88,7 +88,14 @@ function readAdjustments(value: SalaryRecord["adjustments"]): PayrollAdjustment[
     ) {
       return [];
     }
-    return [{ name: entry.name, amountCents: entry.amountCents }];
+    return [
+      {
+        name: entry.name,
+        amountCents: entry.amountCents,
+        sourceDate: typeof entry.sourceDate === "string" ? entry.sourceDate : undefined,
+        sourceOperator: typeof entry.sourceOperator === "string" ? entry.sourceOperator : undefined,
+      },
+    ];
   });
 }
 
@@ -713,6 +720,12 @@ export default function PayrollPage() {
                                   <Flex key={index} gap={12}>
                                     <span style={{ maxWidth: 220, wordBreak: "break-word" }}>
                                       {adjustment.name || "未命名调整"}
+                                      {adjustment.sourceDate || adjustment.sourceOperator ? (
+                                        <Typography.Text type="secondary" style={{ display: "block", fontSize: 12 }}>
+                                          来源：{adjustment.sourceDate ?? "—"}
+                                          {adjustment.sourceOperator ? ` · 登记 ${adjustment.sourceOperator}` : ""}
+                                        </Typography.Text>
+                                      ) : null}
                                     </span>
                                     <span
                                       style={{
