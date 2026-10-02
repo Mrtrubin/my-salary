@@ -1,6 +1,6 @@
 "use client";
 
-import { App, Button, Card, Col, Empty, Flex, Row, Select, Tabs, Typography } from "antd";
+import { App, Button, Card, Col, Flex, Row, Select, Tabs, Typography } from "antd";
 import { DownloadOutlined } from "@ant-design/icons";
 import { useMemo, useState, type Key } from "react";
 import { PageHeader } from "@/components/admin/page-header";
@@ -24,9 +24,6 @@ import { formatBpsAsPercent, formatCentsToYuan, formatDateTime, formatDurationSe
 import { bpsToRatio, centsToYuanNumber, downloadExcel, fileStamp, type ExcelColumn } from "@/lib/excel";
 import { HostPayrollPanel } from "./HostPayrollPanel";
 import { StaffPayrollPanel } from "./StaffPayrollPanel";
-
-/** 使用「固定薪资 + 调整项」工资条的职位编码。 */
-const FIXED_SALARY_POSITIONS = new Set(["makeup", "dance", "executive", "camera", "hr"]);
 
 /** 状态变更历史时间轴（展开某条工资条时按需加载，精确到秒）。 */
 function StatusTimeline({ recordId }: { recordId: string }) {
@@ -740,16 +737,11 @@ export default function PayrollPage() {
               </>
             ) : position.code === "host" ? (
               <HostPayrollPanel operatorProfileId={operatorProfileId} />
-            ) : FIXED_SALARY_POSITIONS.has(position.code) ? (
+            ) : (
               <StaffPayrollPanel
                 positionCode={position.code}
                 positionName={position.name}
                 operatorProfileId={operatorProfileId}
-              />
-            ) : (
-              <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={`「${position.name}」暂未开放工资条`}
               />
             ),
         }))}

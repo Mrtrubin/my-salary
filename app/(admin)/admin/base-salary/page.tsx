@@ -7,57 +7,55 @@ import { PageHeader } from "@/components/admin/page-header";
 import { QueryMessage } from "@/components/admin/query-message";
 import { ResizableTable } from "@/components/admin/resizable-table";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
-import { useMembers, useSetStaffBaseIncome } from "@/lib/api/hooks";
+import { useMembers, usePositions, useSetStaffBaseIncome } from "@/lib/api/hooks";
 import type { Member } from "@/lib/api/data";
-import { STAFF_BASE_INCOME_COLUMN } from "@/lib/api/data";
+import { staffBaseIncomeOf } from "@/lib/api/data";
 import { formatCentsToYuan } from "@/lib/format";
-
-/** 支持「固定薪资 + 调整项」工资条的职位。 */
-const STAFF_POSITIONS = [
-  { code: "makeup", name: "化妆师" },
-  { code: "dance", name: "舞蹈老师" },
-  { code: "executive", name: "行政" },
-  { code: "camera", name: "运镜" },
-  { code: "hr", name: "人事" },
-];
-
-function baseIncomeOf(member: Member, positionCode: string): number {
-  const column = STAFF_BASE_INCOME_COLUMN[positionCode];
-  return column ? member[column] ?? 0 : 0;
-}
 
 interface Editing {
   id: string;
   name: string;
   positionCode: string;
+  positionId: number;
   /** 基础薪资（元）。 */
   baseIncome: number;
 }
 
 export default function BaseSalaryPage() {
   const members = useMembers();
+  const positions = usePositions();
   const update = useSetStaffBaseIncome();
-  const [positionCode, setPositionCode] = useState("makeup");
+  const [positionCode, setPositionCode] = useState<string>();
   const [editing, setEditing] = useState<Editing | null>(null);
   const [error, setError] = useState("");
 
-  const positionName = STAFF_POSITIONS.find((p) => p.code === positionCode)?.name ?? "成员";
+  // 支持「固定薪资 + 调整项」工资条的职位：除主播/主持（各自独立结算）外的全部职位。
+  const staffPositions = useMemo(
+    () => (positions.data ?? []).filter((item) => item.code !== "anchor" && item.code !== "host"),
+    [positions.data],
+  );
+  const effectiveCode = positionCode ?? staffPositions[0]?.code;
+  const position = staffPositions.find((item) => item.code === effectiveCode);
+  const positionId = position?.id;
+  const positionName = position?.name ?? "成员";
 
   const list = useMemo(
     () =>
       (members.data ?? []).filter(
-        (m) => m.status === "active" && m.user_positions.some((up) => up.position?.code === positionCode),
+        (m) => m.status === "active" && m.user_positions.some((up) => up.position?.code === effectiveCode),
       ),
-    [members.data, positionCode],
+    [members.data, effectiveCode],
   );
 
   function openEditor(member: Member) {
+    if (!position) return;
     setError("");
     setEditing({
       id: member.id,
       name: member.name,
-      positionCode,
-      baseIncome: baseIncomeOf(member, positionCode) / 100,
+      positionCode: position.code,
+      positionId: position.id,
+      baseIncome: staffBaseIncomeOf(member, position.id) / 100,
     });
   }
 
@@ -92,19 +90,20 @@ export default function BaseSalaryPage() {
           <Typography.Text>职位</Typography.Text>
           <Select
             style={{ minWidth: 180 }}
-            value={positionCode}
+            value={effectiveCode}
+            placeholder={positions.isLoading ? "加载中" : "暂无可用职位"}
             onChange={setPositionCode}
-            options={STAFF_POSITIONS.map((p) => ({ value: p.code, label: p.name }))}
+            options={staffPositions.map((p) => ({ value: p.code, label: p.name }))}
           />
         </Flex>
 
-        {members.error ? (
-          <QueryMessage loading={false} error={members.error} />
+        {positions.error || members.error ? (
+          <QueryMessage loading={false} error={positions.error ?? members.error} />
         ) : (
           <ResizableTable<Member>
             rowClassName={zebraRowClassName}
             rowKey="id"
-            loading={members.isLoading}
+            loading={members.isLoading || positions.isLoading}
             dataSource={list}
             locale={{ emptyText: `暂无${positionName}` }}
             columns={[
@@ -114,8 +113,8 @@ export default function BaseSalaryPage() {
                 key: "base_income",
                 align: "right",
                 width: 160,
-                sortValue: (record) => baseIncomeOf(record, positionCode),
-                render: (_, record) => formatCentsToYuan(baseIncomeOf(record, positionCode)),
+                sortValue: (record) => staffBaseIncomeOf(record, positionId),
+                render: (_, record) => formatCentsToYuan(staffBaseIncomeOf(record, positionId)),
               },
               {
                 title: "操作",
@@ -146,7 +145,7 @@ export default function BaseSalaryPage() {
         {editing ? (
           <Form layout="vertical">
             <FormField
-              label={`基础薪资（元）· ${STAFF_POSITIONS.find((p) => p.code === editing.positionCode)?.name ?? ""}`}
+              label={`基础薪资（元）· ${staffPositions.find((p) => p.id === editing.positionId)?.name ?? ""}`}
               hint="该成员固定基础薪资，来源：基础薪资管理-设置。"
             >
               <InputNumber

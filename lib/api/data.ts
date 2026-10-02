@@ -14,7 +14,11 @@ export type Position = Database["public"]["Tables"]["positions"]["Row"];
 export type SalaryScheme = Database["public"]["Tables"]["salary_schemes"]["Row"] & { profile: Pick<Profile, "name"> | null; position: Pick<Position, "name"> | null };
 export type SalaryRecord = Database["public"]["Tables"]["salary_records"]["Row"] & { profile: Pick<Profile, "name"> | null; position: Pick<Position, "code" | "name"> | null; team: Pick<Team, "id" | "name"> | null };
 export type SalaryStatusLog = Database["public"]["Tables"]["salary_record_status_logs"]["Row"] & { operator: Pick<Profile, "name"> | null };
-export type Member = Profile & { user_positions: { position: Position | null }[] };
+export type Member = Profile & {
+  user_positions: { position: Position | null }[];
+  /** 按 (成员, 职位) 存储的基础薪资（元=分），用于「固定薪资 + 调整项」工资条。 */
+  staff_base_incomes: { position_id: number; base_income_cents: number }[];
+};
 
 const settlementErrors: Record<string, string> = {
   INVALID_SETTLEMENT_PERIOD: "结算起止日期无效",
@@ -82,15 +86,21 @@ export async function getCurrentProfile(): Promise<Member | null> {
   const { data: session } = await supabase.auth.getSession();
   const userId = session.session?.user.id;
   if (!userId) return null;
-  const { data, error } = await supabase.from("profiles").select("*, user_positions(position:positions(*))").eq("auth_user_id", userId).maybeSingle();
+  const { data, error } = await supabase.from("profiles").select("*, user_positions(position:positions(*)), staff_base_incomes(position_id, base_income_cents)").eq("auth_user_id", userId).maybeSingle();
   if (error) fail(error);
   return data as Member | null;
 }
 
 export async function listMembers(): Promise<Member[]> {
-  const { data, error } = await getBrowserSupabase().from("profiles").select("*, user_positions(position:positions(*))").order("name");
+  const { data, error } = await getBrowserSupabase().from("profiles").select("*, user_positions(position:positions(*)), staff_base_incomes(position_id, base_income_cents)").order("name");
   if (error) fail(error);
-  return data as Member[];
+  return data as unknown as Member[];
+}
+
+/** 读取某成员在某职位下的基础薪资（分）；未设置时返回 0。 */
+export function staffBaseIncomeOf(member: Member | undefined, positionId: number | undefined): number {
+  if (!member || !positionId) return 0;
+  return member.staff_base_incomes?.find((item) => item.position_id === positionId)?.base_income_cents ?? 0;
 }
 
 export interface CreateMemberInput {
@@ -1515,15 +1525,6 @@ export async function setStaffBaseIncome(input: {
     fail(error);
   }
 }
-
-/** 职位基础薪资列名映射（管理页读取 profiles 对应字段）。 */
-export const STAFF_BASE_INCOME_COLUMN: Record<string, "makeup_base_income_cents" | "dance_base_income_cents" | "executive_base_income_cents" | "camera_base_income_cents" | "hr_base_income_cents"> = {
-  makeup: "makeup_base_income_cents",
-  dance: "dance_base_income_cents",
-  executive: "executive_base_income_cents",
-  camera: "camera_base_income_cents",
-  hr: "hr_base_income_cents",
-};
 
 /** 主播延误记录（含主播名 / 登记化妆师名）。 */
 export interface AnchorDelayRow {

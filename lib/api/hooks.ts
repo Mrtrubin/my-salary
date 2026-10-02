@@ -104,6 +104,20 @@ function invalidateRelatedQueries(client: QueryClient, queryKey: readonly string
   ]);
 }
 
+/** 职位增删改后，连带刷新所有内嵌/依赖职位名称或清单的查询，避免各页显示陈旧职位。 */
+function invalidatePositionQueries(client: QueryClient) {
+  return Promise.all([
+    client.invalidateQueries({ queryKey: keys.positions }),
+    client.invalidateQueries({ queryKey: keys.members }),
+    client.invalidateQueries({ queryKey: keys.schemes }),
+    client.invalidateQueries({ queryKey: keys.salary }),
+    client.invalidateQueries({ queryKey: keys.hostSchemes }),
+    client.invalidateQueries({ queryKey: keys.hostSalary }),
+    client.invalidateQueries({ queryKey: keys.staffSalary }),
+    invalidateSettlementQueries(client),
+  ]);
+}
+
 export function useCurrentProfile() {
   // hydration 安全：首次渲染（含 SSR）不读 localStorage，避免 server/client 不一致
   const [cached, setCached] = useState<Member | null>(null);
@@ -130,11 +144,11 @@ export function useMembers() { return useQuery({ queryKey: keys.members, queryFn
 export function usePositions() { return useQuery({ queryKey: keys.positions, queryFn: listPositions }); }
 export function useCreatePosition() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: createPosition, onSuccess: () => invalidateRelatedQueries(client, keys.positions) });
+  return useMutation({ mutationFn: createPosition, onSuccess: () => invalidatePositionQueries(client) });
 }
 export function useUpdatePosition() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: ({ id, ...input }: { id: number; code?: string; name?: string }) => updatePosition(id, input), onSuccess: () => invalidateRelatedQueries(client, keys.positions) });
+  return useMutation({ mutationFn: ({ id, ...input }: { id: number; code?: string; name?: string }) => updatePosition(id, input), onSuccess: () => invalidatePositionQueries(client) });
 }
 export function useTeamPerformance(range?: { start?: string; end?: string }) {
   return useQuery({

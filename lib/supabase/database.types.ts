@@ -163,11 +163,6 @@ export type Database = {
           hire_date: string
           id: string
           id_card: string | null
-          camera_base_income_cents: number
-          dance_base_income_cents: number
-          executive_base_income_cents: number
-          hr_base_income_cents: number
-          makeup_base_income_cents: number
           name: string
           phone: string
           status: Database["public"]["Enums"]["employment_status"]
@@ -185,11 +180,6 @@ export type Database = {
           hire_date: string
           id?: string
           id_card?: string | null
-          camera_base_income_cents?: number
-          dance_base_income_cents?: number
-          executive_base_income_cents?: number
-          hr_base_income_cents?: number
-          makeup_base_income_cents?: number
           name: string
           phone?: string
           status?: Database["public"]["Enums"]["employment_status"]
@@ -207,11 +197,6 @@ export type Database = {
           hire_date?: string
           id?: string
           id_card?: string | null
-          camera_base_income_cents?: number
-          dance_base_income_cents?: number
-          executive_base_income_cents?: number
-          hr_base_income_cents?: number
-          makeup_base_income_cents?: number
           name?: string
           phone?: string
           status?: Database["public"]["Enums"]["employment_status"]
@@ -840,6 +825,45 @@ export type Database = {
             columns: ["team_id"]
             isOneToOne: false
             referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      staff_base_incomes: {
+        Row: {
+          base_income_cents: number
+          id: number
+          position_id: number
+          profile_id: string
+          updated_at: string
+        }
+        Insert: {
+          base_income_cents?: number
+          id?: never
+          position_id: number
+          profile_id: string
+          updated_at?: string
+        }
+        Update: {
+          base_income_cents?: number
+          id?: never
+          position_id?: number
+          profile_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_base_incomes_position_id_fkey"
+            columns: ["position_id"]
+            isOneToOne: false
+            referencedRelation: "positions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_base_incomes_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]

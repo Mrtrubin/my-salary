@@ -18,7 +18,7 @@ import {
   useTransitionStaffSalaryStatus,
 } from "@/lib/api/hooks";
 import type { Member, StaffSalaryRecord } from "@/lib/api/data";
-import { STAFF_BASE_INCOME_COLUMN } from "@/lib/api/data";
+import { staffBaseIncomeOf } from "@/lib/api/data";
 import { getPresetRange } from "@/lib/domain/settlement/cycle";
 import type { PeriodRange } from "@/lib/domain/settlement/cycle";
 import { parseAdjustmentAmountYuan } from "@/lib/domain/payroll/adjustment";
@@ -46,11 +46,8 @@ function parseOptionalYuan(value: string): number | null {
   return parseAdjustmentAmountYuan(value);
 }
 
-function baseIncomeOf(member: Member | undefined, positionCode: string): number {
-  if (!member) return 0;
-  const column = STAFF_BASE_INCOME_COLUMN[positionCode];
-  if (!column) return 0;
-  return member[column] ?? 0;
+function baseIncomeOf(member: Member | undefined, positionId: number | undefined): number {
+  return staffBaseIncomeOf(member, positionId);
 }
 
 type StaffColumn = ResizableColumnType<StaffSalaryRecord> & ExcelColumn<StaffSalaryRecord>;
@@ -546,7 +543,7 @@ export function StaffPayrollPanel({
                     <Flex align="center" justify="space-between" gap={12}>
                       <Typography.Text strong>{member?.name ?? "成员"}</Typography.Text>
                       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                        基础薪资 {formatCentsToYuan(baseIncomeOf(member, positionCode))}
+                        基础薪资 {formatCentsToYuan(baseIncomeOf(member, positionId))}
                       </Typography.Text>
                     </Flex>
                     <Row gutter={12} style={{ marginTop: 8 }}>
