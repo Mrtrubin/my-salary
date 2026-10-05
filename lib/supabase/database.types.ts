@@ -391,8 +391,8 @@ export type Database = {
           effective_from: string
           id: string
           name: string
-          position_id: number | null
           profile_id: string | null
+          role_id: number | null
           service_fee_rate_bps: number
           status: Database["public"]["Enums"]["scheme_status"]
           version: number
@@ -405,8 +405,8 @@ export type Database = {
           effective_from: string
           id?: string
           name: string
-          position_id?: number | null
           profile_id?: string | null
+          role_id?: number | null
           service_fee_rate_bps?: number
           status?: Database["public"]["Enums"]["scheme_status"]
           version: number
@@ -419,25 +419,25 @@ export type Database = {
           effective_from?: string
           id?: string
           name?: string
-          position_id?: number | null
           profile_id?: string | null
+          role_id?: number | null
           service_fee_rate_bps?: number
           status?: Database["public"]["Enums"]["scheme_status"]
           version?: number
         }
         Relationships: [
           {
-            foreignKeyName: "host_salary_schemes_position_id_fkey"
-            columns: ["position_id"]
-            isOneToOne: false
-            referencedRelation: "positions"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "host_salary_schemes_profile_id_fkey"
             columns: ["profile_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "host_salary_schemes_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
             referencedColumns: ["id"]
           },
         ]
@@ -597,30 +597,6 @@ export type Database = {
         }
         Relationships: []
       }
-      positions: {
-        Row: {
-          code: string
-          created_at: string
-          default_permissions: string[]
-          id: number
-          name: string
-        }
-        Insert: {
-          code: string
-          created_at?: string
-          default_permissions?: string[]
-          id?: never
-          name: string
-        }
-        Update: {
-          code?: string
-          created_at?: string
-          default_permissions?: string[]
-          id?: never
-          name?: string
-        }
-        Relationships: []
-      }
       profile_change_requests: {
         Row: {
           batch_id: string
@@ -738,6 +714,30 @@ export type Database = {
         }
         Relationships: []
       }
+      roles: {
+        Row: {
+          code: string
+          created_at: string
+          default_permissions: string[]
+          id: number
+          name: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          default_permissions?: string[]
+          id?: never
+          name: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          default_permissions?: string[]
+          id?: never
+          name?: string
+        }
+        Relationships: []
+      }
       salary_record_status_logs: {
         Row: {
           created_at: string
@@ -816,11 +816,11 @@ export type Database = {
           performance_component_cents: number
           period_end: string
           period_start: string
-          position_id: number
           profile_id: string
           revenue_cents: number
           review_pending_at: string | null
           reviewed_by: string | null
+          role_id: number
           scheme_id: string | null
           service_fee_cents: number
           service_fee_rate_bps: number
@@ -856,11 +856,11 @@ export type Database = {
           performance_component_cents: number
           period_end: string
           period_start: string
-          position_id: number
           profile_id: string
           revenue_cents: number
           review_pending_at?: string | null
           reviewed_by?: string | null
+          role_id: number
           scheme_id?: string | null
           service_fee_cents: number
           service_fee_rate_bps?: number
@@ -896,11 +896,11 @@ export type Database = {
           performance_component_cents?: number
           period_end?: string
           period_start?: string
-          position_id?: number
           profile_id?: string
           revenue_cents?: number
           review_pending_at?: string | null
           reviewed_by?: string | null
+          role_id?: number
           scheme_id?: string | null
           service_fee_cents?: number
           service_fee_rate_bps?: number
@@ -926,13 +926,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "salary_records_position_id_fkey"
-            columns: ["position_id"]
-            isOneToOne: false
-            referencedRelation: "positions"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "salary_records_profile_id_fkey"
             columns: ["profile_id"]
             isOneToOne: false
@@ -944,6 +937,13 @@ export type Database = {
             columns: ["reviewed_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "salary_records_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
             referencedColumns: ["id"]
           },
           {
@@ -970,8 +970,8 @@ export type Database = {
           guaranteed_salary_cents: number
           id: string
           name: string
-          position_id: number | null
           profile_id: string | null
+          role_id: number | null
           service_fee_rate_bps: number
           status: Database["public"]["Enums"]["scheme_status"]
           threshold_multiplier_bps: number
@@ -984,8 +984,8 @@ export type Database = {
           guaranteed_salary_cents: number
           id?: string
           name: string
-          position_id?: number | null
           profile_id?: string | null
+          role_id?: number | null
           service_fee_rate_bps?: number
           status?: Database["public"]["Enums"]["scheme_status"]
           threshold_multiplier_bps?: number
@@ -998,8 +998,8 @@ export type Database = {
           guaranteed_salary_cents?: number
           id?: string
           name?: string
-          position_id?: number | null
           profile_id?: string | null
+          role_id?: number | null
           service_fee_rate_bps?: number
           status?: Database["public"]["Enums"]["scheme_status"]
           threshold_multiplier_bps?: number
@@ -1007,17 +1007,17 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "salary_schemes_position_id_fkey"
-            columns: ["position_id"]
-            isOneToOne: false
-            referencedRelation: "positions"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "salary_schemes_profile_id_fkey"
             columns: ["profile_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "salary_schemes_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
             referencedColumns: ["id"]
           },
         ]
@@ -1026,37 +1026,37 @@ export type Database = {
         Row: {
           base_income_cents: number
           id: number
-          position_id: number
           profile_id: string
+          role_id: number
           updated_at: string
         }
         Insert: {
           base_income_cents?: number
           id?: never
-          position_id: number
           profile_id: string
+          role_id: number
           updated_at?: string
         }
         Update: {
           base_income_cents?: number
           id?: never
-          position_id?: number
           profile_id?: string
+          role_id?: number
           updated_at?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "staff_base_incomes_position_id_fkey"
-            columns: ["position_id"]
-            isOneToOne: false
-            referencedRelation: "positions"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "staff_base_incomes_profile_id_fkey"
             columns: ["profile_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_base_incomes_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
             referencedColumns: ["id"]
           },
         ]
@@ -1130,11 +1130,11 @@ export type Database = {
           penalty_cents: number
           period_end: string
           period_start: string
-          position_id: number
           profile_id: string
           review_pending_at: string | null
           reviewed_by: string | null
           reward_cents: number
+          role_id: number
           status: Database["public"]["Enums"]["salary_record_status"]
           tax_cents: number
           updated_at: string
@@ -1156,11 +1156,11 @@ export type Database = {
           penalty_cents?: number
           period_end: string
           period_start: string
-          position_id: number
           profile_id: string
           review_pending_at?: string | null
           reviewed_by?: string | null
           reward_cents?: number
+          role_id: number
           status?: Database["public"]["Enums"]["salary_record_status"]
           tax_cents?: number
           updated_at?: string
@@ -1182,11 +1182,11 @@ export type Database = {
           penalty_cents?: number
           period_end?: string
           period_start?: string
-          position_id?: number
           profile_id?: string
           review_pending_at?: string | null
           reviewed_by?: string | null
           reward_cents?: number
+          role_id?: number
           status?: Database["public"]["Enums"]["salary_record_status"]
           tax_cents?: number
           updated_at?: string
@@ -1207,13 +1207,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "staff_salary_records_position_id_fkey"
-            columns: ["position_id"]
-            isOneToOne: false
-            referencedRelation: "positions"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "staff_salary_records_profile_id_fkey"
             columns: ["profile_id"]
             isOneToOne: false
@@ -1225,6 +1218,13 @@ export type Database = {
             columns: ["reviewed_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_salary_records_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
             referencedColumns: ["id"]
           },
         ]
@@ -1342,35 +1342,35 @@ export type Database = {
           },
         ]
       }
-      user_positions: {
+      user_roles: {
         Row: {
           created_at: string
-          position_id: number
           profile_id: string
+          role_id: number
         }
         Insert: {
           created_at?: string
-          position_id: number
           profile_id: string
+          role_id: number
         }
         Update: {
           created_at?: string
-          position_id?: number
           profile_id?: string
+          role_id?: number
         }
         Relationships: [
           {
-            foreignKeyName: "user_positions_position_id_fkey"
-            columns: ["position_id"]
-            isOneToOne: false
-            referencedRelation: "positions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "user_positions_profile_id_fkey"
+            foreignKeyName: "user_roles_profile_id_fkey"
             columns: ["profile_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_roles_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
             referencedColumns: ["id"]
           },
         ]
@@ -1402,11 +1402,7 @@ export type Database = {
         }
       }
       _anchor_effective_scheme: {
-        Args: {
-          p_period_end: string
-          p_position_id: number
-          p_profile_id: string
-        }
+        Args: { p_period_end: string; p_profile_id: string; p_role_id: number }
         Returns: {
           base_salary_cents: number
           created_at: string
@@ -1414,8 +1410,8 @@ export type Database = {
           guaranteed_salary_cents: number
           id: string
           name: string
-          position_id: number | null
           profile_id: string | null
+          role_id: number | null
           service_fee_rate_bps: number
           status: Database["public"]["Enums"]["scheme_status"]
           threshold_multiplier_bps: number
@@ -1475,8 +1471,8 @@ export type Database = {
           effective_from: string
           id: string
           name: string
-          position_id: number | null
           profile_id: string | null
+          role_id: number | null
           service_fee_rate_bps: number
           status: Database["public"]["Enums"]["scheme_status"]
           version: number
@@ -1635,7 +1631,7 @@ export type Database = {
         Returns: number
       }
       set_staff_base_income: {
-        Args: { p_cents: number; p_position_code: string; p_profile_id: string }
+        Args: { p_cents: number; p_profile_id: string; p_role_code: string }
         Returns: undefined
       }
       settle_anchor_revenue: {

@@ -3,7 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 
 /**
- * 管理员新增成员：一次性创建登录账号（auth.users）+ 成员资料（public.profiles）+ 职位关联。
+ * 管理员新增成员：一次性创建登录账号（auth.users）+ 成员资料（public.profiles）+ 角色关联。
  * - 仅允许 system_role = 'admin' 的登录用户调用（依据请求 JWT 校验）
  * - service role 绕过 RLS 写入
  * - 用户名允许 UTF-8（含中文），仅作展示与唯一标识
@@ -62,7 +62,7 @@ Deno.serve(async (req: Request) => {
     phone?: string;
     email?: string;
     hireDate?: string;
-    positionIds?: number[];
+    roleIds?: number[];
     idCard?: string;
     douyinId?: string;
   };
@@ -78,7 +78,7 @@ Deno.serve(async (req: Request) => {
   const phone = (payload.phone ?? "").trim();
   const email = (payload.email ?? "").trim().toLowerCase();
   const hireDate = (payload.hireDate ?? "").trim();
-  const positionIds = Array.isArray(payload.positionIds) ? payload.positionIds : [];
+  const roleIds = Array.isArray(payload.roleIds) ? payload.roleIds : [];
   const idCard = (payload.idCard ?? "").trim();
   const douyinId = (payload.douyinId ?? "").trim();
 
@@ -151,16 +151,16 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  // 关联职位（选填）
-  if (positionIds.length) {
+  // 关联角色（选填）
+  if (roleIds.length) {
     const { error: posError } = await admin
-      .from("user_positions")
-      .insert(positionIds.map((positionId) => ({ profile_id: profile.id, position_id: positionId })));
+      .from("user_roles")
+      .insert(roleIds.map((roleId) => ({ profile_id: profile.id, role_id: roleId })));
     if (posError) {
-      // 职位关联失败不阻断主流程，但回滚以保持一致性
+      // 角色关联失败不阻断主流程，但回滚以保持一致性
       await admin.from("profiles").delete().eq("id", profile.id);
       await admin.auth.admin.deleteUser(created.user.id);
-      return json({ code: "UNKNOWN", message: "关联职位失败，请稍后再试" }, 500);
+      return json({ code: "UNKNOWN", message: "关联角色失败，请稍后再试" }, 500);
     }
   }
 

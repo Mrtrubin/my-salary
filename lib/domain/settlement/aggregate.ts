@@ -1,6 +1,6 @@
 /**
  * 周期结算聚合（纯函数、可测）。
- * 给定人员岗位上下文与本人跨团流水，汇总周期收入并生成工资草稿。
+ * 给定人员角色上下文与本人跨团流水，汇总周期收入并生成工资草稿。
  * 数据读取、无绩效过滤及写入由调用方负责；本层不触库、无副作用。
  */
 import { calculateAnchorPayroll } from "@/lib/domain/payroll/anchor";
@@ -16,10 +16,10 @@ export interface SettlementPerfRow {
   createdAt?: string;
 }
 
-/** 成员结算上下文：工资方案 + 岗位 + 入职日期。 */
+/** 成员结算上下文：工资方案 + 角色 + 入职日期。 */
 export interface SettlementMemberContext {
   profileId: string;
-  positionId: number;
+  roleId: number;
   schemeId: string | null;
   /**
    * 工资方案。为 null 表示该成员尚未配置生效方案：
@@ -39,7 +39,7 @@ export interface SettlementMemberContext {
 /** 聚合产出：可 upsert 进 salary_records 的一条草稿。 */
 export interface SettlementDraft {
   profileId: string;
-  positionId: number;
+  roleId: number;
   schemeId: string | null;
   /** 是否已配置生效工资方案。false 时工资相关字段均为 0，仅 revenueCents 有效。 */
   hasScheme: boolean;
@@ -88,9 +88,9 @@ function periodMonth(periodStart: string): string {
 }
 
 /**
- * 按人员岗位生成周期结算草稿，收入汇总本人所有团队流水。
+ * 按人员角色生成周期结算草稿，收入汇总本人所有团队流水。
  * @param period 结算周期区间（含端点）
- * @param members 参与结算的成员上下文，由调用方保证人员岗位身份唯一
+ * @param members 参与结算的成员上下文，由调用方保证人员角色身份唯一
  * @param perfRows 已排除无绩效记录的跨团流水明细
  * @param serviceFeeRateBps 服务费率兜底值（方案未配置时使用，缺省走计算器内置 300 bps）
  */
@@ -120,7 +120,7 @@ export function aggregateSettlement(
     if (!member.scheme) {
       return {
         profileId: member.profileId,
-        positionId: member.positionId,
+        roleId: member.roleId,
         schemeId: member.schemeId,
         hasScheme: false,
         month,
@@ -153,7 +153,7 @@ export function aggregateSettlement(
     });
     return {
       profileId: member.profileId,
-      positionId: member.positionId,
+      roleId: member.roleId,
       schemeId: member.schemeId,
       hasScheme: true,
       month,

@@ -38,7 +38,7 @@ const NAV_ITEMS = [
   { href: "/admin/base-salary", label: "基础薪资管理", icon: <IdcardOutlined /> },
   { href: "/admin/teams", label: "团队管理", icon: <ApartmentOutlined /> },
   { href: "/admin/team-points", label: "绩效点管理", icon: <StarOutlined /> },
-  { href: "/admin/positions", label: "职位管理", icon: <IdcardOutlined /> },
+  { href: "/admin/roles", label: "角色管理", icon: <IdcardOutlined /> },
   { href: "/admin/schemes", label: "工资方案", icon: <FileTextOutlined /> },
   { href: "/admin/anchor-revenue", label: "主播流水", icon: <LineChartOutlined /> },
   { href: "/admin/host-revenue", label: "主持流水", icon: <LineChartOutlined /> },

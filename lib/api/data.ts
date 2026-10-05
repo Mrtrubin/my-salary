@@ -10,24 +10,24 @@ import type { HostSalaryScheme } from "@/lib/domain/payroll/host";
 
 export type SalaryRecordStatus = Database["public"]["Enums"]["salary_record_status"];
 export type Profile = Database["public"]["Tables"]["profiles"]["Row"];
-export type Position = Database["public"]["Tables"]["positions"]["Row"];
-export type SalaryScheme = Database["public"]["Tables"]["salary_schemes"]["Row"] & { profile: Pick<Profile, "name"> | null; position: Pick<Position, "name"> | null };
-export type SalaryRecord = Database["public"]["Tables"]["salary_records"]["Row"] & { profile: Pick<Profile, "name"> | null; position: Pick<Position, "code" | "name"> | null; team: Pick<Team, "id" | "name"> | null };
+export type Role = Database["public"]["Tables"]["roles"]["Row"];
+export type SalaryScheme = Database["public"]["Tables"]["salary_schemes"]["Row"] & { profile: Pick<Profile, "name"> | null; role: Pick<Role, "name"> | null };
+export type SalaryRecord = Database["public"]["Tables"]["salary_records"]["Row"] & { profile: Pick<Profile, "name"> | null; role: Pick<Role, "code" | "name"> | null; team: Pick<Team, "id" | "name"> | null };
 export type SalaryStatusLog = Database["public"]["Tables"]["salary_record_status_logs"]["Row"] & { operator: Pick<Profile, "name"> | null };
 export type Member = Profile & {
-  user_positions: { position: Position | null }[];
-  /** 按 (成员, 职位) 存储的基础薪资（元=分），用于「固定薪资 + 调整项」工资条。 */
-  staff_base_incomes: { position_id: number; base_income_cents: number }[];
+  user_roles: { role: Role | null }[];
+  /** 按 (成员, 角色) 存储的基础薪资（元=分），用于「固定薪资 + 调整项」工资条。 */
+  staff_base_incomes: { role_id: number; base_income_cents: number }[];
 };
 
 const settlementErrors: Record<string, string> = {
   INVALID_SETTLEMENT_PERIOD: "结算起止日期无效",
   INVALID_SALARY_PERIOD: "结算起止日期无效",
   INVALID_SETTLEMENT_MEMBERS: "结算名单格式无效",
-  DUPLICATE_SETTLEMENT_MEMBER_POSITION: "同一成员同一岗位不能重复结算",
+  DUPLICATE_SETTLEMENT_MEMBER_ROLE: "同一成员同一角色不能重复结算",
   SALARY_RECORD_NOT_PENDING_REVIEW: "工资已进入审核后续流程，不能覆盖",
   INVALID_SALARY_ADJUSTMENTS: "工资调整项格式无效",
-  SALARY_PERIOD_OVERLAP: "该成员岗位已有重叠周期工资，请先核对历史记录",
+  SALARY_PERIOD_OVERLAP: "该成员角色已有重叠周期工资，请先核对历史记录",
   SALARY_OVERLAP_COMPLETED: "所选区间与已完成的工资记录重叠，无法覆盖结算",
   HOST_SALARY_PERIOD_OVERLAP: "该主持已有重叠周期工资，请先核对历史记录",
   HOST_SALARY_OVERLAP_COMPLETED: "所选区间与已完成的主持工资记录重叠，无法覆盖结算",
@@ -65,8 +65,8 @@ async function readSettlementRows<T>(query: (from: number, to: number) => Promis
   }
 }
 
-export function settlementMemberKey(member: { profileId: string; positionId: number }): string {
-  return `${member.profileId}:${member.positionId}`;
+export function settlementMemberKey(member: { profileId: string; roleId: number }): string {
+  return `${member.profileId}:${member.roleId}`;
 }
 
 export function parseSalaryAdjustments(value: Json): PayrollAdjustment[] {
@@ -86,21 +86,21 @@ export async function getCurrentProfile(): Promise<Member | null> {
   const { data: session } = await supabase.auth.getSession();
   const userId = session.session?.user.id;
   if (!userId) return null;
-  const { data, error } = await supabase.from("profiles").select("*, user_positions(position:positions(*)), staff_base_incomes(position_id, base_income_cents)").eq("auth_user_id", userId).maybeSingle();
+  const { data, error } = await supabase.from("profiles").select("*, user_roles(role:roles(*)), staff_base_incomes(role_id, base_income_cents)").eq("auth_user_id", userId).maybeSingle();
   if (error) fail(error);
   return data as Member | null;
 }
 
 export async function listMembers(): Promise<Member[]> {
-  const { data, error } = await getBrowserSupabase().from("profiles").select("*, user_positions(position:positions(*)), staff_base_incomes(position_id, base_income_cents)").order("name");
+  const { data, error } = await getBrowserSupabase().from("profiles").select("*, user_roles(role:roles(*)), staff_base_incomes(role_id, base_income_cents)").order("name");
   if (error) fail(error);
   return data as unknown as Member[];
 }
 
-/** 读取某成员在某职位下的基础薪资（分）；未设置时返回 0。 */
-export function staffBaseIncomeOf(member: Member | undefined, positionId: number | undefined): number {
-  if (!member || !positionId) return 0;
-  return member.staff_base_incomes?.find((item) => item.position_id === positionId)?.base_income_cents ?? 0;
+/** 读取某成员在某角色下的基础薪资（分）；未设置时返回 0。 */
+export function staffBaseIncomeOf(member: Member | undefined, roleId: number | undefined): number {
+  if (!member || !roleId) return 0;
+  return member.staff_base_incomes?.find((item) => item.role_id === roleId)?.base_income_cents ?? 0;
 }
 
 export interface CreateMemberInput {
@@ -120,12 +120,12 @@ export interface CreateMemberInput {
   idCard?: string;
   /** 抖音号（选填，唯一）。 */
   douyinId?: string;
-  /** 职位 ID 列表（选填）。 */
-  positionIds?: number[];
+  /** 角色 ID 列表（选填）。 */
+  roleIds?: number[];
 }
 /**
  * 管理员新增成员：经 admin-create-member Edge Function（service role）：经 admin-create-member Edge Function（service role）
- * 一次性创建登录账号 + 成员资料 + 职位关联。普通客户端不可直接写 profiles。
+ * 一次性创建登录账号 + 成员资料 + 角色关联。普通客户端不可直接写 profiles。
  */
 export async function createMember(input: CreateMemberInput): Promise<{ id: string }> {
   const body = await invokeEdgeFunction<{ id?: string; message?: string }>("admin-create-member", {
@@ -137,7 +137,7 @@ export async function createMember(input: CreateMemberInput): Promise<{ id: stri
     idCard: input.idCard?.trim() ?? "",
     douyinId: input.douyinId?.trim() ?? "",
     hireDate: input.hireDate,
-    positionIds: input.positionIds ?? [],
+    roleIds: input.roleIds ?? [],
   }, {
     fallbackMessage: "新增成员失败",
     codeMessages: {
@@ -176,13 +176,13 @@ export interface UpdateMemberInput {
   douyinId?: string;
   /** 在职状态（选填）。 */
   status?: "active" | "disabled";
-  /** 职位 ID 列表（选填，传入即按全量覆盖）。 */
-  positionIds?: number[];
+  /** 角色 ID 列表（选填，传入即按全量覆盖）。 */
+  roleIds?: number[];
 }
 
 /**
  * 管理员编辑成员：经 admin-update-member Edge Function（service role）
- * 统一更新成员资料 + 职位关联 + 可选重置密码。未传字段保持不变。
+ * 统一更新成员资料 + 角色关联 + 可选重置密码。未传字段保持不变。
  */
 export interface UpdateAnchorSettingsInput {
   id: string;
@@ -234,7 +234,7 @@ export async function updateMember(input: UpdateMemberInput): Promise<{ id: stri
   if (input.idCard !== undefined) body.idCard = input.idCard.trim();
   if (input.douyinId !== undefined) body.douyinId = input.douyinId.trim();
   if (input.status !== undefined) body.status = input.status;
-  if (input.positionIds !== undefined) body.positionIds = input.positionIds;
+  if (input.roleIds !== undefined) body.roleIds = input.roleIds;
 
   const result = await invokeEdgeFunction<{ id?: string }>("admin-update-member", body, {
     fallbackMessage: "编辑成员失败",
@@ -249,23 +249,23 @@ export async function updateMember(input: UpdateMemberInput): Promise<{ id: stri
   return { id: result.id ?? input.id };
 }
 
-export async function listPositions(): Promise<Position[]> {
-  const { data, error } = await getBrowserSupabase().from("positions").select("*").order("id");
+export async function listRoles(): Promise<Role[]> {
+  const { data, error } = await getBrowserSupabase().from("roles").select("*").order("id");
   if (error) fail(error);
   return data;
 }
 
-export interface PositionInput {
-  /** 职位编码（必填，唯一，非空）。 */
+export interface RoleInput {
+  /** 角色编码（必填，唯一，非空）。 */
   code: string;
-  /** 职位名称（必填，唯一，非空）。 */
+  /** 角色名称（必填，唯一，非空）。 */
   name: string;
 }
 
-/** 管理员新增职位。 */
-export async function createPosition(input: PositionInput): Promise<Position> {
+/** 管理员新增角色。 */
+export async function createRole(input: RoleInput): Promise<Role> {
   const { data, error } = await getBrowserSupabase()
-    .from("positions")
+    .from("roles")
     .insert({ code: input.code.trim(), name: input.name.trim() })
     .select()
     .single();
@@ -273,12 +273,12 @@ export async function createPosition(input: PositionInput): Promise<Position> {
   return data;
 }
 
-/** 管理员编辑职位（code/name）。 */
-export async function updatePosition(id: number, input: Partial<PositionInput>): Promise<Position> {
-  const body: Database["public"]["Tables"]["positions"]["Update"] = {};
+/** 管理员编辑角色（code/name）。 */
+export async function updateRole(id: number, input: Partial<RoleInput>): Promise<Role> {
+  const body: Database["public"]["Tables"]["roles"]["Update"] = {};
   if (input.code !== undefined) body.code = input.code.trim();
   if (input.name !== undefined) body.name = input.name.trim();
-  const { data, error } = await getBrowserSupabase().from("positions").update(body).eq("id", id).select().single();
+  const { data, error } = await getBrowserSupabase().from("roles").update(body).eq("id", id).select().single();
   if (error) fail(error);
   return data;
 }
@@ -459,7 +459,7 @@ export async function replaceTeamPerformanceRecords(input: {
 }
 
 export async function listSchemes(): Promise<SalaryScheme[]> {
-  const { data, error } = await getBrowserSupabase().from("salary_schemes").select("*, profile:profiles(name), position:positions(name)").order("created_at", { ascending: false });
+  const { data, error } = await getBrowserSupabase().from("salary_schemes").select("*, profile:profiles(name), role:roles(name)").order("created_at", { ascending: false });
   if (error) fail(error);
   return data as unknown as SalaryScheme[];
 }
@@ -470,7 +470,7 @@ export async function createScheme(input: Database["public"]["Tables"]["salary_s
 }
 
 export async function listSalaryRecords(): Promise<SalaryRecord[]> {
-  const { data, error } = await getBrowserSupabase().from("salary_records").select("*, profile:profiles!salary_records_profile_id_fkey(name), position:positions(code, name), team:teams(id, name)").order("month", { ascending: false });
+  const { data, error } = await getBrowserSupabase().from("salary_records").select("*, profile:profiles!salary_records_profile_id_fkey(name), role:roles(code, name), team:teams(id, name)").order("month", { ascending: false });
   if (error) fail(error);
   return data as unknown as SalaryRecord[];
 }
@@ -515,7 +515,7 @@ export async function transitionSalaryStatus(
 }
 
 /**
- * 驳回并重算：按工资保存周期和岗位汇总本人跨团流水，保留并重新应用原调整项，
+ * 驳回并重算：按工资保存周期和角色汇总本人跨团流水，保留并重新应用原调整项，
  * 原地更新同一条记录并重置为 pending_review（无 reject_reason），插日志
  * (from=pending_review, to=pending_review, note 记录驳回重算)。
  */
@@ -524,7 +524,7 @@ export async function rejectAndRecompute(id: string, _options?: { operatorProfil
   const supabase = getBrowserSupabase();
   const { data: record, error: readError } = await supabase
     .from("salary_records")
-    .select("id, status, profile_id, position_id, scheme_id, period_start, period_end, adjustments, attendance_bonus_bps, dy_task_bonus_bps")
+    .select("id, status, profile_id, role_id, scheme_id, period_start, period_end, adjustments, attendance_bonus_bps, dy_task_bonus_bps")
     .eq("id", id)
     .single();
   if (readError) fail(readError);
@@ -547,7 +547,7 @@ export async function rejectAndRecompute(id: string, _options?: { operatorProfil
     if (msg.includes("SALARY_RECORD_NOT_FOUND")) throw new ApiError(ApiErrorCode.NOT_FOUND, "工资记录不存在");
     if (msg.includes("FORBIDDEN_TRANSITION")) throw new ApiError(ApiErrorCode.FORBIDDEN, "无权驳回重算");
     if (msg.includes("INVALID_TRANSITION")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "仅待审核工资条可驳回重算");
-    if (msg.includes("SALARY_SCHEME_MISSING")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "该成员岗位无周期内生效工资方案，无法重算");
+    if (msg.includes("SALARY_SCHEME_MISSING")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "该成员角色无周期内生效工资方案，无法重算");
     fail(rpcError);
   }
 }
@@ -902,10 +902,10 @@ async function getSettlementProfileIds(teamId: string | null, period?: PeriodRan
   });
   const ids = new Set([...memberships, ...revenues].map((r) => r.profile_id));
   if (!teamId) {
-    const anchors = await readSettlementRows((from, to) => supabase.from("user_positions")
-      .select("profile_id, position:positions!inner(code), profile:profiles!inner(hire_date)")
-      .eq("position.code", "anchor").lte("profile.hire_date", period?.end ?? "9999-12-31")
-      .order("profile_id").order("position_id").range(from, to));
+    const anchors = await readSettlementRows((from, to) => supabase.from("user_roles")
+      .select("profile_id, role:roles!inner(code), profile:profiles!inner(hire_date)")
+      .eq("role.code", "anchor").lte("profile.hire_date", period?.end ?? "9999-12-31")
+      .order("profile_id").order("role_id").range(from, to));
     for (const row of anchors) ids.add(row.profile_id);
   }
   return [...ids];
@@ -961,7 +961,7 @@ async function readProfileRevenue(profileIds: string[], period: PeriodRange): Pr
 }
 
 /**
- * 拉取系统或团队名单在指定周期内的主播岗位、有效方案与名称映射。
+ * 拉取系统或团队名单在指定周期内的主播角色、有效方案与名称映射。
  * 团队仅筛名单，供前端结合本人跨团流水实时试算（不落库）。
  * 无生效方案仍返回成员用于展示流水，但不允许结算。
  */
@@ -969,9 +969,9 @@ export async function getAnchorSettlementContexts(teamId: string | null, period:
   const supabase = getBrowserSupabase();
 
   const profileIds = await getSettlementProfileIds(teamId, period);
-  const { data: anchorPosition, error: positionError } = await supabase.from("positions").select("id").eq("code", "anchor").maybeSingle();
-  if (positionError) fail(positionError);
-  if (!anchorPosition) throw new ApiError(ApiErrorCode.INVALID_INPUT, "未配置主播岗位，无法生成结算名单");
+  const { data: anchorRole, error: roleError } = await supabase.from("roles").select("id").eq("code", "anchor").maybeSingle();
+  if (roleError) fail(roleError);
+  if (!anchorRole) throw new ApiError(ApiErrorCode.INVALID_INPUT, "未配置主播角色，无法生成结算名单");
   const members: SettlementMemberContext[] = [];
   const profileNames: Record<string, string> = {};
   for (let i = 0; i < profileIds.length; i += 100) {
@@ -982,7 +982,7 @@ export async function getAnchorSettlementContexts(teamId: string | null, period:
       profileNames[p.id] = p.name;
       return {
         profileId: p.id,
-        positionId: anchorPosition.id,
+        roleId: anchorRole.id,
         hireDate: p.hire_date,
         anchorType: p.anchor_type,
         baseCommissionRateBps: p.anchor_base_commission_bps,
@@ -993,44 +993,44 @@ export async function getAnchorSettlementContexts(teamId: string | null, period:
   return { members, profileNames };
 }
 
-/** 试算、结算、重算共用：个人有效方案优先，其次同岗位模板；上期达标跨团。 */
+/** 试算、结算、重算共用：个人有效方案优先，其次同角色模板；上期达标跨团。 */
 async function loadSettlementContexts(
-  identities: Pick<SettlementMemberContext, "profileId" | "positionId" | "hireDate" | "anchorType" | "baseCommissionRateBps">[],
+  identities: Pick<SettlementMemberContext, "profileId" | "roleId" | "hireDate" | "anchorType" | "baseCommissionRateBps">[],
   period: PeriodRange,
 ): Promise<SettlementMemberContext[]> {
   if (!identities.length) return [];
   const supabase = getBrowserSupabase();
   const profileIds = [...new Set(identities.map((m) => m.profileId))];
-  const positionIds = [...new Set(identities.map((m) => m.positionId))];
+  const roleIds = [...new Set(identities.map((m) => m.roleId))];
   const schemes = await readSettlementRows((from, to) => supabase.from("salary_schemes")
-    .select("*").in("position_id", positionIds)
+    .select("*").in("role_id", roleIds)
     .or(`profile_id.is.null,profile_id.in.(${profileIds.join(",")})`)
     .eq("status", "active")
     .order("effective_from", { ascending: false }).order("version", { ascending: false }).order("id")
     .range(from, to));
   const previous = await readSettlementRows((from, to) => supabase.from("salary_records")
-    .select("id, profile_id, position_id, is_qualified, period_end")
-    .in("profile_id", profileIds).in("position_id", positionIds).lt("period_end", period.start)
+    .select("id, profile_id, role_id, is_qualified, period_end")
+    .in("profile_id", profileIds).in("role_id", roleIds).lt("period_end", period.start)
     .order("period_end", { ascending: false }).order("id").range(from, to));
   const personal = new Map<string, typeof schemes[number]>();
   const templates = new Map<number, typeof schemes[number]>();
   for (const scheme of schemes) {
-    if (scheme.position_id === null) continue;
+    if (scheme.role_id === null) continue;
     if (scheme.profile_id === null) {
-      if (!templates.has(scheme.position_id)) templates.set(scheme.position_id, scheme);
+      if (!templates.has(scheme.role_id)) templates.set(scheme.role_id, scheme);
     } else {
-      const key = settlementMemberKey({ profileId: scheme.profile_id, positionId: scheme.position_id });
+      const key = settlementMemberKey({ profileId: scheme.profile_id, roleId: scheme.role_id });
       if (!personal.has(key)) personal.set(key, scheme);
     }
   }
   const qualified = new Map<string, boolean>();
   for (const record of previous) {
-    const key = settlementMemberKey({ profileId: record.profile_id, positionId: record.position_id });
+    const key = settlementMemberKey({ profileId: record.profile_id, roleId: record.role_id });
     if (!qualified.has(key)) qualified.set(key, record.is_qualified);
   }
   const unique = new Map(identities.map((m) => [settlementMemberKey(m), m]));
   return [...unique].map(([key, identity]) => {
-    const scheme = personal.get(key) ?? templates.get(identity.positionId);
+    const scheme = personal.get(key) ?? templates.get(identity.roleId);
     return {
       ...identity,
       schemeId: scheme?.id ?? null,
@@ -1045,10 +1045,10 @@ async function loadSettlementContexts(
   });
 }
 
-/** 单个主播岗位的结算入参与本次调整项。 */
+/** 单个主播角色的结算入参与本次调整项。 */
 export interface AnchorSettleMember {
   profileId: string;
-  positionId: number;
+  roleId: number;
   attendanceBonusBps?: number;
   dyTaskBonusBps?: number;
   adjustments?: PayrollAdjustment[];
@@ -1068,16 +1068,16 @@ export async function settleAnchorRevenue(input: { teamId: string | null; period
   if (!input.members.length) throw new ApiError(ApiErrorCode.INVALID_INPUT, "请至少勾选一名主播");
   const selectedKeys = new Set(input.members.map(settlementMemberKey));
   if (selectedKeys.size !== input.members.length) {
-    throw new ApiError(ApiErrorCode.INVALID_INPUT, "同一成员同一岗位不能重复结算");
+    throw new ApiError(ApiErrorCode.INVALID_INPUT, "同一成员同一角色不能重复结算");
   }
   const supabase = getBrowserSupabase();
 
-  // 团队只约束可选名单，身份始终为成员 + 岗位。
+  // 团队只约束可选名单，身份始终为成员 + 角色。
   const { members: allContexts } = await getAnchorSettlementContexts(input.teamId, input.period);
   const contexts = allContexts.filter((c) => selectedKeys.has(settlementMemberKey(c)) && c.scheme !== null);
   const contextsByKey = new Map(contexts.map((c) => [settlementMemberKey(c), c]));
   if (input.members.some((m) => !contextsByKey.has(settlementMemberKey(m)))) {
-    throw new ApiError(ApiErrorCode.INVALID_INPUT, "部分主播不在当前名单、岗位不匹配或缺少生效工资方案，无法结算");
+    throw new ApiError(ApiErrorCode.INVALID_INPUT, "部分主播不在当前名单、角色不匹配或缺少生效工资方案，无法结算");
   }
 
   // 仅校验已选人员在名单且有生效方案；金额一律由数据库权威重算，前端不再传任何计算结果。
@@ -1094,7 +1094,7 @@ export async function settleAnchorRevenue(input: { teamId: string | null; period
     } = membersByKey.get(key)!;
     return {
       profileId: context.profileId,
-      positionId: context.positionId,
+      roleId: context.roleId,
       attendanceBonusBps,
       dyTaskBonusBps,
       adjustments: adjustments.map((a) => ({
@@ -1130,7 +1130,7 @@ export async function settleAnchorRevenue(input: { teamId: string | null; period
 
 export type HostSalarySchemeRow = Database["public"]["Tables"]["host_salary_schemes"]["Row"] & {
   profile: Pick<Profile, "name"> | null;
-  position: Pick<Position, "name"> | null;
+  role: Pick<Role, "name"> | null;
 };
 export type HostSalaryRecord = Database["public"]["Tables"]["host_salary_records"]["Row"] & {
   host: Pick<Profile, "name"> | null;
@@ -1168,7 +1168,7 @@ export interface HostSettleMember {
 export async function listHostSchemes(): Promise<HostSalarySchemeRow[]> {
   const { data, error } = await getBrowserSupabase()
     .from("host_salary_schemes")
-    .select("*, profile:profiles(name), position:positions(name)")
+    .select("*, profile:profiles(name), role:roles(name)")
     .order("created_at", { ascending: false });
   if (error) fail(error);
   return data as unknown as HostSalarySchemeRow[];
@@ -1189,21 +1189,21 @@ export async function listHostSalaryRecords(): Promise<HostSalaryRecord[]> {
 }
 
 /**
- * 主持结算上下文：主持岗位成员 ∪ 周期内出现过的录入主持，
+ * 主持结算上下文：主持角色成员 ∪ 周期内出现过的录入主持，
  * 跨团队汇总团总流水/直播时长，并给出团队明细分项与生效主持方案。
  */
 export async function getHostSettlementContexts(period: PeriodRange): Promise<HostSettlementContext[]> {
   const supabase = getBrowserSupabase();
 
-  // 主持岗位成员。
-  const positionRows = await readSettlementRows((from, to) => supabase
-    .from("user_positions")
-    .select("profile_id, position:positions!inner(code), profile:profiles!inner(name)")
-    .eq("position.code", "host")
-    .order("profile_id").order("position_id").range(from, to));
-  const hostIds = new Set(positionRows.map((r) => r.profile_id));
+  // 主持角色成员。
+  const roleRows = await readSettlementRows((from, to) => supabase
+    .from("user_roles")
+    .select("profile_id, role:roles!inner(code), profile:profiles!inner(name)")
+    .eq("role.code", "host")
+    .order("profile_id").order("role_id").range(from, to));
+  const hostIds = new Set(roleRows.map((r) => r.profile_id));
   const names: Record<string, string> = {};
-  for (const row of positionRows) names[row.profile_id] = row.profile.name;
+  for (const row of roleRows) names[row.profile_id] = row.profile.name;
 
   // 周期内所有录入主持的流水，按 主持 × 团队 聚合。
   // 直播时长口径：接口返回的是「团队当日总直播时长」，上传时写入当天每个匹配主播
@@ -1379,7 +1379,7 @@ export async function listHostSalaryStatusLogs(salaryRecordId: string): Promise<
 
 export type StaffSalaryRecord = Database["public"]["Tables"]["staff_salary_records"]["Row"] & {
   profile: Pick<Profile, "name"> | null;
-  position: Pick<Position, "code" | "name"> | null;
+  role: Pick<Role, "code" | "name"> | null;
 };
 export type StaffSalaryStatusLog = Database["public"]["Tables"]["staff_salary_record_status_logs"]["Row"] & {
   operator: Pick<Profile, "name"> | null;
@@ -1388,7 +1388,7 @@ export type StaffSalaryStatusLog = Database["public"]["Tables"]["staff_salary_re
 /** 新增固定薪资工资条的单项入参（金额单位：分）。 */
 export interface StaffSalaryCreateItem {
   profileId: string;
-  positionId: number;
+  roleId: number;
   /** 总违约（≤0）。 */
   penaltyCents: number;
   /** 总奖励（≥0）。 */
@@ -1402,24 +1402,24 @@ export interface StaffSalaryCreateItem {
 export async function listStaffSalaryRecords(): Promise<StaffSalaryRecord[]> {
   const { data, error } = await getBrowserSupabase()
     .from("staff_salary_records")
-    .select("*, profile:profiles!staff_salary_records_profile_id_fkey(name), position:positions(code, name)")
+    .select("*, profile:profiles!staff_salary_records_profile_id_fkey(name), role:roles(code, name)")
     .order("month", { ascending: false });
   if (error) fail(error);
   return data as unknown as StaffSalaryRecord[];
 }
 
 /**
- * 管理员新增/覆盖固定薪资工资条：仅传成员 + 职位 + 总违约 + 总奖励 + 个税，
- * 基础薪资由数据库按职位从 profiles 对应列快照并权威计算合计与到手。
+ * 管理员新增/覆盖固定薪资工资条：仅传成员 + 角色 + 总违约 + 总奖励 + 个税，
+ * 基础薪资由数据库按角色从 profiles 对应列快照并权威计算合计与到手。
  */
 export async function createStaffSalaryRecords(input: {
   period: PeriodRange;
   records: StaffSalaryCreateItem[];
 }): Promise<{ settledRecords: number }> {
   if (!input.records.length) throw new ApiError(ApiErrorCode.INVALID_INPUT, "请至少选择一位成员");
-  const keys = new Set(input.records.map((record) => `${record.profileId}:${record.positionId}`));
+  const keys = new Set(input.records.map((record) => `${record.profileId}:${record.roleId}`));
   if (keys.size !== input.records.length) {
-    throw new ApiError(ApiErrorCode.INVALID_INPUT, "同一成员同一职位不能重复新增记录");
+    throw new ApiError(ApiErrorCode.INVALID_INPUT, "同一成员同一角色不能重复新增记录");
   }
   const supabase = getBrowserSupabase();
   const { data, error } = await retrySettlement(() => supabase.rpc("create_staff_salary_records", {
@@ -1427,7 +1427,7 @@ export async function createStaffSalaryRecords(input: {
     p_period_end: input.period.end,
     p_records: input.records.map((record) => ({
       profileId: record.profileId,
-      positionId: record.positionId,
+      roleId: record.roleId,
       penaltyCents: record.penaltyCents,
       rewardCents: record.rewardCents,
       taxCents: record.taxCents,
@@ -1440,11 +1440,11 @@ export async function createStaffSalaryRecords(input: {
       throw new ApiError(ApiErrorCode.FORBIDDEN, "无权新增工资条");
     }
     if (
-      msg.includes("INVALID_STAFF_POSITION") ||
-      msg.includes("MEMBER_POSITION_MISMATCH") ||
-      msg.includes("UNSUPPORTED_POSITION")
+      msg.includes("INVALID_STAFF_ROLE") ||
+      msg.includes("MEMBER_ROLE_MISMATCH") ||
+      msg.includes("UNSUPPORTED_ROLE")
     ) {
-      throw new ApiError(ApiErrorCode.INVALID_INPUT, "所选成员或职位不支持该工资条");
+      throw new ApiError(ApiErrorCode.INVALID_INPUT, "所选成员或角色不支持该工资条");
     }
     if (msg.includes("SALARY_RECORD_NOT_PENDING_REVIEW")) {
       throw new ApiError(ApiErrorCode.INVALID_INPUT, "该成员所选周期的记录已进入审核后续流程，不能覆盖");
@@ -1505,10 +1505,10 @@ export async function listStaffSalaryStatusLogs(salaryRecordId: string): Promise
   return data as unknown as StaffSalaryStatusLog[];
 }
 
-/** 管理员设置某成员某职位的基础薪资（写 profiles 对应职位列）。 */
+/** 管理员设置某成员某角色的基础薪资（写 profiles 对应角色列）。 */
 export async function setStaffBaseIncome(input: {
   profileId: string;
-  positionCode: string;
+  roleCode: string;
   baseIncomeInCents: number;
 }): Promise<void> {
   if (!Number.isInteger(input.baseIncomeInCents) || input.baseIncomeInCents < 0) {
@@ -1516,7 +1516,7 @@ export async function setStaffBaseIncome(input: {
   }
   const { error } = await getBrowserSupabase().rpc("set_staff_base_income", {
     p_profile_id: input.profileId,
-    p_position_code: input.positionCode,
+    p_role_code: input.roleCode,
     p_cents: input.baseIncomeInCents,
   });
   if (error) {
@@ -1524,8 +1524,8 @@ export async function setStaffBaseIncome(input: {
     if (msg.includes("ADMIN_REQUIRED") || msg.includes("FORBIDDEN")) {
       throw new ApiError(ApiErrorCode.FORBIDDEN, "无权设置基础薪资");
     }
-    if (msg.includes("UNSUPPORTED_POSITION")) {
-      throw new ApiError(ApiErrorCode.INVALID_INPUT, "该职位不支持设置基础薪资");
+    if (msg.includes("UNSUPPORTED_ROLE")) {
+      throw new ApiError(ApiErrorCode.INVALID_INPUT, "该角色不支持设置基础薪资");
     }
     fail(error);
   }

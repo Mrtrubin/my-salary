@@ -8,36 +8,36 @@ import { PageHeader } from "@/components/admin/page-header";
 import { QueryMessage } from "@/components/admin/query-message";
 import { ResizableTable } from "@/components/admin/resizable-table";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
-import { useCreatePosition, useMembers, usePositions, useUpdatePosition } from "@/lib/api/hooks";
-import type { Position } from "@/lib/api/data";
+import { useCreateRole, useMembers, useRoles, useUpdateRole } from "@/lib/api/hooks";
+import type { Role } from "@/lib/api/data";
 
 type FormValues = { code: string; name: string };
 
-/** 编辑职位弹窗。 */
-function EditPositionDialog({ position, onClose }: { position: Position; onClose: () => void }) {
-  const update = useUpdatePosition();
+/** 编辑角色弹窗。 */
+function EditRoleDialog({ role, onClose }: { role: Role; onClose: () => void }) {
+  const update = useUpdateRole();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const {
     control,
     handleSubmit,
     formState: { errors },
   } = useForm<FormValues>({
-    defaultValues: { code: position.code, name: position.name },
+    defaultValues: { code: role.code, name: role.name },
   });
 
   async function submit(values: FormValues) {
     setErrorMsg(null);
     try {
-      await update.mutateAsync({ id: position.id, code: values.code, name: values.name });
+      await update.mutateAsync({ id: role.id, code: values.code, name: values.name });
       onClose();
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "编辑职位失败，请稍后再试");
+      setErrorMsg(err instanceof Error ? err.message : "编辑角色失败，请稍后再试");
     }
   }
 
   return (
     <Modal
-      title={`编辑职位 · ${position.name}`}
+      title={`编辑角色 · ${role.name}`}
       open
       onCancel={onClose}
       onOk={handleSubmit(submit)}
@@ -50,8 +50,8 @@ function EditPositionDialog({ position, onClose }: { position: Position; onClose
         <Row gutter={16}>
           <Col span={12}>
             <FormField
-              label="职位编码"
-              error={errors.code ? "请填写职位编码" : undefined}
+              label="角色编码"
+              error={errors.code ? "请填写角色编码" : undefined}
               required
             >
               <Controller
@@ -64,8 +64,8 @@ function EditPositionDialog({ position, onClose }: { position: Position; onClose
           </Col>
           <Col span={12}>
             <FormField
-              label="职位名称"
-              error={errors.name ? "请填写职位名称" : undefined}
+              label="角色名称"
+              error={errors.name ? "请填写角色名称" : undefined}
               required
             >
               <Controller
@@ -83,13 +83,13 @@ function EditPositionDialog({ position, onClose }: { position: Position; onClose
   );
 }
 
-export default function PositionsPage() {
-  const positions = usePositions();
+export default function RolesPage() {
+  const roles = useRoles();
   const members = useMembers();
-  const create = useCreatePosition();
+  const create = useCreateRole();
 
   const [show, setShow] = useState(false);
-  const [editing, setEditing] = useState<Position | null>(null);
+  const [editing, setEditing] = useState<Role | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const {
     control,
@@ -100,11 +100,11 @@ export default function PositionsPage() {
     defaultValues: { code: "", name: "" },
   });
 
-  const countByPosition = useMemo(() => {
+  const countByRole = useMemo(() => {
     const map = new Map<number, number>();
     members.data?.forEach((member) => {
-      member.user_positions.forEach((item) => {
-        if (item.position) map.set(item.position.id, (map.get(item.position.id) ?? 0) + 1);
+      member.user_roles.forEach((item) => {
+        if (item.role) map.set(item.role.id, (map.get(item.role.id) ?? 0) + 1);
       });
     });
     return map;
@@ -117,15 +117,15 @@ export default function PositionsPage() {
       reset();
       setShow(false);
     } catch (err) {
-      setCreateError(err instanceof Error ? err.message : "新建职位失败，请稍后再试");
+      setCreateError(err instanceof Error ? err.message : "新建角色失败，请稍后再试");
     }
   }
 
   return (
     <>
       <PageHeader
-        title="职位管理"
-        description="管理职位；职位编码与名称需唯一"
+        title="角色管理"
+        description="管理角色；角色编码与名称需唯一"
         action={
           <Button
             type="primary"
@@ -134,19 +134,19 @@ export default function PositionsPage() {
               setShow(!show);
             }}
           >
-            {show ? "收起" : "+ 新建职位"}
+            {show ? "收起" : "+ 新建角色"}
           </Button>
         }
       />
 
       {show ? (
-        <Card title="新建职位" style={{ marginBottom: 16 }}>
+        <Card title="新建角色" style={{ marginBottom: 16 }}>
           <Form layout="vertical" onFinish={handleSubmit(submitCreate)} style={{ maxWidth: 720 }}>
             <Row gutter={16}>
               <Col xs={24} md={12}>
                 <FormField
-                  label="职位编码"
-                  error={errors.code ? "请填写职位编码" : undefined}
+                  label="角色编码"
+                  error={errors.code ? "请填写角色编码" : undefined}
                   required
                 >
                   <Controller
@@ -159,8 +159,8 @@ export default function PositionsPage() {
               </Col>
               <Col xs={24} md={12}>
                 <FormField
-                  label="职位名称"
-                  error={errors.name ? "请填写职位名称" : undefined}
+                  label="角色名称"
+                  error={errors.name ? "请填写角色名称" : undefined}
                   required
                 >
                   <Controller
@@ -184,18 +184,18 @@ export default function PositionsPage() {
       ) : null}
 
       <Card>
-        {positions.error || members.error ? (
-          <QueryMessage loading={false} error={positions.error ?? members.error} />
+        {roles.error || members.error ? (
+          <QueryMessage loading={false} error={roles.error ?? members.error} />
         ) : (
-          <ResizableTable<Position>
+          <ResizableTable<Role>
             rowClassName={zebraRowClassName}
             rowKey="id"
-            loading={positions.isLoading || members.isLoading}
-            dataSource={positions.data ?? []}
-            locale={{ emptyText: "暂无职位" }}
+            loading={roles.isLoading || members.isLoading}
+            dataSource={roles.data ?? []}
+            locale={{ emptyText: "暂无角色" }}
             columns={[
               {
-                title: "职位",
+                title: "角色",
                 dataIndex: "name",
                 width: 160,
                 render: (value: string) => <Typography.Text strong>{value}</Typography.Text>,
@@ -211,8 +211,8 @@ export default function PositionsPage() {
                 key: "member_count",
                 align: "right",
                 width: 120,
-                sortValue: (record) => countByPosition.get(record.id) ?? 0,
-                render: (_, record) => `${countByPosition.get(record.id) ?? 0} 人`,
+                sortValue: (record) => countByRole.get(record.id) ?? 0,
+                render: (_, record) => `${countByRole.get(record.id) ?? 0} 人`,
               },
               {
                 title: "操作",
@@ -229,7 +229,7 @@ export default function PositionsPage() {
         )}
       </Card>
 
-      {editing ? <EditPositionDialog position={editing} onClose={() => setEditing(null)} /> : null}
+      {editing ? <EditRoleDialog role={editing} onClose={() => setEditing(null)} /> : null}
     </>
   );
 }

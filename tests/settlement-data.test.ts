@@ -84,7 +84,7 @@ const membership = (profileId: string, extra: Row = {}): Row => ({
 });
 const profile = (id: string): Row => ({ id, name: id, hire_date: "2026-01-01" });
 const scheme = (id: string, profileId: string | null, extra: Row = {}): Row => ({
-  id, profile_id: profileId, position_id: 7, status: "active", effective_from: "2026-01-01",
+  id, profile_id: profileId, role_id: 7, status: "active", effective_from: "2026-01-01",
   version: 1, base_salary_cents: 800000, guaranteed_salary_cents: 500000,
   threshold_multiplier_bps: 26500, ...extra,
 });
@@ -93,7 +93,7 @@ const revenue = (id: string, extra: Row = {}): Row => ({
   broadcast_minutes: 60, no_perf: false, no_perf_note: null, created_at: "2026-04-10T12:00:00Z",
   team: { name: "团队" }, point: { name: "绩效点" }, profile: { name: "主播" }, ...extra,
 });
-const input = () => ({ teamId: null, period, members: [{ profileId: "p1", positionId: 7 }] });
+const input = () => ({ teamId: null, period, members: [{ profileId: "p1", roleId: 7 }] });
 const queried = (table: string, method: string) => queries.filter((q) => q.table === table)
   .flatMap((q) => q.operations.filter((op) => op.method === method).map((op) => op.args));
 
@@ -102,7 +102,7 @@ beforeEach(() => {
   queries = [];
   tables = {
     team_members: [membership("p1")], anchor_revenue_records: [revenue("a"), revenue("b", { team_id: "t2" })],
-    user_positions: [], profiles: [profile("p1")], positions: [{ id: 7, code: "anchor" }],
+    user_roles: [], profiles: [profile("p1")], roles: [{ id: 7, code: "anchor" }],
     salary_schemes: [scheme("template", null)], salary_records: [],
   };
   client.from.mockImplementation(makeQuery);
@@ -126,15 +126,15 @@ describe("结算名单与跨团读取", () => {
     tables.team_members = [membership("historical", { left_at: period.start }),
       membership("expired", { left_at: "2026-03-31" }), membership("future", { joined_at: "2026-05-01" })];
     tables.anchor_revenue_records = [revenue("departed", { profile_id: "departed" })];
-    tables.user_positions = [
-      { profile_id: "solo", position_id: 7, position: { code: "anchor" }, profile: { hire_date: period.end } },
-      { profile_id: "host", position_id: 2, position: { code: "host" }, profile: { hire_date: period.start } },
-      { profile_id: "new", position_id: 7, position: { code: "anchor" }, profile: { hire_date: "2026-05-01" } },
+    tables.user_roles = [
+      { profile_id: "solo", role_id: 7, role: { code: "anchor" }, profile: { hire_date: period.end } },
+      { profile_id: "host", role_id: 2, role: { code: "host" }, profile: { hire_date: period.start } },
+      { profile_id: "new", role_id: 7, role: { code: "anchor" }, profile: { hire_date: "2026-05-01" } },
     ];
     tables.profiles = ["historical", "departed", "solo", "expired", "future", "host", "new"].map(profile);
     const { members } = await getAnchorSettlementContexts(null, period);
     expect(members.map((m) => m.profileId).sort()).toEqual(["departed", "historical", "solo"]);
-    expect(members.every((m) => m.positionId === 7)).toBe(true);
+    expect(members.every((m) => m.roleId === 7)).toBe(true);
   });
 
   it("完整读取超过 500 条流水，超过 100 人分批且稳定合并", async () => {
@@ -150,7 +150,7 @@ describe("结算名单与跨团读取", () => {
   });
 });
 
-describe("方案与人岗位上下文", () => {
+describe("方案与人角色上下文", () => {
   it("个人方案优先且不再按生效日期过滤，取最新一条；其他成员回退模板", async () => {
     tables.team_members.push(membership("p2"));
     tables.profiles.push(profile("p2"));
@@ -160,13 +160,13 @@ describe("方案与人岗位上下文", () => {
       scheme("a", "p1", { version: 2 }),
       scheme("future", "p1", { effective_from: "2026-05-01" }),
       scheme("inactive", "p1", { status: "inactive", effective_from: period.end }),
-      scheme("wrong-position", "p1", { position_id: 2, effective_from: period.end }),
+      scheme("wrong-role", "p1", { role_id: 2, effective_from: period.end }),
     ];
     tables.salary_records = [
-      { id: "old", profile_id: "p1", position_id: 7, period_end: "2026-02-28", is_qualified: true },
-      { id: "latest", profile_id: "p1", position_id: 7, period_end: "2026-03-31", is_qualified: false, team_id: "t2" },
-      { id: "current", profile_id: "p1", position_id: 7, period_end: period.end, is_qualified: true },
-      { id: "wrong", profile_id: "p1", position_id: 2, period_end: "2026-03-31", is_qualified: true },
+      { id: "old", profile_id: "p1", role_id: 7, period_end: "2026-02-28", is_qualified: true },
+      { id: "latest", profile_id: "p1", role_id: 7, period_end: "2026-03-31", is_qualified: false, team_id: "t2" },
+      { id: "current", profile_id: "p1", role_id: 7, period_end: period.end, is_qualified: true },
+      { id: "wrong", profile_id: "p1", role_id: 2, period_end: "2026-03-31", is_qualified: true },
     ];
     const { members } = await getAnchorSettlementContexts("t1", period);
     // 「future」生效日期晚于周期结束，但新口径下不再过滤，仍按最新一条被选用。
@@ -175,32 +175,32 @@ describe("方案与人岗位上下文", () => {
     expect(queried("salary_records", "eq")).toEqual([]);
   });
 
-  it("无方案仍显示成员及真实岗位，但拒绝结算", async () => {
+  it("无方案仍显示成员及真实角色，但拒绝结算", async () => {
     tables.salary_schemes = [];
     const { members } = await getAnchorSettlementContexts(null, period);
-    expect(members).toMatchObject([{ profileId: "p1", positionId: 7, schemeId: null, scheme: null }]);
+    expect(members).toMatchObject([{ profileId: "p1", roleId: 7, schemeId: null, scheme: null }]);
     await expect(settleAnchorRevenue(input())).rejects.toThrow("缺少生效工资方案");
     expect(client.rpc).not.toHaveBeenCalled();
   });
 
-  it("人岗位键区分岗位，重复身份、空名单及岗位不匹配均拒绝写入", async () => {
-    expect(settlementMemberKey({ profileId: "p1", positionId: 7 })).not.toBe(settlementMemberKey({ profileId: "p1", positionId: 2 }));
+  it("人角色键区分角色，重复身份、空名单及角色不匹配均拒绝写入", async () => {
+    expect(settlementMemberKey({ profileId: "p1", roleId: 7 })).not.toBe(settlementMemberKey({ profileId: "p1", roleId: 2 }));
     await expect(settleAnchorRevenue({ ...input(), members: [] })).rejects.toThrow("至少勾选");
     await expect(settleAnchorRevenue({ ...input(), members: [...input().members, ...input().members] })).rejects.toThrow("不能重复");
     expect(client.from).not.toHaveBeenCalled();
-    await expect(settleAnchorRevenue({ ...input(), members: [{ profileId: "p1", positionId: 2 }] })).rejects.toThrow("岗位不匹配");
-    await expect(settleAnchorRevenue({ ...input(), members: [{ profileId: "outsider", positionId: 7 }] })).rejects.toThrow("不在当前名单");
+    await expect(settleAnchorRevenue({ ...input(), members: [{ profileId: "p1", roleId: 2 }] })).rejects.toThrow("角色不匹配");
+    await expect(settleAnchorRevenue({ ...input(), members: [{ profileId: "outsider", roleId: 7 }] })).rejects.toThrow("不在当前名单");
     expect(client.rpc).not.toHaveBeenCalled();
   });
 });
 
 describe("手动结算（方案 B：前端只透传身份+加点+调整项，金额由数据库权威重算）", () => {
-  it("两加点随成员岗位透传，调整项原样传入交由数据库规整；前端不携带任何计算金额", async () => {
+  it("两加点随成员角色透传，调整项原样传入交由数据库规整；前端不携带任何计算金额", async () => {
     const adjustments = [{ name: " 奖金 ", amountCents: 10001 }, { name: "扣款", amountCents: -5000 }];
-    await settleAnchorRevenue({ ...input(), members: [{ profileId: "p1", positionId: 7,
+    await settleAnchorRevenue({ ...input(), members: [{ profileId: "p1", roleId: 7,
       attendanceBonusBps: 125, dyTaskBonusBps: 250, adjustments }] });
     const saved = client.rpc.mock.calls[0][1].p_members[0];
-    expect(saved).toEqual({ profileId: "p1", positionId: 7, attendanceBonusBps: 125, dyTaskBonusBps: 250,
+    expect(saved).toEqual({ profileId: "p1", roleId: 7, attendanceBonusBps: 125, dyTaskBonusBps: 250,
       adjustments: [{ name: " 奖金 ", amountCents: 10001 }, { name: "扣款", amountCents: -5000 }], note: "" });
     for (const key of ["schemeId", "revenueCents", "commissionRateBps", "performanceComponentCents",
       "guaranteedComponentCents", "grossCents", "serviceFeeCents", "netCents", "tenureMonth", "isQualified"]) {
@@ -212,25 +212,25 @@ describe("手动结算（方案 B：前端只透传身份+加点+调整项，金
     tables.team_members.push(membership("p2"));
     tables.profiles.push(profile("p2"));
     await settleAnchorRevenue({ ...input(), members: [
-      { profileId: "p2", positionId: 7, attendanceBonusBps: 300, dyTaskBonusBps: 400 },
-      { profileId: "p1", positionId: 7, attendanceBonusBps: 125 },
+      { profileId: "p2", roleId: 7, attendanceBonusBps: 300, dyTaskBonusBps: 400 },
+      { profileId: "p1", roleId: 7, attendanceBonusBps: 125 },
     ] });
     expect(client.rpc.mock.calls[0][1].p_members).toEqual(expect.arrayContaining([
-      { profileId: "p1", positionId: 7, attendanceBonusBps: 125, dyTaskBonusBps: 0, adjustments: [], note: "" },
-      { profileId: "p2", positionId: 7, attendanceBonusBps: 300, dyTaskBonusBps: 400, adjustments: [], note: "" },
+      { profileId: "p1", roleId: 7, attendanceBonusBps: 125, dyTaskBonusBps: 0, adjustments: [], note: "" },
+      { profileId: "p2", roleId: 7, attendanceBonusBps: 300, dyTaskBonusBps: 400, adjustments: [], note: "" },
     ]));
   });
 
   it("透传备注：填写时原样传入，未填写补空串", async () => {
     await settleAnchorRevenue({ ...input(), members: [
-      { profileId: "p1", positionId: 7, note: "本月迟到两次" },
+      { profileId: "p1", roleId: 7, note: "本月迟到两次" },
     ] });
     expect(client.rpc.mock.calls[0][1].p_members[0]).toMatchObject({ note: "本月迟到两次" });
   });
 
   it("加点合法性由数据库权威校验：前端原样透传，不再本地拦截", async () => {
     await settleAnchorRevenue({ ...input(), members: [
-      { profileId: "p1", positionId: 7, attendanceBonusBps: 125, dyTaskBonusBps: 250 },
+      { profileId: "p1", roleId: 7, attendanceBonusBps: 125, dyTaskBonusBps: 250 },
     ] });
     // 前端不再计算或校验加点边界，因此非法加点应被透传给 SQL 由其校验并回滚。
     expect(client.rpc).toHaveBeenCalledTimes(1);
@@ -240,18 +240,18 @@ describe("手动结算（方案 B：前端只透传身份+加点+调整项，金
   it("加点校验错误由数据库返回时前端映射并抛出", async () => {
     client.rpc.mockResolvedValue({ data: null, error: { code: "22023", message: "INVALID_COMMISSION_BPS" } });
     await expect(settleAnchorRevenue({ ...input(), members: [
-      { profileId: "p1", positionId: 7, attendanceBonusBps: -1 },
+      { profileId: "p1", roleId: 7, attendanceBonusBps: -1 },
     ] })).rejects.toThrow();
     expect(client.rpc).toHaveBeenCalledTimes(1);
   });
 
   it("空团队结算：仅透传身份+加点+调整项，不再前置读结算设置", async () => {
-    const result = await settleAnchorRevenue({ ...input(), members: [{ profileId: "p1", positionId: 7,
+    const result = await settleAnchorRevenue({ ...input(), members: [{ profileId: "p1", roleId: 7,
       adjustments: [{ name: " 奖金 ", amountCents: 10001 }, { name: "扣款", amountCents: -5000 }] }] });
     expect(result).toEqual({ settledRecords: 1 });
     expect(client.rpc).toHaveBeenCalledExactlyOnceWith("settle_anchor_revenue", {
       p_team_id: null, p_period_start: period.start, p_period_end: period.end,
-      p_members: [{ profileId: "p1", positionId: 7, attendanceBonusBps: 0, dyTaskBonusBps: 0,
+      p_members: [{ profileId: "p1", roleId: 7, attendanceBonusBps: 0, dyTaskBonusBps: 0,
         adjustments: [{ name: " 奖金 ", amountCents: 10001 }, { name: "扣款", amountCents: -5000 }], note: "" }],
       p_replace_overlapping: false,
     });
@@ -259,19 +259,19 @@ describe("手动结算（方案 B：前端只透传身份+加点+调整项，金
   });
 
   it("覆盖重叠结算：replaceOverlapping 透传为 true", async () => {
-    await settleAnchorRevenue({ ...input(), replaceOverlapping: true, members: [{ profileId: "p1", positionId: 7 }] });
+    await settleAnchorRevenue({ ...input(), replaceOverlapping: true, members: [{ profileId: "p1", roleId: 7 }] });
     expect(client.rpc.mock.calls[0][1].p_replace_overlapping).toBe(true);
   });
 });
 
 describe("保存周期重算（方案 B：前端只校验状态与周期，重算落库全由数据库权威完成）", () => {
   beforeEach(() => {
-    tables.salary_records = [{ id: "saved", status: "pending_review", profile_id: "p1", position_id: 9,
+    tables.salary_records = [{ id: "saved", status: "pending_review", profile_id: "p1", role_id: 9,
       scheme_id: "original", period_start: "2026-03-21", period_end: "2026-04-20",
       attendance_bonus_bps: 0, dy_task_bonus_bps: 0,
       adjustments: [{ name: "奖金", amountCents: 10001 }, { name: "扣款", amountCents: -5000 }] },
-    { id: "previous", profile_id: "p1", position_id: 9, period_end: "2026-03-20", is_qualified: false, team_id: "t2" }];
-    tables.salary_schemes.push(scheme("saved-position", "p1", { position_id: 9 }));
+    { id: "previous", profile_id: "p1", role_id: 9, period_end: "2026-03-20", is_qualified: false, team_id: "t2" }];
+    tables.salary_schemes.push(scheme("saved-role", "p1", { role_id: 9 }));
     tables.anchor_revenue_records.push(
       revenue("no-perf", { no_perf: true, revenue_cents: 9000000 }),
       revenue("outside", { perf_date: "2026-04-21", revenue_cents: 9000000 }),
@@ -291,7 +291,7 @@ describe("保存周期重算（方案 B：前端只校验状态与周期，重�
     // 前端只读取待重算记录本身用于状态/周期校验，绝不再读方案、流水或结算名单相关表。
     expect(queries.map((q) => q.table)).toEqual(["salary_records"]);
     expect(queries.some((q) => ["salary_schemes", "anchor_revenue_records", "system_settlement_settings",
-      "team_members", "user_positions", "positions"].includes(q.table))).toBe(false);
+      "team_members", "user_roles", "roles"].includes(q.table))).toBe(false);
   });
 
   it("数据库权威校验加点/费率/调整项：错误由 SQL 返回并被前端抛出", async () => {

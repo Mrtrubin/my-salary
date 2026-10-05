@@ -8,12 +8,12 @@ import { PageHeader } from "@/components/admin/page-header";
 import { QueryMessage } from "@/components/admin/query-message";
 import { ResizableTable } from "@/components/admin/resizable-table";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
-import { useCreateHostScheme, useHostSchemes, useMembers, usePositions } from "@/lib/api/hooks";
+import { useCreateHostScheme, useHostSchemes, useMembers, useRoles } from "@/lib/api/hooks";
 import type { HostSalarySchemeRow, Member } from "@/lib/api/data";
 import { formatCentsToYuan } from "@/lib/format";
 
 function isHost(member: Member) {
-  return member.user_positions.some(({ position }) => position?.code === "host");
+  return member.user_roles.some(({ role }) => role?.code === "host");
 }
 
 function latestPersonalScheme(schemes: HostSalarySchemeRow[] | undefined, profileId: string) {
@@ -22,9 +22,9 @@ function latestPersonalScheme(schemes: HostSalarySchemeRow[] | undefined, profil
     .sort((a, b) => b.version - a.version)[0];
 }
 
-function latestTemplateScheme(schemes: HostSalarySchemeRow[] | undefined, positionId?: number) {
+function latestTemplateScheme(schemes: HostSalarySchemeRow[] | undefined, roleId?: number) {
   return schemes
-    ?.filter((scheme) => scheme.profile_id == null && scheme.position_id === positionId)
+    ?.filter((scheme) => scheme.profile_id == null && scheme.role_id === roleId)
     .sort((a, b) => b.version - a.version)[0];
 }
 
@@ -43,15 +43,15 @@ interface Editing {
 
 export default function HostsPage() {
   const members = useMembers();
-  const positions = usePositions();
+  const roles = useRoles();
   const schemes = useHostSchemes();
   const createScheme = useCreateHostScheme();
   const [editing, setEditing] = useState<Editing | null>(null);
   const [error, setError] = useState("");
 
   const hosts = useMemo(() => members.data?.filter(isHost) ?? [], [members.data]);
-  const hostPositionId = positions.data?.find((position) => position.code === "host")?.id;
-  const template = latestTemplateScheme(schemes.data, hostPositionId);
+  const hostRoleId = roles.data?.find((role) => role.code === "host")?.id;
+  const template = latestTemplateScheme(schemes.data, hostRoleId);
   const listError = members.error ?? schemes.error;
 
   function effectiveScheme(member: Member) {
@@ -73,8 +73,8 @@ export default function HostsPage() {
 
   async function save() {
     if (!editing) return;
-    if (!hostPositionId) {
-      setError(positions.isLoading ? "职位数据仍在加载，请稍后重试" : "未找到「主持」职位，无法创建个人方案");
+    if (!hostRoleId) {
+      setError(roles.isLoading ? "角色数据仍在加载，请稍后重试" : "未找到「主持」角色，无法创建个人方案");
       return;
     }
     const baseIncome = Number(editing.baseIncome);
@@ -104,7 +104,7 @@ export default function HostsPage() {
       await createScheme.mutateAsync({
         name: `${editing.name}主持方案`,
         profile_id: editing.id,
-        position_id: hostPositionId,
+        role_id: hostRoleId,
         version,
         base_income_cents: Math.round(baseIncome * 100),
         commission_start_cents: Math.round(commissionStart * 100),

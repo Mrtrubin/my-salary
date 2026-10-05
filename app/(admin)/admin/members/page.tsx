@@ -27,11 +27,11 @@ import { ResizableTable } from "@/components/admin/resizable-table";
 import { Badge } from "@/components/admin/status-tag";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
 import { useConfirm } from "@/components/admin/use-confirm";
-import type { Member, Position } from "@/lib/api/data";
+import type { Member, Role } from "@/lib/api/data";
 import {
   useCreateMember,
   useMembers,
-  usePositions,
+  useRoles,
   useSetMemberStatus,
   useUpdateMember,
 } from "@/lib/api/hooks";
@@ -68,7 +68,7 @@ export default function MembersPage() {
   const { message } = App.useApp();
   const confirm = useConfirm();
   const members = useMembers();
-  const positions = usePositions();
+  const roles = useRoles();
   const create = useCreateMember();
   const setStatus = useSetMemberStatus();
   const [show, setShow] = useState(false);
@@ -95,7 +95,7 @@ export default function MembersPage() {
 
   // 筛选条件
   const [keyword, setKeyword] = useState("");
-  const [positionFilter, setPositionFilter] = useState<number | "all">("all");
+  const [roleFilter, setRoleFilter] = useState<number | "all">("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "disabled">("all");
 
   const filtered = useMemo(() => {
@@ -104,8 +104,8 @@ export default function MembersPage() {
     return list.filter((item) => {
       if (statusFilter !== "all" && item.status !== statusFilter) return false;
       if (
-        positionFilter !== "all" &&
-        !item.user_positions.some(({ position }) => position?.id === positionFilter)
+        roleFilter !== "all" &&
+        !item.user_roles.some(({ role }) => role?.id === roleFilter)
       ) {
         return false;
       }
@@ -118,11 +118,11 @@ export default function MembersPage() {
       }
       return true;
     });
-  }, [members.data, keyword, positionFilter, statusFilter]);
+  }, [members.data, keyword, roleFilter, statusFilter]);
 
   const resetFilters = () => {
     setKeyword("");
-    setPositionFilter("all");
+    setRoleFilter("all");
     setStatusFilter("all");
   };
 
@@ -178,7 +178,7 @@ export default function MembersPage() {
         email: values.email || undefined,
         idCard: values.idCard || undefined,
         douyinId: values.douyinId || undefined,
-        positionIds: selected,
+        roleIds: selected,
       });
       close();
     } catch (err) {
@@ -212,15 +212,15 @@ export default function MembersPage() {
               </FormField>
             </div>
             <div style={{ width: 180 }}>
-              <FormField label="职位">
+              <FormField label="角色">
                 <Select
-                  value={positionFilter === "all" ? "all" : String(positionFilter)}
-                  onChange={(value) => setPositionFilter(value === "all" ? "all" : Number(value))}
-                  loading={positions.isLoading}
-                  status={positions.error ? "error" : undefined}
+                  value={roleFilter === "all" ? "all" : String(roleFilter)}
+                  onChange={(value) => setRoleFilter(value === "all" ? "all" : Number(value))}
+                  loading={roles.isLoading}
+                  status={roles.error ? "error" : undefined}
                   options={[
-                    { value: "all", label: "全部职位" },
-                    ...(positions.data ?? []).map((p) => ({ value: String(p.id), label: p.name })),
+                    { value: "all", label: "全部角色" },
+                    ...(roles.data ?? []).map((p) => ({ value: String(p.id), label: p.name })),
                   ]}
                 />
               </FormField>
@@ -286,18 +286,18 @@ export default function MembersPage() {
                 render: (_, record) => record.id_card || "-",
               },
               {
-                title: "职位",
-                key: "positions",
+                title: "角色",
+                key: "roles",
                 width: 200,
                 sortValue: (record) =>
-                  record.user_positions
-                    .map(({ position }) => position?.name)
+                  record.user_roles
+                    .map(({ role }) => role?.name)
                     .filter(Boolean)
                     .join(","),
                 render: (_, record) => (
                   <Space size={4} wrap>
-                    {record.user_positions.map(({ position }) =>
-                      position ? <Badge key={position.id}>{position.name}</Badge> : null,
+                    {record.user_roles.map(({ role }) =>
+                      role ? <Badge key={role.id}>{role.name}</Badge> : null,
                     )}
                   </Space>
                 ),
@@ -488,15 +488,15 @@ export default function MembersPage() {
               </FormField>
             </Col>
             <Col span={24}>
-              <FormField label="职位">
+              <FormField label="角色">
                 <Select
                   mode="multiple"
                   allowClear
                   placeholder="可多选"
                   value={selected}
                   onChange={setSelected}
-                  loading={positions.isLoading}
-                  options={(positions.data ?? []).map((item) => ({
+                  loading={roles.isLoading}
+                  options={(roles.data ?? []).map((item) => ({
                     value: item.id,
                     label: item.name,
                   }))}
@@ -511,8 +511,8 @@ export default function MembersPage() {
       {editing ? (
         <EditMemberModal
           member={editing}
-          positions={positions.data ?? []}
-          positionsLoading={positions.isLoading}
+          roles={roles.data ?? []}
+          rolesLoading={roles.isLoading}
           onClose={() => setEditing(null)}
         />
       ) : null}
@@ -541,21 +541,21 @@ type EditFormValues = {
 
 function EditMemberModal({
   member,
-  positions,
-  positionsLoading,
+  roles,
+  rolesLoading,
   onClose,
 }: {
   member: Member;
-  positions: Position[];
-  /** 职位仍在加载时给下拉一个 loading 态，避免已选职位显示成裸 ID */
-  positionsLoading?: boolean;
+  roles: Role[];
+  /** 角色仍在加载时给下拉一个 loading 态，避免已选角色显示成裸 ID */
+  rolesLoading?: boolean;
   onClose: () => void;
 }) {
   const confirm = useConfirm();
   const update = useUpdateMember();
   const [selected, setSelected] = useState<number[]>(
-    member.user_positions
-      .map(({ position }) => position?.id)
+    member.user_roles
+      .map(({ role }) => role?.id)
       .filter((id): id is number => typeof id === "number"),
   );
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -598,7 +598,7 @@ function EditMemberModal({
         idCard: values.idCard,
         douyinId: values.douyinId,
         status: values.status,
-        positionIds: selected,
+        roleIds: selected,
       });
       onClose();
     } catch (err) {
@@ -719,15 +719,15 @@ function EditMemberModal({
             </FormField>
           </Col>
           <Col span={24}>
-            <FormField label="职位">
+            <FormField label="角色">
               <Select
                 mode="multiple"
                 allowClear
                 placeholder="可多选"
                 value={selected}
                 onChange={setSelected}
-                loading={positionsLoading}
-                options={positions.map((item) => ({ value: item.id, label: item.name }))}
+                loading={rolesLoading}
+                options={roles.map((item) => ({ value: item.id, label: item.name }))}
               />
             </FormField>
           </Col>
@@ -794,8 +794,8 @@ function ResetPasswordModal({ member, onClose }: { member: Member; onClose: () =
 }
 
 function MemberDetailModal({ member, onClose }: { member: Member; onClose: () => void }) {
-  const positions = member.user_positions
-    .map(({ position }) => position?.name)
+  const roles = member.user_roles
+    .map(({ role }) => role?.name)
     .filter((n): n is string => Boolean(n));
 
   const items = [
@@ -817,11 +817,11 @@ function MemberDetailModal({ member, onClose }: { member: Member; onClose: () =>
       children: member.status === "active" ? "在职" : "已停用",
     },
     {
-      key: "positions",
-      label: "职位",
-      children: positions.length ? (
+      key: "roles",
+      label: "角色",
+      children: roles.length ? (
         <Space size={4} wrap>
-          {positions.map((name) => (
+          {roles.map((name) => (
             <Badge key={name}>{name}</Badge>
           ))}
         </Space>

@@ -22,11 +22,11 @@ export default function UserLayout({ children }: { children: ReactNode }) {
 
   // 化妆师把「业绩」标签换成「延误」；舞蹈老师换成「奖励」；其它角色保持「业绩」。
   const isMakeup = useMemo(
-    () => profile.data?.user_positions?.some(({ position }) => position?.code === "makeup") ?? false,
+    () => profile.data?.user_roles?.some(({ role }) => role?.code === "makeup") ?? false,
     [profile.data],
   );
   const isDance = useMemo(
-    () => profile.data?.user_positions?.some(({ position }) => position?.code === "dance") ?? false,
+    () => profile.data?.user_roles?.some(({ role }) => role?.code === "dance") ?? false,
     [profile.data],
   );
 

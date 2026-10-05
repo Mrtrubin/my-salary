@@ -15,12 +15,12 @@ import {
   useUpdateTeam,
 } from "@/lib/api/hooks";
 
-function hasAnchorPosition(member: { user_positions: { position: { code: string } | null }[] }) {
-  return member.user_positions.some(({ position }) => position?.code === "anchor");
+function hasAnchorRole(member: { user_roles: { role: { code: string } | null }[] }) {
+  return member.user_roles.some(({ role }) => role?.code === "anchor");
 }
 
-function hasHostPosition(member: { user_positions: { position: { code: string } | null }[] }) {
-  return member.user_positions.some(({ position }) => position?.code === "host");
+function hasHostRole(member: { user_roles: { role: { code: string } | null }[] }) {
+  return member.user_roles.some(({ role }) => role?.code === "host");
 }
 
 function TeamMembersInner() {
@@ -34,8 +34,8 @@ function TeamMembersInner() {
   const updateTeam = useUpdateTeam();
 
   const team = teams.data?.find((item) => item.id === teamId);
-  const anchors = useMemo(() => members.data?.filter(hasAnchorPosition) ?? [], [members.data]);
-  const hosts = useMemo(() => members.data?.filter(hasHostPosition) ?? [], [members.data]);
+  const anchors = useMemo(() => members.data?.filter(hasAnchorRole) ?? [], [members.data]);
+  const hosts = useMemo(() => members.data?.filter(hasHostRole) ?? [], [members.data]);
   const availableAnchors = useMemo(
     () => anchors.filter((anchor) => !team?.members.some((member) => member.profile?.id === anchor.id)),
     [anchors, team?.members],
@@ -132,7 +132,7 @@ function TeamMembersInner() {
             locale={{ emptyText: "暂无成员，请从上方添加主播" }}
             columns={[
               { title: "成员姓名", dataIndex: "name", width: 200 },
-              { title: "职位", key: "position", width: 120, render: () => "主播" },
+              { title: "角色", key: "role", width: 120, render: () => "主播" },
               {
                 title: "操作",
                 key: "action",

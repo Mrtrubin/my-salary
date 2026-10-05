@@ -51,7 +51,7 @@ export default function UserProfilePage() {
 
   if (!profile.data) return <QueryMessage loading={profile.isLoading} error={profile.error} />;
 
-  const positions = profile.data.user_positions.flatMap((item) => (item.position ? [item.position] : []));
+  const roles = profile.data.user_roles.flatMap((item) => (item.role ? [item.role] : []));
 
   function currentValue(field: ChangeableField): string {
     const p = profile.data!;
@@ -119,7 +119,7 @@ export default function UserProfilePage() {
         </div>
 
         <dl className="mt-5 space-y-2.5 text-sm">
-          <Row label="职位" value={positions.map((item) => item.name).join("、") || "未分配"} />
+          <Row label="角色" value={roles.map((item) => item.name).join("、") || "未分配"} />
           <Row label="入职日期" value={profile.data.hire_date} />
         </dl>
       </Card>

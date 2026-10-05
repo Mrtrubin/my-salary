@@ -21,13 +21,13 @@ import { Controller, useForm } from "react-hook-form";
 import { FormField } from "@/components/admin/form-field";
 import { PageHeader } from "@/components/admin/page-header";
 import { QueryMessage } from "@/components/admin/query-message";
-import { useCreateScheme, useMembers, usePositions, useSchemes } from "@/lib/api/hooks";
+import { useCreateScheme, useMembers, useRoles, useSchemes } from "@/lib/api/hooks";
 import { formatCentsToYuan } from "@/lib/format";
 
 type FormValues = {
   name: string;
   profileId: string;
-  positionId: string;
+  roleId: string;
   baseSalary: number | null;
   guaranteedSalary: number | null;
 };
@@ -35,7 +35,7 @@ type FormValues = {
 const DEFAULTS: FormValues = {
   name: "",
   profileId: "",
-  positionId: "",
+  roleId: "",
   baseSalary: null,
   guaranteedSalary: null,
 };
@@ -45,7 +45,7 @@ const formDefaults = (): FormValues => ({ ...DEFAULTS });
 export default function SchemesPage() {
   const schemes = useSchemes();
   const members = useMembers();
-  const positions = usePositions();
+  const roles = useRoles();
   const create = useCreateScheme();
   const [show, setShow] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -68,7 +68,7 @@ export default function SchemesPage() {
       await create.mutateAsync({
         name: value.name,
         profile_id: value.profileId || null,
-        position_id: value.positionId ? Number(value.positionId) : null,
+        role_id: value.roleId ? Number(value.roleId) : null,
         version,
         base_salary_cents: Math.round(Number(value.baseSalary) * 100),
         guaranteed_salary_cents: Math.round(Number(value.guaranteedSalary) * 100),
@@ -86,7 +86,7 @@ export default function SchemesPage() {
     <>
       <PageHeader
         title="工资方案"
-        description="个人方案优先；成员无个人方案时，按岗位回退使用「岗位模板」（不指定成员的方案）。基础提成率 20%；超过拿提点门槛的流水每满 1 万元，阶梯提点 +1 个百分点，阶梯提点最高 5%；最终提成率不封顶。"
+        description="个人方案优先；成员无个人方案时，按角色回退使用「角色模板」（不指定成员的方案）。基础提成率 20%；超过拿提点门槛的流水每满 1 万元，阶梯提点 +1 个百分点，阶梯提点最高 5%；最终提成率不封顶。"
         action={
           <Button
             type="primary"
@@ -122,7 +122,7 @@ export default function SchemesPage() {
               <Col xs={24} md={12}>
                 <FormField
                   label="成员"
-                  hint="留空则作为「岗位模板」：该岗位下未配置个人方案的成员自动回退使用此模板。"
+                  hint="留空则作为「角色模板」：该角色下未配置个人方案的成员自动回退使用此模板。"
                 >
                   <Controller
                     control={control}
@@ -143,17 +143,17 @@ export default function SchemesPage() {
                 </FormField>
               </Col>
               <Col xs={24} md={12}>
-                <FormField label="职位" error={errors.positionId ? "请选择职位" : undefined} required>
+                <FormField label="角色" error={errors.roleId ? "请选择角色" : undefined} required>
                   <Controller
                     control={control}
-                    name="positionId"
+                    name="roleId"
                     rules={{ required: true }}
                     render={({ field }) => (
                       <Select
                         {...field}
                         placeholder="请选择"
-                        loading={positions.isLoading}
-                        options={(positions.data ?? []).map((item) => ({
+                        loading={roles.isLoading}
+                        options={(roles.data ?? []).map((item) => ({
                           value: String(item.id),
                           label: item.name,
                         }))}
@@ -238,7 +238,7 @@ export default function SchemesPage() {
                 }
               >
                 <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-                  {item.profile?.name ?? "岗位模板"} · {item.position?.name ?? "未分配"}
+                  {item.profile?.name ?? "角色模板"} · {item.role?.name ?? "未分配"}
                 </Typography.Paragraph>
                 <Typography.Text>
                   初始保底 {formatCentsToYuan(item.base_salary_cents)} · 降级保底{" "}

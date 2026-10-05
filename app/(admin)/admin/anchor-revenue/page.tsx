@@ -128,7 +128,7 @@ const BONUS_FIELDS = [
 /** 单主播的实时试算结果（聚合 + 调整项叠加后）。 */
 interface AnchorRow {
   profileId: string;
-  positionId: number;
+  roleId: number;
   memberKey: string;
   profileName: string;
   revenueCents: number;
@@ -186,13 +186,13 @@ function AnchorRevenueWorkspace() {
   const settleMutation = useSettleAnchorRevenue();
   const salaryRecordsQuery = useSalaryRecords();
 
-  // 当前周期已存在的工资记录（按 主播:岗位）。存在即可覆盖重算（只有 completed 不可）。
+  // 当前周期已存在的工资记录（按 主播:角色）。存在即可覆盖重算（只有 completed 不可）。
   const existingRecordsByMember = useMemo(() => {
     const map = new Map<string, SalaryRecord>();
     for (const record of salaryRecordsQuery.data ?? []) {
       if (!period || record.period_start !== period.start || record.period_end !== period.end) continue;
       map.set(
-        settlementMemberKey({ profileId: record.profile_id, positionId: record.position_id }),
+        settlementMemberKey({ profileId: record.profile_id, roleId: record.role_id }),
         record,
       );
     }
@@ -205,7 +205,7 @@ function AnchorRevenueWorkspace() {
     for (const record of salaryRecordsQuery.data ?? []) {
       if (record.period_start === period.start && record.period_end === period.end) continue;
       if (record.period_start > period.end || record.period_end < period.start) continue;
-      const key = settlementMemberKey({ profileId: record.profile_id, positionId: record.position_id });
+      const key = settlementMemberKey({ profileId: record.profile_id, roleId: record.role_id });
       const list = map.get(key) ?? [];
       list.push(record);
       map.set(key, list);
@@ -270,7 +270,7 @@ function AnchorRevenueWorkspace() {
       if (!ctx.scheme) {
         return {
           profileId: draft.profileId,
-          positionId: draft.positionId,
+          roleId: draft.roleId,
           memberKey,
           profileName: profileNames[draft.profileId] ?? "—",
           revenueCents: draft.revenueCents,
@@ -312,7 +312,7 @@ function AnchorRevenueWorkspace() {
       );
       return {
         profileId: draft.profileId,
-        positionId: draft.positionId,
+        roleId: draft.roleId,
         memberKey,
         profileName: profileNames[draft.profileId] ?? "—",
         revenueCents: draft.revenueCents,
@@ -511,7 +511,7 @@ function AnchorRevenueWorkspace() {
     return rows.filter((r) => r.profileName.toLowerCase().includes(kw));
   }, [rows, keyword]);
 
-  // 同一人员的跨团队流水供各岗位查看，交互状态仍按人员与岗位隔离。
+  // 同一人员的跨团队流水供各角色查看，交互状态仍按人员与角色隔离。
   // 含休息/停播记录（同样要展示，只是不计流水）。
   const dailyByProfile = useMemo(() => {
     const map: Record<string, AnchorRevenuePerfRow[]> = {};
@@ -677,7 +677,7 @@ function AnchorRevenueWorkspace() {
     }
     const members: AnchorSettleMember[] = selectedRows.map((row) => ({
       profileId: row.profileId,
-      positionId: row.positionId,
+      roleId: row.roleId,
       attendanceBonusBps: parseCommissionBonusPoints(bonuses[row.memberKey]?.attendance ?? "")!,
       dyTaskBonusBps: parseCommissionBonusPoints(bonuses[row.memberKey]?.dyTask ?? "")!,
       adjustments: validAdjustments(adjustments[row.memberKey] ?? []),

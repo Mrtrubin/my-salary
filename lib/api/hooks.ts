@@ -7,7 +7,7 @@ import {
   addTeamPerformancePoint,
   createMember,
   createPerformancePoint,
-  createPosition,
+  createRole,
   createScheme,
   createTeam,
   createTeamPerformanceRecords,
@@ -19,7 +19,7 @@ import {
   listPendingChangeRequests,
   listPerformancePoints,
   listTeamPerformance,
-  listPositions,
+  listRoles,
   listSalaryRecords,
   listSchemes,
   listTeams,
@@ -40,7 +40,7 @@ import {
   updateMember,
   updateAnchorSettings,
   updatePerformancePoint,
-  updatePosition,
+  updateRole,
   updateTeam,
   listAnchorRevenuePerf,
   getAnchorSettlementContexts,
@@ -86,7 +86,7 @@ import { readCachedProfile, writeCachedProfile } from "./profile-cache";
 export const keys = {
   profile: ["profile"] as const,
   members: ["members"] as const,
-  positions: ["positions"] as const,
+  roles: ["roles"] as const,
   teamPerformance: ["teamPerformance"] as const,
   schemes: ["schemes"] as const,
   salary: ["salary"] as const,
@@ -124,10 +124,10 @@ function invalidateRelatedQueries(client: QueryClient, queryKey: readonly string
   ]);
 }
 
-/** 职位增删改后，连带刷新所有内嵌/依赖职位名称或清单的查询，避免各页显示陈旧职位。 */
-function invalidatePositionQueries(client: QueryClient) {
+/** 角色增删改后，连带刷新所有内嵌/依赖角色名称或清单的查询，避免各页显示陈旧角色。 */
+function invalidateRoleQueries(client: QueryClient) {
   return Promise.all([
-    client.invalidateQueries({ queryKey: keys.positions }),
+    client.invalidateQueries({ queryKey: keys.roles }),
     client.invalidateQueries({ queryKey: keys.members }),
     client.invalidateQueries({ queryKey: keys.schemes }),
     client.invalidateQueries({ queryKey: keys.salary }),
@@ -170,14 +170,14 @@ export function useCurrentProfile() {
   });
 }
 export function useMembers() { return useQuery({ queryKey: keys.members, queryFn: listMembers }); }
-export function usePositions() { return useQuery({ queryKey: keys.positions, queryFn: listPositions }); }
-export function useCreatePosition() {
+export function useRoles() { return useQuery({ queryKey: keys.roles, queryFn: listRoles }); }
+export function useCreateRole() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: createPosition, onSuccess: () => invalidatePositionQueries(client) });
+  return useMutation({ mutationFn: createRole, onSuccess: () => invalidateRoleQueries(client) });
 }
-export function useUpdatePosition() {
+export function useUpdateRole() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: ({ id, ...input }: { id: number; code?: string; name?: string }) => updatePosition(id, input), onSuccess: () => invalidatePositionQueries(client) });
+  return useMutation({ mutationFn: ({ id, ...input }: { id: number; code?: string; name?: string }) => updateRole(id, input), onSuccess: () => invalidateRoleQueries(client) });
 }
 export function useTeamPerformance(range?: { start?: string; end?: string }) {
   return useQuery({
@@ -526,8 +526,8 @@ export function useStaffSalaryStatusLogs(salaryRecordId: string | null) {
 export function useSetStaffBaseIncome() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ profileId, positionCode, baseIncomeInCents }: { profileId: string; positionCode: string; baseIncomeInCents: number }) =>
-      setStaffBaseIncome({ profileId, positionCode, baseIncomeInCents }),
+    mutationFn: ({ profileId, roleCode, baseIncomeInCents }: { profileId: string; roleCode: string; baseIncomeInCents: number }) =>
+      setStaffBaseIncome({ profileId, roleCode, baseIncomeInCents }),
     onSuccess: () => invalidateRelatedQueries(client, keys.members),
   });
 }

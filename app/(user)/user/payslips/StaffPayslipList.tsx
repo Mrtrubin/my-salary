@@ -83,7 +83,7 @@ export function StaffPayslipList({ records }: { records: StaffSalaryRecord[] }) 
                 className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50/80 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-indigo-500"
               >
                 <span className="min-w-0 truncate text-sm">
-                  {item.position?.name ?? "固定薪资"} · {item.period_start} ~ {item.period_end}
+                  {item.role?.name ?? "固定薪资"} · {item.period_start} ~ {item.period_end}
                   <span className="text-muted"> · 基础 {formatCentsToYuan(item.base_income_cents)}</span>
                 </span>
                 <span className="flex shrink-0 items-center gap-2">
@@ -104,7 +104,7 @@ export function StaffPayslipList({ records }: { records: StaffSalaryRecord[] }) 
           <div className="flex h-full w-full max-w-[430px] flex-col bg-slate-50">
             <header className="flex items-start justify-between gap-3 border-b border-slate-200/70 bg-white px-4 pt-[calc(14px+env(safe-area-inset-top))] pb-3">
               <div className="min-w-0 space-y-1">
-                <p className="truncate text-sm font-semibold">{detailItem.position?.name ?? "固定薪资"}工资条</p>
+                <p className="truncate text-sm font-semibold">{detailItem.role?.name ?? "固定薪资"}工资条</p>
                 <p className="truncate text-xs text-muted">
                   {detailItem.period_start} ~ {detailItem.period_end}
                 </p>

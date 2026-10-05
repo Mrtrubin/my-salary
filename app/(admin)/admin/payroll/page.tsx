@@ -13,7 +13,7 @@ import { getAdjustmentPresets, type PayrollAdjustment } from "@/lib/domain/payro
 import {
   useCurrentProfile,
   useMembers,
-  usePositions,
+  useRoles,
   useDeleteSalaryRecord,
   useRejectAndRecompute,
   useSalaryRecords,
@@ -67,7 +67,7 @@ function periodLabel(item: SalaryRecord): string {
   return item.month.slice(0, 7);
 }
 
-const DEFAULT_POSITION_TABS = [
+const DEFAULT_ROLE_TABS = [
   { code: "anchor", name: "主播" },
   { code: "host", name: "主持" },
   { code: "dance", name: "舞蹈老师" },
@@ -132,7 +132,7 @@ export default function PayrollPage() {
   const confirm = useConfirm();
   const salary = useSalaryRecords();
   const members = useMembers();
-  const positions = usePositions();
+  const roles = useRoles();
   const me = useCurrentProfile();
   const transition = useTransitionSalaryStatus();
   const reject = useRejectAndRecompute();
@@ -151,7 +151,7 @@ export default function PayrollPage() {
   const [memberId, setMemberId] = useState("");
   const [period, setPeriod] = useState("");
   const [status, setStatus] = useState("");
-  const [activePosition, setActivePosition] = useState("anchor");
+  const [activeRole, setActiveRole] = useState("anchor");
 
   const operatorProfileId = me.data?.id;
 
@@ -217,15 +217,15 @@ export default function PayrollPage() {
     );
   }
 
-  // 职位标签独立于工资记录，未结算或筛选为空时也不会消失。
-  const positionTabs = useMemo(() => {
-    const map = new Map(DEFAULT_POSITION_TABS.map((position) => [position.code, position]));
-    for (const position of positions.data ?? []) map.set(position.code, position);
+  // 角色标签独立于工资记录，未结算或筛选为空时也不会消失。
+  const roleTabs = useMemo(() => {
+    const map = new Map(DEFAULT_ROLE_TABS.map((role) => [role.code, role]));
+    for (const role of roles.data ?? []) map.set(role.code, role);
     return Array.from(map.values());
-  }, [positions.data]);
+  }, [roles.data]);
 
   const anchorRecords = useMemo(
-    () => (salary.data ?? []).filter((item) => item.position?.code === "anchor"),
+    () => (salary.data ?? []).filter((item) => item.role?.code === "anchor"),
     [salary.data],
   );
 
@@ -606,21 +606,21 @@ export default function PayrollPage() {
     <>
       <PageHeader
         title="工资核算"
-        description="按职位查看工资条；展开行可查看状态变更历史与结算参数明细"
+        description="按角色查看工资条；展开行可查看状态变更历史与结算参数明细"
       />
 
       <Tabs
-        activeKey={activePosition}
+        activeKey={activeRole}
         onChange={(key) => {
-          setActivePosition(key);
+          setActiveRole(key);
           setExpandedKeys([]);
           setSelectedRowKeys([]);
         }}
-        items={positionTabs.map((position) => ({
-          key: position.code,
-          label: position.name,
+        items={roleTabs.map((role) => ({
+          key: role.code,
+          label: role.name,
           children:
-            position.code === "anchor" ? (
+            role.code === "anchor" ? (
               <>
                 <Card style={{ marginBottom: 16 }}>
                   <Row gutter={[16, 16]}>
@@ -777,12 +777,12 @@ export default function PayrollPage() {
                 )}
                 </Card>
               </>
-            ) : position.code === "host" ? (
+            ) : role.code === "host" ? (
               <HostPayrollPanel operatorProfileId={operatorProfileId} />
             ) : (
               <StaffPayrollPanel
-                positionCode={position.code}
-                positionName={position.name}
+                roleCode={role.code}
+                roleName={role.name}
                 operatorProfileId={operatorProfileId}
               />
             ),

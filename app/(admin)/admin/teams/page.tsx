@@ -41,8 +41,8 @@ function teamDetailHref(teamId: string, tab: "members" | "points") {
   return `/admin/teams/detail/${tab}?teamId=${teamId}`;
 }
 
-function hasPosition(emp: { user_positions: { position: { code: string } | null }[] }, code: string) {
-  return emp.user_positions.some(({ position }) => position?.code === code);
+function hasRole(emp: { user_roles: { role: { code: string } | null }[] }, code: string) {
+  return emp.user_roles.some(({ role }) => role?.code === code);
 }
 
 /** 行内编辑：输入 + 保存/取消，错误就地展示（团队名称与团队 ID 两列共用）。 */
@@ -106,9 +106,9 @@ export default function TeamsPage() {
     formState: { errors },
   } = useForm<FormValues>({ defaultValues: DEFAULTS });
 
-  const hosts = useMemo(() => members.data?.filter((e) => hasPosition(e, "host")) ?? [], [members.data]);
+  const hosts = useMemo(() => members.data?.filter((e) => hasRole(e, "host")) ?? [], [members.data]);
   const anchors = useMemo(
-    () => members.data?.filter((e) => hasPosition(e, "anchor")) ?? [],
+    () => members.data?.filter((e) => hasRole(e, "anchor")) ?? [],
     [members.data],
   );
 

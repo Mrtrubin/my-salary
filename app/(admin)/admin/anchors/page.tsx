@@ -11,7 +11,7 @@ import { zebraRowClassName } from "@/components/admin/table-zebra";
 import {
   useCreateScheme,
   useMembers,
-  usePositions,
+  useRoles,
   useSchemes,
   useUpdateAnchorSettings,
 } from "@/lib/api/hooks";
@@ -19,7 +19,7 @@ import type { Member, SalaryScheme } from "@/lib/api/data";
 import { formatCentsToYuan } from "@/lib/format";
 
 function isAnchor(member: Member) {
-  return member.user_positions.some(({ position }) => position?.code === "anchor");
+  return member.user_roles.some(({ role }) => role?.code === "anchor");
 }
 
 function latestPersonalScheme(schemes: SalaryScheme[] | undefined, profileId: string) {
@@ -28,9 +28,9 @@ function latestPersonalScheme(schemes: SalaryScheme[] | undefined, profileId: st
     .sort((a, b) => b.version - a.version)[0];
 }
 
-function latestTemplateScheme(schemes: SalaryScheme[] | undefined, positionId?: number) {
+function latestTemplateScheme(schemes: SalaryScheme[] | undefined, roleId?: number) {
   return schemes
-    ?.filter((scheme) => scheme.profile_id == null && scheme.position_id === positionId)
+    ?.filter((scheme) => scheme.profile_id == null && scheme.role_id === roleId)
     .sort((a, b) => b.version - a.version)[0];
 }
 
@@ -49,7 +49,7 @@ type Editing = {
 
 export default function AnchorsPage() {
   const members = useMembers();
-  const positions = usePositions();
+  const roles = useRoles();
   const schemes = useSchemes();
   const updateSettings = useUpdateAnchorSettings();
   const createScheme = useCreateScheme();
@@ -57,8 +57,8 @@ export default function AnchorsPage() {
   const [error, setError] = useState("");
 
   const anchors = useMemo(() => members.data?.filter(isAnchor) ?? [], [members.data]);
-  const anchorPositionId = positions.data?.find((position) => position.code === "anchor")?.id;
-  const template = latestTemplateScheme(schemes.data, anchorPositionId);
+  const anchorRoleId = roles.data?.find((role) => role.code === "anchor")?.id;
+  const template = latestTemplateScheme(schemes.data, anchorRoleId);
   const listError = members.error ?? schemes.error;
 
   function effectiveScheme(member: Member) {
@@ -83,9 +83,9 @@ export default function AnchorsPage() {
   async function save() {
     if (!editing) return;
     // 静默 return 会让「保存」看起来没反应，这里明确告诉用户原因。
-    if (!anchorPositionId) {
+    if (!anchorRoleId) {
       setError(
-        positions.isLoading ? "职位数据仍在加载，请稍后重试" : "未找到「主播」职位，无法创建个人方案",
+        roles.isLoading ? "角色数据仍在加载，请稍后重试" : "未找到「主播」角色，无法创建个人方案",
       );
       return;
     }
@@ -122,7 +122,7 @@ export default function AnchorsPage() {
       await createScheme.mutateAsync({
         name: `${editing.name}个人方案`,
         profile_id: editing.id,
-        position_id: anchorPositionId,
+        role_id: anchorRoleId,
         version,
         base_salary_cents: Math.round(baseSalary * 100),
         guaranteed_salary_cents: Math.round(guaranteedSalary * 100),

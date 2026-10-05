@@ -3,7 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 
 /**
- * 管理员编辑成员：更新成员资料（public.profiles）+ 职位关联（user_positions）+ 可选重置登录密码。
+ * 管理员编辑成员：更新成员资料（public.profiles）+ 角色关联（user_roles）+ 可选重置登录密码。
  * - 仅允许 system_role = 'admin' 的登录用户调用（依据请求 JWT 校验）
  * - service role 绕过 RLS 写入
  * - 防呆：字段级校验、用户名/邮箱唯一性（排除自身）、密码可选、禁止停用/降权自己造成自锁
@@ -58,7 +58,7 @@ Deno.serve(async (req: Request) => {
     idCard?: string;
     douyinId?: string;
     status?: string;
-    positionIds?: number[];
+    roleIds?: number[];
   };
   try {
     payload = await req.json();
@@ -189,32 +189,32 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  // 职位差异更新（提供 positionIds 才处理，全量覆盖）
-  if (payload.positionIds !== undefined) {
-    const desired = Array.isArray(payload.positionIds) ? [...new Set(payload.positionIds)] : [];
+  // 角色差异更新（提供 roleIds 才处理，全量覆盖）
+  if (payload.roleIds !== undefined) {
+    const desired = Array.isArray(payload.roleIds) ? [...new Set(payload.roleIds)] : [];
     const { data: current, error: curErr } = await admin
-      .from("user_positions")
-      .select("position_id")
+      .from("user_roles")
+      .select("role_id")
       .eq("profile_id", id);
-    if (curErr) return json({ code: "UNKNOWN", message: "读取职位失败，请稍后再试" }, 500);
-    const currentIds = new Set((current ?? []).map((r) => r.position_id as number));
+    if (curErr) return json({ code: "UNKNOWN", message: "读取角色失败，请稍后再试" }, 500);
+    const currentIds = new Set((current ?? []).map((r) => r.role_id as number));
     const desiredSet = new Set(desired);
     const toAdd = desired.filter((pid) => !currentIds.has(pid));
     const toRemove = [...currentIds].filter((pid) => !desiredSet.has(pid));
 
     if (toRemove.length) {
       const { error: delErr } = await admin
-        .from("user_positions")
+        .from("user_roles")
         .delete()
         .eq("profile_id", id)
-        .in("position_id", toRemove);
-      if (delErr) return json({ code: "UNKNOWN", message: "移除职位失败，请稍后再试" }, 500);
+        .in("role_id", toRemove);
+      if (delErr) return json({ code: "UNKNOWN", message: "移除角色失败，请稍后再试" }, 500);
     }
     if (toAdd.length) {
       const { error: addErr } = await admin
-        .from("user_positions")
-        .insert(toAdd.map((positionId) => ({ profile_id: id, position_id: positionId })));
-      if (addErr) return json({ code: "UNKNOWN", message: "新增职位失败，请稍后再试" }, 500);
+        .from("user_roles")
+        .insert(toAdd.map((roleId) => ({ profile_id: id, role_id: roleId })));
+      if (addErr) return json({ code: "UNKNOWN", message: "新增角色失败，请稍后再试" }, 500);
     }
   }
 

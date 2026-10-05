@@ -178,7 +178,7 @@ export function PayslipDetail({
   const tierBonusBps = item.commission_rate_bps > 0
     ? Math.max(item.commission_rate_bps - baseCommissionRateBps - attendanceBonusBps - dyTaskBonusBps, 0)
     : 0;
-  const isAnchor = item.position?.code === "anchor";
+  const isAnchor = item.role?.code === "anchor";
   // 系统只保存折算后流水，音浪按流水 × 10 反推展示。
   const soundWaves = (item.revenue_cents / 10).toLocaleString("zh-CN", { maximumFractionDigits: 1 });
 
@@ -206,7 +206,7 @@ export function PayslipDetail({
               <div className="min-w-0 space-y-1">
                 <p className="truncate text-sm font-semibold">{item.profile?.name ?? "我"}</p>
                 <p className="truncate text-xs text-muted">
-                  {item.position?.name ?? "岗位信息缺失"} · {item.team_id === null ? "系统结算" : item.team?.name ?? "团队信息缺失"}
+                  {item.role?.name ?? "角色信息缺失"} · {item.team_id === null ? "系统结算" : item.team?.name ?? "团队信息缺失"}
                 </p>
               </div>
               <div className="flex shrink-0 gap-1">

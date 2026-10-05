@@ -47,8 +47,8 @@ function parseOptionalYuan(value: string): number | null {
   return parseAdjustmentAmountYuan(value);
 }
 
-function baseIncomeOf(member: Member | undefined, positionId: number | undefined): number {
-  return staffBaseIncomeOf(member, positionId);
+function baseIncomeOf(member: Member | undefined, roleId: number | undefined): number {
+  return staffBaseIncomeOf(member, roleId);
 }
 
 type StaffColumn = ResizableColumnType<StaffSalaryRecord> & ExcelColumn<StaffSalaryRecord>;
@@ -83,12 +83,12 @@ interface DraftRow {
 }
 
 export function StaffPayrollPanel({
-  positionCode,
-  positionName,
+  roleCode,
+  roleName,
   operatorProfileId,
 }: {
-  positionCode: string;
-  positionName: string;
+  roleCode: string;
+  roleName: string;
   operatorProfileId?: string;
 }) {
   const { message } = App.useApp();
@@ -111,23 +111,23 @@ export function StaffPayrollPanel({
   const [draftRows, setDraftRows] = useState<Record<string, DraftRow>>({});
   const [formError, setFormError] = useState<string | null>(null);
 
-  const positionId = useMemo(
-    () => members.data?.flatMap((m) => m.user_positions).find((up) => up.position?.code === positionCode)?.position?.id,
-    [members.data, positionCode],
+  const roleId = useMemo(
+    () => members.data?.flatMap((m) => m.user_roles).find((up) => up.role?.code === roleCode)?.role?.id,
+    [members.data, roleCode],
   );
 
   const candidates = useMemo(
     () =>
       (members.data ?? []).filter(
-        (m) => m.status === "active" && m.user_positions.some((up) => up.position?.code === positionCode),
+        (m) => m.status === "active" && m.user_roles.some((up) => up.role?.code === roleCode),
       ),
-    [members.data, positionCode],
+    [members.data, roleCode],
   );
   const memberById = useMemo(() => new Map(candidates.map((m) => [m.id, m])), [candidates]);
 
   const records = useMemo(
-    () => (salary.data ?? []).filter((item) => item.position?.code === positionCode),
-    [salary.data, positionCode],
+    () => (salary.data ?? []).filter((item) => item.role?.code === roleCode),
+    [salary.data, roleCode],
   );
   const periods = useMemo(
     () => Array.from(new Set(records.map(periodLabel))).sort((a, b) => b.localeCompare(a)),
@@ -174,8 +174,8 @@ export function StaffPayrollPanel({
       setFormError("请至少选择一位成员");
       return;
     }
-    if (!positionId) {
-      setFormError("未找到该职位，无法新增记录");
+    if (!roleId) {
+      setFormError("未找到该角色，无法新增记录");
       return;
     }
     if (draftPeriod.start > draftPeriod.end) {
@@ -195,7 +195,7 @@ export function StaffPayrollPanel({
       }
       recordsToCreate.push({
         profileId: id,
-        positionId,
+        roleId,
         penaltyCents: -penalty,
         rewardCents: reward,
         taxCents: tax,
@@ -438,8 +438,8 @@ export function StaffPayrollPanel({
 
   function handleDownload() {
     downloadExcel({
-      fileName: `${positionName}工资条_${fileStamp()}.xlsx`,
-      sheetName: `${positionName}工资条`,
+      fileName: `${roleName}工资条_${fileStamp()}.xlsx`,
+      sheetName: `${roleName}工资条`,
       columns,
       records: exportRecords,
     });
@@ -481,7 +481,7 @@ export function StaffPayrollPanel({
       </Card>
 
       <Card
-        title={`${positionName}工资条`}
+        title={`${roleName}工资条`}
         extra={
           <Flex align="center" gap={12}>
             <Typography.Text type="secondary">共 {filtered.length} 条记录 · 金额单位：元</Typography.Text>
@@ -503,7 +503,7 @@ export function StaffPayrollPanel({
             loading={salary.isLoading}
             dataSource={filtered}
             columns={tableColumns}
-            locale={{ emptyText: `暂无${positionName}工资条` }}
+            locale={{ emptyText: `暂无${roleName}工资条` }}
             rowSelection={{
               selectedRowKeys,
               onChange: (keys) => setSelectedRowKeys(keys),
@@ -519,7 +519,7 @@ export function StaffPayrollPanel({
       </Card>
 
       <Modal
-        title={`新增${positionName}工资条`}
+        title={`新增${roleName}工资条`}
         open={createOpen}
         onCancel={() => setCreateOpen(false)}
         onOk={submitCreate}
@@ -570,7 +570,7 @@ export function StaffPayrollPanel({
                     <Flex align="center" justify="space-between" gap={12}>
                       <Typography.Text strong>{member?.name ?? "成员"}</Typography.Text>
                       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                        基础薪资 {formatCentsToYuan(baseIncomeOf(member, positionId))}
+                        基础薪资 {formatCentsToYuan(baseIncomeOf(member, roleId))}
                       </Typography.Text>
                     </Flex>
                     <Row gutter={12} style={{ marginTop: 8 }}>

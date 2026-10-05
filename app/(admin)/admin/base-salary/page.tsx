@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/admin/page-header";
 import { QueryMessage } from "@/components/admin/query-message";
 import { ResizableTable } from "@/components/admin/resizable-table";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
-import { useMembers, usePositions, useSetStaffBaseIncome } from "@/lib/api/hooks";
+import { useMembers, useRoles, useSetStaffBaseIncome } from "@/lib/api/hooks";
 import type { Member } from "@/lib/api/data";
 import { staffBaseIncomeOf } from "@/lib/api/data";
 import { formatCentsToYuan } from "@/lib/format";
@@ -15,47 +15,47 @@ import { formatCentsToYuan } from "@/lib/format";
 interface Editing {
   id: string;
   name: string;
-  positionCode: string;
-  positionId: number;
+  roleCode: string;
+  roleId: number;
   /** 基础薪资（元）。 */
   baseIncome: number;
 }
 
 export default function BaseSalaryPage() {
   const members = useMembers();
-  const positions = usePositions();
+  const roles = useRoles();
   const update = useSetStaffBaseIncome();
-  const [positionCode, setPositionCode] = useState<string>();
+  const [roleCode, setRoleCode] = useState<string>();
   const [editing, setEditing] = useState<Editing | null>(null);
   const [error, setError] = useState("");
 
-  // 支持「固定薪资 + 调整项」工资条的职位：除主播/主持（各自独立结算）外的全部职位。
-  const staffPositions = useMemo(
-    () => (positions.data ?? []).filter((item) => item.code !== "anchor" && item.code !== "host"),
-    [positions.data],
+  // 支持「固定薪资 + 调整项」工资条的角色：除主播/主持（各自独立结算）外的全部角色。
+  const staffRoles = useMemo(
+    () => (roles.data ?? []).filter((item) => item.code !== "anchor" && item.code !== "host"),
+    [roles.data],
   );
-  const effectiveCode = positionCode ?? staffPositions[0]?.code;
-  const position = staffPositions.find((item) => item.code === effectiveCode);
-  const positionId = position?.id;
-  const positionName = position?.name ?? "成员";
+  const effectiveCode = roleCode ?? staffRoles[0]?.code;
+  const role = staffRoles.find((item) => item.code === effectiveCode);
+  const roleId = role?.id;
+  const roleName = role?.name ?? "成员";
 
   const list = useMemo(
     () =>
       (members.data ?? []).filter(
-        (m) => m.status === "active" && m.user_positions.some((up) => up.position?.code === effectiveCode),
+        (m) => m.status === "active" && m.user_roles.some((up) => up.role?.code === effectiveCode),
       ),
     [members.data, effectiveCode],
   );
 
   function openEditor(member: Member) {
-    if (!position) return;
+    if (!role) return;
     setError("");
     setEditing({
       id: member.id,
       name: member.name,
-      positionCode: position.code,
-      positionId: position.id,
-      baseIncome: staffBaseIncomeOf(member, position.id) / 100,
+      roleCode: role.code,
+      roleId: role.id,
+      baseIncome: staffBaseIncomeOf(member, role.id) / 100,
     });
   }
 
@@ -69,7 +69,7 @@ export default function BaseSalaryPage() {
     try {
       await update.mutateAsync({
         profileId: editing.id,
-        positionCode: editing.positionCode,
+        roleCode: editing.roleCode,
         baseIncomeInCents: Math.round(baseIncome * 100),
       });
       setEditing(null);
@@ -82,39 +82,39 @@ export default function BaseSalaryPage() {
     <>
       <PageHeader
         title="基础薪资管理"
-        description="按职位设置每位成员的基础薪资；生成工资条时会快照该值，实发收益 = 基础薪资 + 调整合计（总违约 + 总奖励），到手 = 实发 − 个税"
+        description="按角色设置每位成员的基础薪资；生成工资条时会快照该值，实发收益 = 基础薪资 + 调整合计（总违约 + 总奖励），到手 = 实发 − 个税"
       />
 
       <Card>
         <Flex align="center" gap={12} style={{ marginBottom: 16 }}>
-          <Typography.Text>职位</Typography.Text>
+          <Typography.Text>角色</Typography.Text>
           <Select
             style={{ minWidth: 180 }}
             value={effectiveCode}
-            placeholder={positions.isLoading ? "加载中" : "暂无可用职位"}
-            onChange={setPositionCode}
-            options={staffPositions.map((p) => ({ value: p.code, label: p.name }))}
+            placeholder={roles.isLoading ? "加载中" : "暂无可用角色"}
+            onChange={setRoleCode}
+            options={staffRoles.map((p) => ({ value: p.code, label: p.name }))}
           />
         </Flex>
 
-        {positions.error || members.error ? (
-          <QueryMessage loading={false} error={positions.error ?? members.error} />
+        {roles.error || members.error ? (
+          <QueryMessage loading={false} error={roles.error ?? members.error} />
         ) : (
           <ResizableTable<Member>
             rowClassName={zebraRowClassName}
             rowKey="id"
-            loading={members.isLoading || positions.isLoading}
+            loading={members.isLoading || roles.isLoading}
             dataSource={list}
-            locale={{ emptyText: `暂无${positionName}` }}
+            locale={{ emptyText: `暂无${roleName}` }}
             columns={[
-              { title: positionName, dataIndex: "name", fixed: "left", width: 180 },
+              { title: roleName, dataIndex: "name", fixed: "left", width: 180 },
               {
                 title: "基础薪资",
                 key: "base_income",
                 align: "right",
                 width: 160,
-                sortValue: (record) => staffBaseIncomeOf(record, positionId),
-                render: (_, record) => formatCentsToYuan(staffBaseIncomeOf(record, positionId)),
+                sortValue: (record) => staffBaseIncomeOf(record, roleId),
+                render: (_, record) => formatCentsToYuan(staffBaseIncomeOf(record, roleId)),
               },
               {
                 title: "操作",
@@ -145,7 +145,7 @@ export default function BaseSalaryPage() {
         {editing ? (
           <Form layout="vertical">
             <FormField
-              label={`基础薪资（元）· ${staffPositions.find((p) => p.id === editing.positionId)?.name ?? ""}`}
+              label={`基础薪资（元）· ${staffRoles.find((p) => p.id === editing.roleId)?.name ?? ""}`}
               hint="该成员固定基础薪资，来源：基础薪资管理-设置。"
             >
               <InputNumber

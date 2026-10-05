@@ -123,7 +123,7 @@ describe("aggregate.aggregateSettlement", () => {
   const members: SettlementMemberContext[] = [
     {
       profileId: "p1",
-      positionId: 1,
+      roleId: 1,
       schemeId: "s1",
       scheme,
       hireDate: "2026-01-05",
