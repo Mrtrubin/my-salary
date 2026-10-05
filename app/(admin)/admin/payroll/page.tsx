@@ -14,6 +14,7 @@ import {
   useCurrentProfile,
   useMembers,
   usePositions,
+  useDeleteSalaryRecord,
   useRejectAndRecompute,
   useSalaryRecords,
   useSalaryStatusLogs,
@@ -135,6 +136,7 @@ export default function PayrollPage() {
   const me = useCurrentProfile();
   const transition = useTransitionSalaryStatus();
   const reject = useRejectAndRecompute();
+  const removeSalary = useDeleteSalaryRecord();
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   // 勾选的行：用于「下载选中部分」；为空时下载当前筛选的全部行。
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
@@ -179,6 +181,23 @@ export default function PayrollPage() {
             ok: false,
             message: err instanceof Error ? err.message : "驳回重算失败",
           }),
+      },
+    );
+  }
+
+  async function handleDeleteSalary(record: SalaryRecord) {
+    const ok = await confirm({
+      title: "确认删除工资条",
+      content: `确认删除「${record.profile?.name ?? "该成员"}」的工资条（实发 ${formatCentsToYuan(record.net_cents)}）？删除后对应收支记录会一并移除，已完成工资条不可删除。`,
+      okText: "确认删除",
+      okButtonProps: { danger: true },
+    });
+    if (!ok) return;
+    removeSalary.mutate(
+      { id: record.id, kind: "anchor" },
+      {
+        onSuccess: () => message.success("工资条已删除"),
+        onError: (err) => message.error(err instanceof Error ? err.message : "删除失败，请稍后重试"),
       },
     );
   }
@@ -539,6 +558,16 @@ export default function PayrollPage() {
                 onClick={() => transitionTo(record, "completed")}
               >
                 确认到账
+              </Button>
+            ) : null}
+            {record.status !== "completed" ? (
+              <Button
+                size="small"
+                danger
+                loading={removeSalary.isPending && removeSalary.variables?.id === record.id}
+                onClick={() => handleDeleteSalary(record)}
+              >
+                删除
               </Button>
             ) : null}
           </Flex>

@@ -495,8 +495,8 @@ export async function transitionSalaryStatus(
   const { error } = await supabase.rpc("transition_salary_status", {
     p_id: id,
     p_to_status: toStatus,
-    p_operator_profile_id: options?.operatorProfileId ?? null,
-    p_note: options?.note ?? null,
+    p_operator_profile_id: options?.operatorProfileId,
+    p_note: options?.note,
   });
   if (error) {
     const msg = error.message ?? "";
@@ -1108,7 +1108,7 @@ export async function settleAnchorRevenue(input: { teamId: string | null; period
   });
 
   const { data, error } = await retrySettlement(() => supabase.rpc("settle_anchor_revenue", {
-    p_team_id: input.teamId,
+    p_team_id: input.teamId as string,
     p_period_start: input.period.start,
     p_period_end: input.period.end,
     p_members: payload as unknown as Json,
@@ -1337,8 +1337,8 @@ export async function transitionHostSalaryStatus(
   const { error } = await supabase.rpc("transition_host_salary_status", {
     p_id: id,
     p_to_status: toStatus,
-    p_operator_profile_id: options?.operatorProfileId ?? null,
-    p_note: options?.note ?? null,
+    p_operator_profile_id: options?.operatorProfileId,
+    p_note: options?.note,
   });
   if (error) {
     const msg = error.message ?? "";
@@ -1467,8 +1467,8 @@ export async function transitionStaffSalaryStatus(
   const { error } = await supabase.rpc("transition_staff_salary_status", {
     p_id: id,
     p_to_status: toStatus,
-    p_operator_profile_id: options?.operatorProfileId ?? null,
-    p_note: options?.note ?? null,
+    p_operator_profile_id: options?.operatorProfileId,
+    p_note: options?.note,
   });
   if (error) {
     const msg = error.message ?? "";
@@ -1554,8 +1554,8 @@ export async function listAnchorMembers(): Promise<{ id: string; name: string }[
 /** 查询延误记录；不传区间返回全部（页面自行取最新日期）。 */
 export async function listAnchorDelays(range?: { start?: string; end?: string }): Promise<AnchorDelayRow[]> {
   const { data, error } = await getBrowserSupabase().rpc("list_anchor_delays", {
-    p_start: range?.start ?? null,
-    p_end: range?.end ?? null,
+    p_start: range?.start,
+    p_end: range?.end,
   });
   if (error) fail(error);
   return (data ?? []).map((row) => ({
@@ -1582,7 +1582,7 @@ export async function setAnchorDelays(input: {
     p_delay_date: input.date,
     p_anchor_ids: input.anchorIds,
     p_is_delayed: input.isDelayed,
-    p_note: input.note ?? null,
+    p_note: input.note,
   });
   if (error) {
     const msg = error.message ?? "";
@@ -1609,8 +1609,8 @@ export interface AnchorRewardRow {
 /** 查询奖励记录；不传区间返回全部（页面自行取最新日期）。 */
 export async function listAnchorRewards(range?: { start?: string; end?: string }): Promise<AnchorRewardRow[]> {
   const { data, error } = await getBrowserSupabase().rpc("list_anchor_rewards", {
-    p_start: range?.start ?? null,
-    p_end: range?.end ?? null,
+    p_start: range?.start,
+    p_end: range?.end,
   });
   if (error) fail(error);
   return (data ?? []).map((row) => ({
@@ -1640,7 +1640,7 @@ export async function setAnchorRewards(input: {
     p_anchor_ids: input.anchorIds,
     p_name: input.name,
     p_amount_cents: input.amountCents,
-    p_note: input.note ?? null,
+    p_note: input.note,
   });
   if (error) {
     const msg = error.message ?? "";
@@ -1664,7 +1664,7 @@ export async function updateAnchorReward(input: {
     p_id: input.id,
     p_name: input.name,
     p_amount_cents: input.amountCents,
-    p_note: input.note ?? null,
+    p_note: input.note,
   });
   if (error) {
     const msg = error.message ?? "";
@@ -1700,5 +1700,192 @@ export function rewardAdjustmentsByProfile(rows: AnchorRewardRow[]): Record<stri
     });
   }
   return map;
+}
+
+// ==================== 收支明细（/admin/ledger）====================
+
+/** 标签字典（管理员维护；系统标签 is_system=true 禁删禁改名）。 */
+export type LedgerTag = Database["public"]["Tables"]["ledger_tags"]["Row"];
+export type LedgerEntrySource = Database["public"]["Tables"]["ledger_entries"]["Row"]["source_type"];
+
+/** 收支流水（含标签与创建人姓名）。金额 amount_cents：>=0 收入，<0 支出。 */
+export type LedgerEntry = Database["public"]["Tables"]["ledger_entries"]["Row"] & {
+  tag: Pick<LedgerTag, "id" | "name" | "code"> | null;
+  creator: Pick<Profile, "name"> | null;
+};
+
+export interface LedgerTagSummary { tagId: string | null; tagName: string; count: number; amountCents: number }
+export interface LedgerMonthSummary { month: string; incomeCents: number; expenseCents: number; netCents: number }
+export interface LedgerSummary {
+  incomeCents: number;
+  expenseCents: number;
+  netCents: number;
+  byTag: LedgerTagSummary[];
+  byMonth: LedgerMonthSummary[];
+}
+
+/** 手动收支录入/编辑入参。金额带符号：>=0 收入，<0 支出。 */
+export interface LedgerEntryInput {
+  amountCents: number;
+  tagId: string | null;
+  occurredAt: string;
+  note?: string | null;
+}
+
+/** 查询收支流水；可按入账时间区间过滤。 */
+export async function listLedgerEntries(range?: { start?: string; end?: string }): Promise<LedgerEntry[]> {
+  let query = getBrowserSupabase()
+    .from("ledger_entries")
+    .select("*, tag:ledger_tags(id, name, code), creator:profiles!ledger_entries_created_by_fkey(name)")
+    .order("occurred_at", { ascending: false })
+    .order("created_at", { ascending: false });
+  if (range?.start) query = query.gte("occurred_at", range.start);
+  if (range?.end) query = query.lte("occurred_at", range.end);
+  const { data, error } = await query;
+  if (error) fail(error);
+  return data as unknown as LedgerEntry[];
+}
+
+/** 新增手动收支记录；创建人由数据库触发器写为当前管理员。 */
+export async function createLedgerEntry(input: LedgerEntryInput): Promise<void> {
+  const { error } = await getBrowserSupabase().from("ledger_entries").insert({
+    amount_cents: input.amountCents,
+    tag_id: input.tagId,
+    occurred_at: input.occurredAt,
+    note: input.note?.trim() || null,
+    source_type: "manual",
+  });
+  if (error) fail(error);
+}
+
+/**
+ * 编辑收支记录。手动记录可全量编辑；自动（工资）记录仅时间可改，其余字段由数据库守卫拒绝。
+ */
+export async function updateLedgerEntry(id: string, input: Partial<LedgerEntryInput>): Promise<void> {
+  const patch: Database["public"]["Tables"]["ledger_entries"]["Update"] = {
+    updated_at: new Date().toISOString(),
+  };
+  if (input.amountCents !== undefined) patch.amount_cents = input.amountCents;
+  if (input.tagId !== undefined) patch.tag_id = input.tagId;
+  if (input.occurredAt !== undefined) patch.occurred_at = input.occurredAt;
+  if (input.note !== undefined) patch.note = input.note?.trim() || null;
+  const { error } = await getBrowserSupabase().from("ledger_entries").update(patch).eq("id", id);
+  if (error) {
+    if (error.message.includes("LEDGER_AUTO_READONLY")) {
+      throw new ApiError(ApiErrorCode.FORBIDDEN, "工资自动生成的记录仅可修改入账时间", error);
+    }
+    fail(error);
+  }
+}
+
+/** 删除收支记录。 */
+export async function deleteLedgerEntry(id: string): Promise<void> {
+  const { error } = await getBrowserSupabase().from("ledger_entries").delete().eq("id", id);
+  if (error) fail(error);
+}
+
+/** 区间汇总：收入/支出/结余 + 按标签 + 按月趋势。 */
+export async function getLedgerSummary(start: string, end: string): Promise<LedgerSummary> {
+  const { data, error } = await getBrowserSupabase().rpc("get_ledger_summary", { p_start: start, p_end: end });
+  if (error) fail(error);
+  const raw = (data ?? {}) as {
+    incomeCents?: number;
+    expenseCents?: number;
+    netCents?: number;
+    byTag?: { tagId: string | null; tagName: string; count: number; amount_cents: number }[];
+    byMonth?: LedgerMonthSummary[];
+  };
+  return {
+    incomeCents: Number(raw.incomeCents ?? 0),
+    expenseCents: Number(raw.expenseCents ?? 0),
+    netCents: Number(raw.netCents ?? 0),
+    byTag: (raw.byTag ?? []).map((t) => ({
+      tagId: t.tagId,
+      tagName: t.tagName,
+      count: Number(t.count),
+      amountCents: Number(t.amount_cents),
+    })),
+    byMonth: (raw.byMonth ?? []).map((m) => ({
+      month: m.month,
+      incomeCents: Number(m.incomeCents),
+      expenseCents: Number(m.expenseCents),
+      netCents: Number(m.netCents),
+    })),
+  };
+}
+
+/** 列出全部收支标签（系统标签在前）。 */
+export async function listLedgerTags(): Promise<LedgerTag[]> {
+  const { data, error } = await getBrowserSupabase()
+    .from("ledger_tags")
+    .select("*")
+    .order("is_system", { ascending: false })
+    .order("name");
+  if (error) fail(error);
+  return data as LedgerTag[];
+}
+
+/** 新增自定义标签（code 由数据库自动生成）。 */
+export async function createLedgerTag(input: { name: string }): Promise<void> {
+  const { error } = await getBrowserSupabase().from("ledger_tags").insert({ name: input.name.trim() });
+  if (error) fail(error);
+}
+
+/** 编辑标签（名称/状态）；系统标签无法改名，由数据库守卫拒绝。 */
+export async function updateLedgerTag(id: string, input: { name?: string; status?: "active" | "disabled" }): Promise<void> {
+  const patch: Database["public"]["Tables"]["ledger_tags"]["Update"] = { updated_at: new Date().toISOString() };
+  if (input.name !== undefined) patch.name = input.name.trim();
+  if (input.status !== undefined) patch.status = input.status;
+  const { error } = await getBrowserSupabase().from("ledger_tags").update(patch).eq("id", id);
+  if (error) {
+    if (error.message.includes("LEDGER_TAG_SYSTEM_IMMUTABLE")) {
+      throw new ApiError(ApiErrorCode.FORBIDDEN, "系统标签不可修改", error);
+    }
+    fail(error);
+  }
+}
+
+/** 删除自定义标签；系统标签由数据库守卫拒绝。删除后历史流水的标签置空。 */
+export async function deleteLedgerTag(id: string): Promise<void> {
+  const { error } = await getBrowserSupabase().from("ledger_tags").delete().eq("id", id);
+  if (error) {
+    if (error.message.includes("LEDGER_TAG_SYSTEM_IMMUTABLE")) {
+      throw new ApiError(ApiErrorCode.FORBIDDEN, "系统标签不可删除", error);
+    }
+    fail(error);
+  }
+}
+
+/** 删除工资条的公共错误映射。 */
+function failDeleteSalary(error: { message?: string } | null): never {
+  const msg = error?.message ?? "";
+  if (msg.includes("SALARY_RECORD_COMPLETED")) {
+    throw new ApiError(ApiErrorCode.FORBIDDEN, "已完成的工资条不可删除");
+  }
+  if (msg.includes("SALARY_RECORD_NOT_FOUND")) {
+    throw new ApiError(ApiErrorCode.NOT_FOUND, "工资条不存在");
+  }
+  if (msg.includes("FORBIDDEN")) {
+    throw new ApiError(ApiErrorCode.FORBIDDEN, "仅管理员可删除工资条");
+  }
+  return fail({ message: msg || "删除工资条失败" });
+}
+
+/** 删除未完成主播工资条，仅管理员；已完成（completed）不可删。 */
+export async function deleteSalaryRecord(id: string): Promise<void> {
+  const { error } = await getBrowserSupabase().rpc("delete_salary_record", { p_id: id });
+  if (error) failDeleteSalary(error);
+}
+
+/** 删除未完成主持工资条，仅管理员；已完成（completed）不可删。 */
+export async function deleteHostSalaryRecord(id: string): Promise<void> {
+  const { error } = await getBrowserSupabase().rpc("delete_host_salary_record", { p_id: id });
+  if (error) failDeleteSalary(error);
+}
+
+/** 删除未完成员工工资条，仅管理员；已完成（completed）不可删。 */
+export async function deleteStaffSalaryRecord(id: string): Promise<void> {
+  const { error } = await getBrowserSupabase().rpc("delete_staff_salary_record", { p_id: id });
+  if (error) failDeleteSalary(error);
 }
 

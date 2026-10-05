@@ -11,6 +11,7 @@ import { zebraRowClassName } from "@/components/admin/table-zebra";
 import { useConfirm } from "@/components/admin/use-confirm";
 import {
   useCreateStaffSalaryRecords,
+  useDeleteSalaryRecord,
   useMembers,
   useRejectAndRecomputeStaffSalary,
   useStaffSalaryRecords,
@@ -97,6 +98,7 @@ export function StaffPayrollPanel({
   const create = useCreateStaffSalaryRecords();
   const transition = useTransitionStaffSalaryStatus();
   const reject = useRejectAndRecomputeStaffSalary();
+  const removeSalary = useDeleteSalaryRecord();
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
   const [period, setPeriod] = useState("");
@@ -389,6 +391,31 @@ export function StaffPayrollPanel({
                 onClick={() => transitionTo(record, "completed")}
               >
                 确认到账
+              </Button>
+            ) : null}
+            {record.status !== "completed" ? (
+              <Button
+                size="small"
+                danger
+                loading={removeSalary.isPending && removeSalary.variables?.id === record.id}
+                onClick={async () => {
+                  const ok = await confirm({
+                    title: "确认删除员工工资条",
+                    content: `确认删除该工资条（实发 ${formatCentsToYuan(record.net_cents)}）？删除后对应收支记录会一并移除，已完成工资条不可删除。`,
+                    okText: "确认删除",
+                    okButtonProps: { danger: true },
+                  });
+                  if (!ok) return;
+                  removeSalary.mutate(
+                    { id: record.id, kind: "staff" },
+                    {
+                      onSuccess: () => message.success("工资条已删除"),
+                      onError: (err) => message.error(err instanceof Error ? err.message : "删除失败，请稍后重试"),
+                    },
+                  );
+                }}
+              >
+                删除
               </Button>
             ) : null}
           </Flex>

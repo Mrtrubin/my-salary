@@ -114,3 +114,7 @@ end $$;
 
 revoke all on function public.settle_team_period(uuid, date, date, jsonb, boolean) from public, anon, authenticated;
 grant execute on function public.settle_team_period(uuid, date, date, jsonb, boolean) to service_role;
+
+-- performance_status 新增 voided（作废）。单独放在本迁移末尾、且在下一迁移使用前提交：
+-- ALTER TYPE ADD VALUE 的新值在同一事务内不可被使用，故必须与使用它的迁移分属不同事务。
+alter type public.performance_status add value if not exists 'voided';

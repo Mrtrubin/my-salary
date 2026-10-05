@@ -11,8 +11,10 @@ import {
   LogoutOutlined,
   ProfileOutlined,
   StarOutlined,
+  TagsOutlined,
   TeamOutlined,
   UserOutlined,
+  WalletOutlined,
 } from "@ant-design/icons";
 import { Button, Layout, Menu, Typography } from "antd";
 import Link from "next/link";
@@ -43,6 +45,8 @@ const NAV_ITEMS = [
   { href: "/admin/team-review", label: "流水记录", icon: <ProfileOutlined /> },
   { href: "/admin/change-requests", label: "资料审核", icon: <AuditOutlined /> },
   { href: "/admin/payroll", label: "工资核算", icon: <AccountBookOutlined /> },
+  { href: "/admin/ledger", label: "收支明细", icon: <WalletOutlined /> },
+  { href: "/admin/ledger-tags", label: "收支标签", icon: <TagsOutlined /> },
 ];
 
 /** 取最长匹配前缀，保证 /admin/teams/detail/* 仍高亮「团队管理」而不是「控制台」。 */

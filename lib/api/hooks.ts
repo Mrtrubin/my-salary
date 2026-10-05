@@ -66,8 +66,20 @@ import {
   setAnchorRewards,
   updateAnchorReward,
   deleteAnchorReward,
+  listLedgerEntries,
+  createLedgerEntry,
+  updateLedgerEntry,
+  deleteLedgerEntry,
+  getLedgerSummary,
+  listLedgerTags,
+  createLedgerTag,
+  updateLedgerTag,
+  deleteLedgerTag,
+  deleteSalaryRecord,
+  deleteHostSalaryRecord,
+  deleteStaffSalaryRecord,
 } from "./data";
-import type { Member, AnchorSettleMember, HostSettleMember, StaffSalaryCreateItem } from "./data";
+import type { Member, AnchorSettleMember, HostSettleMember, StaffSalaryCreateItem, LedgerEntryInput } from "./data";
 import type { PeriodRange } from "@/lib/domain/settlement/cycle";
 import { readCachedProfile, writeCachedProfile } from "./profile-cache";
 
@@ -93,6 +105,9 @@ export const keys = {
   anchorMembers: ["anchorMembers"] as const,
   anchorDelays: ["anchorDelays"] as const,
   anchorRewards: ["anchorRewards"] as const,
+  ledgerEntries: ["ledgerEntries"] as const,
+  ledgerSummary: ["ledgerSummary"] as const,
+  ledgerTags: ["ledgerTags"] as const,
 };
 /** 成员、方案、流水或工资快照变化后，刷新跨团队试算依赖。 */
 function invalidateSettlementQueries(client: QueryClient) {
@@ -120,6 +135,15 @@ function invalidatePositionQueries(client: QueryClient) {
     client.invalidateQueries({ queryKey: keys.hostSalary }),
     client.invalidateQueries({ queryKey: keys.staffSalary }),
     invalidateSettlementQueries(client),
+  ]);
+}
+
+/** 收支流水/标签/汇总相关查询失效。 */
+function invalidateLedgerQueries(client: QueryClient) {
+  return Promise.all([
+    client.invalidateQueries({ queryKey: keys.ledgerEntries }),
+    client.invalidateQueries({ queryKey: keys.ledgerSummary }),
+    client.invalidateQueries({ queryKey: keys.ledgerTags }),
   ]);
 }
 
@@ -369,6 +393,7 @@ export function useSettleAnchorRevenue() {
       client.invalidateQueries({ queryKey: keys.salary }),
       client.invalidateQueries({ queryKey: keys.salaryStatusLogs }),
       invalidateSettlementQueries(client),
+      invalidateLedgerQueries(client),
     ]),
   });
 }
@@ -408,6 +433,7 @@ export function useSettleHostPayroll() {
       client.invalidateQueries({ queryKey: keys.hostSalary }),
       client.invalidateQueries({ queryKey: keys.hostSalaryStatusLogs }),
       client.invalidateQueries({ queryKey: keys.hostSettlementContexts }),
+      invalidateLedgerQueries(client),
     ]),
   });
 }
@@ -432,6 +458,7 @@ export function useRejectAndRecomputeHostSalary() {
       client.invalidateQueries({ queryKey: keys.hostSalary }),
       client.invalidateQueries({ queryKey: keys.hostSalaryStatusLogs }),
       client.invalidateQueries({ queryKey: keys.hostSettlementContexts }),
+      invalidateLedgerQueries(client),
     ]),
   });
 }
@@ -458,6 +485,7 @@ export function useCreateStaffSalaryRecords() {
     onSuccess: () => Promise.all([
       client.invalidateQueries({ queryKey: keys.staffSalary }),
       client.invalidateQueries({ queryKey: keys.staffSalaryStatusLogs }),
+      invalidateLedgerQueries(client),
     ]),
   });
 }
@@ -470,6 +498,7 @@ export function useTransitionStaffSalaryStatus() {
     onSuccess: () => Promise.all([
       client.invalidateQueries({ queryKey: keys.staffSalary }),
       client.invalidateQueries({ queryKey: keys.staffSalaryStatusLogs }),
+      invalidateLedgerQueries(client),
     ]),
   });
 }
@@ -481,6 +510,7 @@ export function useRejectAndRecomputeStaffSalary() {
     onSuccess: () => Promise.all([
       client.invalidateQueries({ queryKey: keys.staffSalary }),
       client.invalidateQueries({ queryKey: keys.staffSalaryStatusLogs }),
+      invalidateLedgerQueries(client),
     ]),
   });
 }
@@ -554,6 +584,82 @@ export function useDeleteAnchorReward() {
   return useMutation({
     mutationFn: (id: string) => deleteAnchorReward(id),
     onSuccess: () => client.invalidateQueries({ queryKey: keys.anchorRewards }),
+  });
+}
+
+// ==================== 收支明细 ====================
+
+export function useLedgerEntries(range?: { start?: string; end?: string }) {
+  return useQuery({
+    queryKey: [...keys.ledgerEntries, range?.start ?? "", range?.end ?? ""],
+    queryFn: () => listLedgerEntries(range),
+  });
+}
+
+/** range 为空时不请求。 */
+export function useLedgerSummary(range: { start: string; end: string } | null) {
+  return useQuery({
+    queryKey: [...keys.ledgerSummary, range?.start ?? "", range?.end ?? ""],
+    queryFn: () => getLedgerSummary(range!.start, range!.end),
+    enabled: range !== null,
+  });
+}
+
+export function useLedgerTags() {
+  return useQuery({ queryKey: keys.ledgerTags, queryFn: listLedgerTags });
+}
+
+export function useCreateLedgerEntry() {
+  const client = useQueryClient();
+  return useMutation({ mutationFn: createLedgerEntry, onSuccess: () => invalidateLedgerQueries(client) });
+}
+
+export function useUpdateLedgerEntry() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...input }: { id: string } & Partial<LedgerEntryInput>) => updateLedgerEntry(id, input),
+    onSuccess: () => invalidateLedgerQueries(client),
+  });
+}
+
+export function useDeleteLedgerEntry() {
+  const client = useQueryClient();
+  return useMutation({ mutationFn: deleteLedgerEntry, onSuccess: () => invalidateLedgerQueries(client) });
+}
+
+export function useCreateLedgerTag() {
+  const client = useQueryClient();
+  return useMutation({ mutationFn: createLedgerTag, onSuccess: () => invalidateLedgerQueries(client) });
+}
+
+export function useUpdateLedgerTag() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...input }: { id: string; name?: string; status?: "active" | "disabled" }) => updateLedgerTag(id, input),
+    onSuccess: () => invalidateLedgerQueries(client),
+  });
+}
+
+export function useDeleteLedgerTag() {
+  const client = useQueryClient();
+  return useMutation({ mutationFn: deleteLedgerTag, onSuccess: () => invalidateLedgerQueries(client) });
+}
+
+/** 删除未完成工资条（主播/主持/员工），并刷新工资条与收支流水。 */
+export function useDeleteSalaryRecord() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, kind }: { id: string; kind: "anchor" | "host" | "staff" }) => {
+      if (kind === "host") return deleteHostSalaryRecord(id);
+      if (kind === "staff") return deleteStaffSalaryRecord(id);
+      return deleteSalaryRecord(id);
+    },
+    onSuccess: () => Promise.all([
+      client.invalidateQueries({ queryKey: keys.salary }),
+      client.invalidateQueries({ queryKey: keys.hostSalary }),
+      client.invalidateQueries({ queryKey: keys.staffSalary }),
+      invalidateLedgerQueries(client),
+    ]),
   });
 }
 

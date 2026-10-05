@@ -14,6 +14,137 @@ export type Database = {
   }
   public: {
     Tables: {
+      anchor_delay_records: {
+        Row: {
+          anchor_profile_id: string
+          created_at: string
+          delay_date: string
+          id: string
+          is_delayed: boolean
+          note: string | null
+          registered_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          anchor_profile_id: string
+          created_at?: string
+          delay_date: string
+          id?: string
+          is_delayed?: boolean
+          note?: string | null
+          registered_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          anchor_profile_id?: string
+          created_at?: string
+          delay_date?: string
+          id?: string
+          is_delayed?: boolean
+          note?: string | null
+          registered_by?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "anchor_delay_records_anchor_profile_id_fkey"
+            columns: ["anchor_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "anchor_delay_records_registered_by_fkey"
+            columns: ["registered_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      anchor_revenue_records: {
+        Row: {
+          adjustment_cents: number
+          adjustments: Json
+          broadcast_minutes: number
+          created_at: string
+          host_profile_id: string | null
+          id: string
+          no_perf: boolean
+          no_perf_note: string | null
+          perf_date: string
+          point_id: string | null
+          points_amount: number
+          profile_id: string
+          revenue_cents: number
+          team_id: string
+          updated_at: string
+        }
+        Insert: {
+          adjustment_cents?: number
+          adjustments?: Json
+          broadcast_minutes?: number
+          created_at?: string
+          host_profile_id?: string | null
+          id?: string
+          no_perf?: boolean
+          no_perf_note?: string | null
+          perf_date: string
+          point_id?: string | null
+          points_amount?: number
+          profile_id: string
+          revenue_cents?: number
+          team_id: string
+          updated_at?: string
+        }
+        Update: {
+          adjustment_cents?: number
+          adjustments?: Json
+          broadcast_minutes?: number
+          created_at?: string
+          host_profile_id?: string | null
+          id?: string
+          no_perf?: boolean
+          no_perf_note?: string | null
+          perf_date?: string
+          point_id?: string | null
+          points_amount?: number
+          profile_id?: string
+          revenue_cents?: number
+          team_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "anchor_revenue_records_host_profile_id_fkey"
+            columns: ["host_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "anchor_revenue_records_point_id_fkey"
+            columns: ["point_id"]
+            isOneToOne: false
+            referencedRelation: "performance_points"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "anchor_revenue_records_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "anchor_revenue_records_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       anchor_reward_records: {
         Row: {
           amount_cents: number
@@ -65,407 +196,12 @@ export type Database = {
           },
         ]
       }
-      performance_points: {
-        Row: {
-          created_at: string
-          id: string
-          name: string
-          points_per_yuan: number
-          status: Database["public"]["Enums"]["employment_status"]
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          name: string
-          points_per_yuan: number
-          status?: Database["public"]["Enums"]["employment_status"]
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          name?: string
-          points_per_yuan?: number
-          status?: Database["public"]["Enums"]["employment_status"]
-          updated_at?: string
-        }
-        Relationships: []
-      }
-      positions: {
-        Row: {
-          code: string
-          created_at: string
-          default_permissions: string[]
-          id: number
-          name: string
-        }
-        Insert: {
-          code: string
-          created_at?: string
-          default_permissions?: string[]
-          id?: never
-          name: string
-        }
-        Update: {
-          code?: string
-          created_at?: string
-          default_permissions?: string[]
-          id?: never
-          name?: string
-        }
-        Relationships: []
-      }
-      stage_names: {
-        Row: {
-          created_at: string
-          douyin_id: string
-          id: string
-          name: string
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          douyin_id: string
-          id?: string
-          name: string
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          douyin_id?: string
-          id?: string
-          name?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
-      profile_change_requests: {
-        Row: {
-          batch_id: string
-          created_at: string
-          field: string
-          id: string
-          new_value: string | null
-          old_value: string | null
-          profile_id: string
-          reject_reason: string | null
-          reviewed_at: string | null
-          reviewed_by: string | null
-          secret_value: string | null
-          status: Database["public"]["Enums"]["change_request_status"]
-          updated_at: string
-        }
-        Insert: {
-          batch_id: string
-          created_at?: string
-          field: string
-          id?: string
-          new_value?: string | null
-          old_value?: string | null
-          profile_id: string
-          reject_reason?: string | null
-          reviewed_at?: string | null
-          reviewed_by?: string | null
-          secret_value?: string | null
-          status?: Database["public"]["Enums"]["change_request_status"]
-          updated_at?: string
-        }
-        Update: {
-          batch_id?: string
-          created_at?: string
-          field?: string
-          id?: string
-          new_value?: string | null
-          old_value?: string | null
-          profile_id?: string
-          reject_reason?: string | null
-          reviewed_at?: string | null
-          reviewed_by?: string | null
-          secret_value?: string | null
-          status?: Database["public"]["Enums"]["change_request_status"]
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "profile_change_requests_profile_id_fkey"
-            columns: ["profile_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "profile_change_requests_reviewed_by_fkey"
-            columns: ["reviewed_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      profiles: {
-        Row: {
-          anchor_base_commission_bps: number
-         anchor_type: Database["public"]["Enums"]["anchor_type"]
-          auth_user_id: string | null
-          created_at: string
-          douyin_id: string | null
-          email: string | null
-          hire_date: string
-          id: string
-          id_card: string | null
-          name: string
-          phone: string
-          status: Database["public"]["Enums"]["employment_status"]
-          system_role: Database["public"]["Enums"]["system_role"]
-          updated_at: string
-          username: string | null
-        }
-        Insert: {
-          anchor_base_commission_bps?: number
-          anchor_type?: Database["public"]["Enums"]["anchor_type"]
-          auth_user_id?: string | null
-          created_at?: string
-          douyin_id?: string | null
-          email?: string | null
-          hire_date: string
-          id?: string
-          id_card?: string | null
-          name: string
-          phone?: string
-          status?: Database["public"]["Enums"]["employment_status"]
-          system_role?: Database["public"]["Enums"]["system_role"]
-          updated_at?: string
-          username?: string | null
-        }
-        Update: {
-          anchor_base_commission_bps?: number
-          anchor_type?: Database["public"]["Enums"]["anchor_type"]
-          auth_user_id?: string | null
-          created_at?: string
-          douyin_id?: string | null
-          email?: string | null
-          hire_date?: string
-          id?: string
-          id_card?: string | null
-          name?: string
-          phone?: string
-          status?: Database["public"]["Enums"]["employment_status"]
-          system_role?: Database["public"]["Enums"]["system_role"]
-          updated_at?: string
-          username?: string | null
-        }
-        Relationships: []
-      }
-      salary_records: {
-        Row: {
-          adjustments: Json
-          attendance_bonus_bps: number
-          dy_task_bonus_bps: number
-          base_guarantee_cents: number
-          broadcast_minutes: number
-          commission_rate_bps: number
-          base_commission_rate_bps: number
-          commission_start_cents: number
-          created_at: string
-          gross_cents: number
-          guaranteed_component_cents: number
-          id: string
-          is_grace_period: boolean
-          is_qualified: boolean
-          month: string
-          net_cents: number
-          note: string
-          performance_component_cents: number
-          position_id: number
-          profile_id: string
-          revenue_cents: number
-          scheme_id: string | null
-          service_fee_cents: number
-          service_fee_rate_bps: number
-          status: Database["public"]["Enums"]["salary_record_status"]
-          tenure_month: number
-          threshold_cents: number
-          updated_at: string
-          team_id: string | null
-          period_start: string
-          period_end: string
-          review_pending_at: string | null
-          confirm_pending_at: string | null
-          confirmed_at: string | null
-          completed_at: string | null
-          reviewed_by: string | null
-          confirmed_by: string | null
-          completed_by: string | null
-        }
-        Insert: {
-          adjustments?: Json
-          attendance_bonus_bps?: number
-          dy_task_bonus_bps?: number
-          base_guarantee_cents?: number
-          broadcast_minutes?: number
-          commission_rate_bps: number
-          base_commission_rate_bps?: number
-          commission_start_cents?: number
-          created_at?: string
-          gross_cents: number
-          guaranteed_component_cents: number
-          id?: string
-          is_grace_period: boolean
-          is_qualified: boolean
-          month: string
-          net_cents: number
-          note?: string
-          performance_component_cents: number
-          position_id: number
-          profile_id: string
-          revenue_cents: number
-          scheme_id?: string | null
-          service_fee_cents: number
-          service_fee_rate_bps?: number
-          status?: Database["public"]["Enums"]["salary_record_status"]
-          tenure_month: number
-          threshold_cents: number
-          updated_at?: string
-          team_id?: string | null
-          period_start: string
-          period_end: string
-          review_pending_at?: string | null
-          confirm_pending_at?: string | null
-          confirmed_at?: string | null
-          completed_at?: string | null
-          reviewed_by?: string | null
-          confirmed_by?: string | null
-          completed_by?: string | null
-        }
-        Update: {
-          adjustments?: Json
-          attendance_bonus_bps?: number
-          dy_task_bonus_bps?: number
-          base_guarantee_cents?: number
-          broadcast_minutes?: number
-          commission_rate_bps?: number
-          base_commission_rate_bps?: number
-          commission_start_cents?: number
-          created_at?: string
-          gross_cents?: number
-          guaranteed_component_cents?: number
-          id?: string
-          is_grace_period?: boolean
-          is_qualified?: boolean
-          month?: string
-          net_cents?: number
-          note?: string
-          performance_component_cents?: number
-          position_id?: number
-          profile_id?: string
-          revenue_cents?: number
-          scheme_id?: string | null
-          service_fee_cents?: number
-          service_fee_rate_bps?: number
-          status?: Database["public"]["Enums"]["salary_record_status"]
-          tenure_month?: number
-          threshold_cents?: number
-          updated_at?: string
-          team_id?: string | null
-          period_start?: string
-          period_end?: string
-          review_pending_at?: string | null
-          confirm_pending_at?: string | null
-          confirmed_at?: string | null
-          completed_at?: string | null
-          reviewed_by?: string | null
-          confirmed_by?: string | null
-          completed_by?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "salary_records_position_id_fkey"
-            columns: ["position_id"]
-            isOneToOne: false
-            referencedRelation: "positions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "salary_records_profile_id_fkey"
-            columns: ["profile_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "salary_records_scheme_id_fkey"
-            columns: ["scheme_id"]
-            isOneToOne: false
-            referencedRelation: "salary_schemes"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      salary_schemes: {
-        Row: {
-          base_salary_cents: number
-          created_at: string
-          effective_from: string
-          guaranteed_salary_cents: number
-          id: string
-          name: string
-          position_id: number | null
-          profile_id: string | null
-          service_fee_rate_bps: number
-          status: Database["public"]["Enums"]["scheme_status"]
-          threshold_multiplier_bps: number
-          version: number
-        }
-        Insert: {
-          base_salary_cents: number
-          created_at?: string
-          effective_from: string
-          guaranteed_salary_cents: number
-          id?: string
-          name: string
-          position_id?: number | null
-          profile_id?: string | null
-          service_fee_rate_bps?: number
-          status?: Database["public"]["Enums"]["scheme_status"]
-          threshold_multiplier_bps?: number
-          version: number
-        }
-        Update: {
-          base_salary_cents?: number
-          created_at?: string
-          effective_from?: string
-          guaranteed_salary_cents?: number
-          id?: string
-          name?: string
-          position_id?: number | null
-          profile_id?: string | null
-          service_fee_rate_bps?: number
-          status?: Database["public"]["Enums"]["scheme_status"]
-          threshold_multiplier_bps?: number
-          version?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "salary_schemes_position_id_fkey"
-            columns: ["position_id"]
-            isOneToOne: false
-            referencedRelation: "positions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "salary_schemes_profile_id_fkey"
-            columns: ["profile_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       host_salary_record_status_logs: {
         Row: {
           created_at: string
-          from_status: Database["public"]["Enums"]["salary_record_status"] | null
+          from_status:
+            | Database["public"]["Enums"]["salary_record_status"]
+            | null
           id: string
           note: string | null
           operator_profile_id: string | null
@@ -474,7 +210,9 @@ export type Database = {
         }
         Insert: {
           created_at?: string
-          from_status?: Database["public"]["Enums"]["salary_record_status"] | null
+          from_status?:
+            | Database["public"]["Enums"]["salary_record_status"]
+            | null
           id?: string
           note?: string | null
           operator_profile_id?: string | null
@@ -483,7 +221,9 @@ export type Database = {
         }
         Update: {
           created_at?: string
-          from_status?: Database["public"]["Enums"]["salary_record_status"] | null
+          from_status?:
+            | Database["public"]["Enums"]["salary_record_status"]
+            | null
           id?: string
           note?: string | null
           operator_profile_id?: string | null
@@ -491,6 +231,13 @@ export type Database = {
           to_status?: Database["public"]["Enums"]["salary_record_status"]
         }
         Relationships: [
+          {
+            foreignKeyName: "host_salary_record_status_logs_operator_profile_id_fkey"
+            columns: ["operator_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "host_salary_record_status_logs_salary_record_id_fkey"
             columns: ["salary_record_id"]
@@ -521,9 +268,9 @@ export type Database = {
           net_cents: number
           period_end: string
           period_start: string
+          revenue_cents: number
           review_pending_at: string | null
           reviewed_by: string | null
-          revenue_cents: number
           scheme_id: string | null
           service_fee_cents: number
           service_fee_rate_bps: number
@@ -553,9 +300,9 @@ export type Database = {
           net_cents: number
           period_end: string
           period_start: string
+          revenue_cents: number
           review_pending_at?: string | null
           reviewed_by?: string | null
-          revenue_cents: number
           scheme_id?: string | null
           service_fee_cents: number
           service_fee_rate_bps?: number
@@ -585,9 +332,9 @@ export type Database = {
           net_cents?: number
           period_end?: string
           period_start?: string
+          revenue_cents?: number
           review_pending_at?: string | null
           reviewed_by?: string | null
-          revenue_cents?: number
           scheme_id?: string | null
           service_fee_cents?: number
           service_fee_rate_bps?: number
@@ -599,8 +346,29 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "host_salary_records_completed_by_fkey"
+            columns: ["completed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "host_salary_records_confirmed_by_fkey"
+            columns: ["confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "host_salary_records_host_profile_id_fkey"
             columns: ["host_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "host_salary_records_reviewed_by_fkey"
+            columns: ["reviewed_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -674,208 +442,582 @@ export type Database = {
           },
         ]
       }
-      team_members: {
+      ledger_entries: {
+        Row: {
+          amount_cents: number
+          created_at: string
+          created_by: string | null
+          created_by_type: string
+          id: string
+          note: string | null
+          occurred_at: string
+          source_id: string | null
+          source_type: string
+          tag_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount_cents: number
+          created_at?: string
+          created_by?: string | null
+          created_by_type?: string
+          id?: string
+          note?: string | null
+          occurred_at?: string
+          source_id?: string | null
+          source_type?: string
+          tag_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount_cents?: number
+          created_at?: string
+          created_by?: string | null
+          created_by_type?: string
+          id?: string
+          note?: string | null
+          occurred_at?: string
+          source_id?: string | null
+          source_type?: string
+          tag_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ledger_entries_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ledger_entries_tag_id_fkey"
+            columns: ["tag_id"]
+            isOneToOne: false
+            referencedRelation: "ledger_tags"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ledger_tags: {
+        Row: {
+          code: string
+          created_at: string
+          id: string
+          is_system: boolean
+          name: string
+          status: Database["public"]["Enums"]["employment_status"]
+          updated_at: string
+        }
+        Insert: {
+          code?: string
+          created_at?: string
+          id?: string
+          is_system?: boolean
+          name: string
+          status?: Database["public"]["Enums"]["employment_status"]
+          updated_at?: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          id?: string
+          is_system?: boolean
+          name?: string
+          status?: Database["public"]["Enums"]["employment_status"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      notifications: {
+        Row: {
+          body: string
+          created_at: string
+          id: string
+          profile_id: string
+          read_at: string | null
+          ref_id: string | null
+          title: string
+          type: string
+        }
+        Insert: {
+          body?: string
+          created_at?: string
+          id?: string
+          profile_id: string
+          read_at?: string | null
+          ref_id?: string | null
+          title: string
+          type: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          id?: string
+          profile_id?: string
+          read_at?: string | null
+          ref_id?: string | null
+          title?: string
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      performance_points: {
         Row: {
           created_at: string
           id: string
-          joined_at: string
-          left_at: string | null
-          profile_id: string
-          team_id: string
+          name: string
+          points_per_yuan: number
+          status: Database["public"]["Enums"]["employment_status"]
+          updated_at: string
         }
         Insert: {
           created_at?: string
           id?: string
-          joined_at?: string
-          left_at?: string | null
-          profile_id: string
-          team_id: string
+          name: string
+          points_per_yuan: number
+          status?: Database["public"]["Enums"]["employment_status"]
+          updated_at?: string
         }
         Update: {
           created_at?: string
           id?: string
-          joined_at?: string
-          left_at?: string | null
+          name?: string
+          points_per_yuan?: number
+          status?: Database["public"]["Enums"]["employment_status"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      positions: {
+        Row: {
+          code: string
+          created_at: string
+          default_permissions: string[]
+          id: number
+          name: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          default_permissions?: string[]
+          id?: never
+          name: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          default_permissions?: string[]
+          id?: never
+          name?: string
+        }
+        Relationships: []
+      }
+      profile_change_requests: {
+        Row: {
+          batch_id: string
+          created_at: string
+          field: string
+          id: string
+          new_value: string | null
+          old_value: string | null
+          profile_id: string
+          reject_reason: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          secret_value: string | null
+          status: Database["public"]["Enums"]["change_request_status"]
+          updated_at: string
+        }
+        Insert: {
+          batch_id: string
+          created_at?: string
+          field: string
+          id?: string
+          new_value?: string | null
+          old_value?: string | null
+          profile_id: string
+          reject_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          secret_value?: string | null
+          status?: Database["public"]["Enums"]["change_request_status"]
+          updated_at?: string
+        }
+        Update: {
+          batch_id?: string
+          created_at?: string
+          field?: string
+          id?: string
+          new_value?: string | null
+          old_value?: string | null
           profile_id?: string
-          team_id?: string
+          reject_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          secret_value?: string | null
+          status?: Database["public"]["Enums"]["change_request_status"]
+          updated_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: "team_members_profile_id_fkey"
+            foreignKeyName: "profile_change_requests_profile_id_fkey"
             columns: ["profile_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "team_members_team_id_fkey"
-            columns: ["team_id"]
+            foreignKeyName: "profile_change_requests_reviewed_by_fkey"
+            columns: ["reviewed_by"]
             isOneToOne: false
-            referencedRelation: "teams"
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
       }
-      team_performance_points: {
+      profiles: {
         Row: {
+          anchor_base_commission_bps: number
+          anchor_type: Database["public"]["Enums"]["anchor_type"]
+          auth_user_id: string | null
           created_at: string
-          point_id: string
-          team_id: string
-        }
-        Insert: {
-          created_at?: string
-          point_id: string
-          team_id: string
-        }
-        Update: {
-          created_at?: string
-          point_id?: string
-          team_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "team_performance_points_point_id_fkey"
-            columns: ["point_id"]
-            isOneToOne: false
-            referencedRelation: "performance_points"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "team_performance_points_team_id_fkey"
-            columns: ["team_id"]
-            isOneToOne: false
-            referencedRelation: "teams"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      anchor_delay_records: {
-        Row: {
-          anchor_profile_id: string
-          created_at: string
-          delay_date: string
+          douyin_id: string | null
+          email: string | null
+          hire_date: string
           id: string
-          is_delayed: boolean
-          note: string | null
-          registered_by: string | null
+          id_card: string | null
+          name: string
+          phone: string
+          status: Database["public"]["Enums"]["employment_status"]
+          system_role: Database["public"]["Enums"]["system_role"]
           updated_at: string
+          username: string | null
         }
         Insert: {
-          anchor_profile_id: string
+          anchor_base_commission_bps?: number
+          anchor_type?: Database["public"]["Enums"]["anchor_type"]
+          auth_user_id?: string | null
           created_at?: string
-          delay_date: string
+          douyin_id?: string | null
+          email?: string | null
+          hire_date: string
           id?: string
-          is_delayed?: boolean
-          note?: string | null
-          registered_by?: string | null
+          id_card?: string | null
+          name: string
+          phone?: string
+          status?: Database["public"]["Enums"]["employment_status"]
+          system_role?: Database["public"]["Enums"]["system_role"]
           updated_at?: string
+          username?: string | null
         }
         Update: {
-          anchor_profile_id?: string
+          anchor_base_commission_bps?: number
+          anchor_type?: Database["public"]["Enums"]["anchor_type"]
+          auth_user_id?: string | null
           created_at?: string
-          delay_date?: string
+          douyin_id?: string | null
+          email?: string | null
+          hire_date?: string
           id?: string
-          is_delayed?: boolean
-          note?: string | null
-          registered_by?: string | null
+          id_card?: string | null
+          name?: string
+          phone?: string
+          status?: Database["public"]["Enums"]["employment_status"]
+          system_role?: Database["public"]["Enums"]["system_role"]
           updated_at?: string
+          username?: string | null
+        }
+        Relationships: []
+      }
+      salary_record_status_logs: {
+        Row: {
+          created_at: string
+          from_status:
+            | Database["public"]["Enums"]["salary_record_status"]
+            | null
+          id: string
+          note: string | null
+          operator_profile_id: string | null
+          salary_record_id: string
+          to_status: Database["public"]["Enums"]["salary_record_status"]
+        }
+        Insert: {
+          created_at?: string
+          from_status?:
+            | Database["public"]["Enums"]["salary_record_status"]
+            | null
+          id?: string
+          note?: string | null
+          operator_profile_id?: string | null
+          salary_record_id: string
+          to_status: Database["public"]["Enums"]["salary_record_status"]
+        }
+        Update: {
+          created_at?: string
+          from_status?:
+            | Database["public"]["Enums"]["salary_record_status"]
+            | null
+          id?: string
+          note?: string | null
+          operator_profile_id?: string | null
+          salary_record_id?: string
+          to_status?: Database["public"]["Enums"]["salary_record_status"]
         }
         Relationships: [
           {
-            foreignKeyName: "anchor_delay_records_anchor_profile_id_fkey"
-            columns: ["anchor_profile_id"]
+            foreignKeyName: "salary_record_status_logs_operator_profile_id_fkey"
+            columns: ["operator_profile_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "anchor_delay_records_registered_by_fkey"
-            columns: ["registered_by"]
+            foreignKeyName: "salary_record_status_logs_salary_record_id_fkey"
+            columns: ["salary_record_id"]
             isOneToOne: false
-            referencedRelation: "profiles"
+            referencedRelation: "salary_records"
             referencedColumns: ["id"]
           },
         ]
       }
-      anchor_revenue_records: {
+      salary_records: {
         Row: {
-          adjustment_cents: number
           adjustments: Json
+          attendance_bonus_bps: number
+          base_commission_rate_bps: number
+          base_guarantee_cents: number
           broadcast_minutes: number
+          commission_rate_bps: number
+          commission_start_cents: number
+          completed_at: string | null
+          completed_by: string | null
+          confirm_pending_at: string | null
+          confirmed_at: string | null
+          confirmed_by: string | null
           created_at: string
+          dy_task_bonus_bps: number
+          gross_cents: number
+          guaranteed_component_cents: number
           id: string
-          no_perf: boolean
-          no_perf_note: string | null
-          perf_date: string
-          point_id: string | null
-          points_amount: number
+          is_grace_period: boolean
+          is_qualified: boolean
+          month: string
+          net_cents: number
+          note: string
+          performance_component_cents: number
+          period_end: string
+          period_start: string
+          position_id: number
           profile_id: string
           revenue_cents: number
-          team_id: string
-          host_profile_id: string | null
+          review_pending_at: string | null
+          reviewed_by: string | null
+          scheme_id: string | null
+          service_fee_cents: number
+          service_fee_rate_bps: number
+          status: Database["public"]["Enums"]["salary_record_status"]
+          team_id: string | null
+          tenure_month: number
+          threshold_cents: number
           updated_at: string
         }
         Insert: {
-          adjustment_cents?: number
           adjustments?: Json
+          attendance_bonus_bps?: number
+          base_commission_rate_bps?: number
+          base_guarantee_cents?: number
           broadcast_minutes?: number
+          commission_rate_bps: number
+          commission_start_cents?: number
+          completed_at?: string | null
+          completed_by?: string | null
+          confirm_pending_at?: string | null
+          confirmed_at?: string | null
+          confirmed_by?: string | null
           created_at?: string
+          dy_task_bonus_bps?: number
+          gross_cents: number
+          guaranteed_component_cents: number
           id?: string
-          no_perf?: boolean
-          no_perf_note?: string | null
-          perf_date: string
-          point_id?: string | null
-          points_amount?: number
+          is_grace_period: boolean
+          is_qualified: boolean
+          month: string
+          net_cents: number
+          note?: string
+          performance_component_cents: number
+          period_end: string
+          period_start: string
+          position_id: number
           profile_id: string
-          revenue_cents?: number
-          team_id: string
-          host_profile_id?: string | null
+          revenue_cents: number
+          review_pending_at?: string | null
+          reviewed_by?: string | null
+          scheme_id?: string | null
+          service_fee_cents: number
+          service_fee_rate_bps?: number
+          status?: Database["public"]["Enums"]["salary_record_status"]
+          team_id?: string | null
+          tenure_month: number
+          threshold_cents: number
           updated_at?: string
         }
         Update: {
-          adjustment_cents?: number
           adjustments?: Json
+          attendance_bonus_bps?: number
+          base_commission_rate_bps?: number
+          base_guarantee_cents?: number
           broadcast_minutes?: number
+          commission_rate_bps?: number
+          commission_start_cents?: number
+          completed_at?: string | null
+          completed_by?: string | null
+          confirm_pending_at?: string | null
+          confirmed_at?: string | null
+          confirmed_by?: string | null
           created_at?: string
+          dy_task_bonus_bps?: number
+          gross_cents?: number
+          guaranteed_component_cents?: number
           id?: string
-          no_perf?: boolean
-          no_perf_note?: string | null
-          perf_date?: string
-          point_id?: string | null
-          points_amount?: number
+          is_grace_period?: boolean
+          is_qualified?: boolean
+          month?: string
+          net_cents?: number
+          note?: string
+          performance_component_cents?: number
+          period_end?: string
+          period_start?: string
+          position_id?: number
           profile_id?: string
           revenue_cents?: number
-          team_id?: string
-          host_profile_id?: string | null
+          review_pending_at?: string | null
+          reviewed_by?: string | null
+          scheme_id?: string | null
+          service_fee_cents?: number
+          service_fee_rate_bps?: number
+          status?: Database["public"]["Enums"]["salary_record_status"]
+          team_id?: string | null
+          tenure_month?: number
+          threshold_cents?: number
           updated_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: "anchor_revenue_records_host_profile_id_fkey"
-            columns: ["host_profile_id"]
+            foreignKeyName: "salary_records_completed_by_fkey"
+            columns: ["completed_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "anchor_revenue_records_point_id_fkey"
-            columns: ["point_id"]
+            foreignKeyName: "salary_records_confirmed_by_fkey"
+            columns: ["confirmed_by"]
             isOneToOne: false
-            referencedRelation: "performance_points"
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "anchor_revenue_records_profile_id_fkey"
+            foreignKeyName: "salary_records_position_id_fkey"
+            columns: ["position_id"]
+            isOneToOne: false
+            referencedRelation: "positions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "salary_records_profile_id_fkey"
             columns: ["profile_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "anchor_revenue_records_team_id_fkey"
+            foreignKeyName: "salary_records_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "salary_records_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: false
+            referencedRelation: "salary_schemes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "salary_records_team_id_fkey"
             columns: ["team_id"]
             isOneToOne: false
             referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      salary_schemes: {
+        Row: {
+          base_salary_cents: number
+          created_at: string
+          effective_from: string
+          guaranteed_salary_cents: number
+          id: string
+          name: string
+          position_id: number | null
+          profile_id: string | null
+          service_fee_rate_bps: number
+          status: Database["public"]["Enums"]["scheme_status"]
+          threshold_multiplier_bps: number
+          version: number
+        }
+        Insert: {
+          base_salary_cents: number
+          created_at?: string
+          effective_from: string
+          guaranteed_salary_cents: number
+          id?: string
+          name: string
+          position_id?: number | null
+          profile_id?: string | null
+          service_fee_rate_bps?: number
+          status?: Database["public"]["Enums"]["scheme_status"]
+          threshold_multiplier_bps?: number
+          version: number
+        }
+        Update: {
+          base_salary_cents?: number
+          created_at?: string
+          effective_from?: string
+          guaranteed_salary_cents?: number
+          id?: string
+          name?: string
+          position_id?: number | null
+          profile_id?: string | null
+          service_fee_rate_bps?: number
+          status?: Database["public"]["Enums"]["scheme_status"]
+          threshold_multiplier_bps?: number
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "salary_schemes_position_id_fkey"
+            columns: ["position_id"]
+            isOneToOne: false
+            referencedRelation: "positions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "salary_schemes_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -922,7 +1064,9 @@ export type Database = {
       staff_salary_record_status_logs: {
         Row: {
           created_at: string
-          from_status: Database["public"]["Enums"]["salary_record_status"] | null
+          from_status:
+            | Database["public"]["Enums"]["salary_record_status"]
+            | null
           id: string
           note: string | null
           operator_profile_id: string | null
@@ -931,7 +1075,9 @@ export type Database = {
         }
         Insert: {
           created_at?: string
-          from_status?: Database["public"]["Enums"]["salary_record_status"] | null
+          from_status?:
+            | Database["public"]["Enums"]["salary_record_status"]
+            | null
           id?: string
           note?: string | null
           operator_profile_id?: string | null
@@ -940,7 +1086,9 @@ export type Database = {
         }
         Update: {
           created_at?: string
-          from_status?: Database["public"]["Enums"]["salary_record_status"] | null
+          from_status?:
+            | Database["public"]["Enums"]["salary_record_status"]
+            | null
           id?: string
           note?: string | null
           operator_profile_id?: string | null
@@ -948,6 +1096,13 @@ export type Database = {
           to_status?: Database["public"]["Enums"]["salary_record_status"]
         }
         Relationships: [
+          {
+            foreignKeyName: "staff_salary_record_status_logs_operator_profile_id_fkey"
+            columns: ["operator_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "staff_salary_record_status_logs_salary_record_id_fkey"
             columns: ["salary_record_id"]
@@ -1038,6 +1193,20 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "staff_salary_records_completed_by_fkey"
+            columns: ["completed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_salary_records_confirmed_by_fkey"
+            columns: ["confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "staff_salary_records_position_id_fkey"
             columns: ["position_id"]
             isOneToOne: false
@@ -1051,76 +1220,89 @@ export type Database = {
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "staff_salary_records_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
         ]
       }
-      notifications: {
+      team_members: {
         Row: {
-          body: string
           created_at: string
           id: string
+          joined_at: string
+          left_at: string | null
           profile_id: string
-          read_at: string | null
-          ref_id: string | null
-          title: string
-          type: string
+          team_id: string
         }
         Insert: {
-          body?: string
           created_at?: string
           id?: string
+          joined_at?: string
+          left_at?: string | null
           profile_id: string
-          read_at?: string | null
-          ref_id?: string | null
-          title: string
-          type: string
+          team_id: string
         }
         Update: {
-          body?: string
           created_at?: string
           id?: string
+          joined_at?: string
+          left_at?: string | null
           profile_id?: string
-          read_at?: string | null
-          ref_id?: string | null
-          title?: string
-          type?: string
+          team_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "team_members_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_members_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
       }
-      salary_record_status_logs: {
+      team_performance_points: {
         Row: {
           created_at: string
-          from_status:
-            | Database["public"]["Enums"]["salary_record_status"]
-            | null
-          id: string
-          note: string | null
-          operator_profile_id: string | null
-          salary_record_id: string
-          to_status: Database["public"]["Enums"]["salary_record_status"]
+          point_id: string
+          team_id: string
         }
         Insert: {
           created_at?: string
-          from_status?:
-            | Database["public"]["Enums"]["salary_record_status"]
-            | null
-          id?: string
-          note?: string | null
-          operator_profile_id?: string | null
-          salary_record_id: string
-          to_status: Database["public"]["Enums"]["salary_record_status"]
+          point_id: string
+          team_id: string
         }
         Update: {
           created_at?: string
-          from_status?:
-            | Database["public"]["Enums"]["salary_record_status"]
-            | null
-          id?: string
-          note?: string | null
-          operator_profile_id?: string | null
-          salary_record_id?: string
-          to_status?: Database["public"]["Enums"]["salary_record_status"]
+          point_id?: string
+          team_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "team_performance_points_point_id_fkey"
+            columns: ["point_id"]
+            isOneToOne: false
+            referencedRelation: "performance_points"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_performance_points_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       teams: {
         Row: {
@@ -1128,8 +1310,8 @@ export type Database = {
           host_profile_id: string
           id: string
           name: string
-          team_code: string
           status: Database["public"]["Enums"]["employment_status"]
+          team_code: string
           updated_at: string
         }
         Insert: {
@@ -1137,8 +1319,8 @@ export type Database = {
           host_profile_id: string
           id?: string
           name: string
-          team_code: string
           status?: Database["public"]["Enums"]["employment_status"]
+          team_code: string
           updated_at?: string
         }
         Update: {
@@ -1146,8 +1328,8 @@ export type Database = {
           host_profile_id?: string
           id?: string
           name?: string
-          team_code?: string
           status?: Database["public"]["Enums"]["employment_status"]
+          team_code?: string
           updated_at?: string
         }
         Relationships: [
@@ -1198,154 +1380,316 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      current_profile_id: { Args: never; Returns: string }
-      is_admin: { Args: never; Returns: boolean }
-      transition_salary_status: {
+      _anchor_compute_payroll: {
         Args: {
-          p_id: string
-          p_to_status: "pending_review" | "pending_confirm" | "confirmed" | "completed"
-          p_operator_profile_id?: string | null
-          p_note?: string | null
+          p_adjustment_total_cents: number
+          p_attendance_bonus_bps: number
+          p_base_commission_rate_bps: number
+          p_base_salary_cents: number
+          p_dy_task_bonus_bps: number
+          p_guaranteed_salary_cents: number
+          p_monthly_revenue_cents: number
+          p_service_fee_rate_bps?: number
+          p_tenure_month: number
+          p_threshold_multiplier_bps: number
         }
+        Returns: Database["public"]["CompositeTypes"]["anchor_payroll_detail"]
+        SetofOptions: {
+          from: "*"
+          to: "anchor_payroll_detail"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      _anchor_effective_scheme: {
+        Args: {
+          p_period_end: string
+          p_position_id: number
+          p_profile_id: string
+        }
+        Returns: {
+          base_salary_cents: number
+          created_at: string
+          effective_from: string
+          guaranteed_salary_cents: number
+          id: string
+          name: string
+          position_id: number | null
+          profile_id: string | null
+          service_fee_rate_bps: number
+          status: Database["public"]["Enums"]["scheme_status"]
+          threshold_multiplier_bps: number
+          version: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "salary_schemes"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      _anchor_period_broadcast_minutes: {
+        Args: {
+          p_period_end: string
+          p_period_start: string
+          p_profile_id: string
+        }
+        Returns: number
+      }
+      _anchor_period_revenue: {
+        Args: {
+          p_period_end: string
+          p_period_start: string
+          p_profile_id: string
+        }
+        Returns: number
+      }
+      _anchor_tenure_month: {
+        Args: { p_hire_date: string; p_period_end: string }
+        Returns: number
+      }
+      _host_compute_payroll: {
+        Args: {
+          p_adjustment_total_cents: number
+          p_base_commission_rate_bps: number
+          p_base_income_cents: number
+          p_commission_start_cents: number
+          p_revenue_cents: number
+          p_service_fee_rate_bps: number
+        }
+        Returns: Database["public"]["CompositeTypes"]["host_payroll_detail"]
+        SetofOptions: {
+          from: "*"
+          to: "host_payroll_detail"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      _host_effective_scheme: {
+        Args: { p_period_end: string; p_profile_id: string }
+        Returns: {
+          base_commission_rate_bps: number
+          base_income_cents: number
+          commission_start_cents: number
+          created_at: string
+          effective_from: string
+          id: string
+          name: string
+          position_id: number | null
+          profile_id: string | null
+          service_fee_rate_bps: number
+          status: Database["public"]["Enums"]["scheme_status"]
+          version: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "host_salary_schemes"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      _host_period_broadcast_minutes: {
+        Args: {
+          p_host_profile_id: string
+          p_period_end: string
+          p_period_start: string
+        }
+        Returns: number
+      }
+      _host_period_revenue: {
+        Args: {
+          p_host_profile_id: string
+          p_period_end: string
+          p_period_start: string
+        }
+        Returns: number
+      }
+      _host_period_team_breakdown: {
+        Args: {
+          p_host_profile_id: string
+          p_period_end: string
+          p_period_start: string
+        }
+        Returns: Json
+      }
+      _payroll_bps_arg: {
+        Args: { p_key: string; p_member: Json }
+        Returns: number
+      }
+      _payroll_rate_ceil: {
+        Args: { p_amount: number; p_bps: number }
+        Returns: number
+      }
+      _payroll_rate_floor: {
+        Args: { p_amount: number; p_bps: number }
+        Returns: number
+      }
+      create_staff_salary_records: {
+        Args: { p_period_end: string; p_period_start: string; p_records: Json }
+        Returns: number
+      }
+      current_member_team_id: { Args: never; Returns: string }
+      current_profile_id: { Args: never; Returns: string }
+      delete_anchor_reward: { Args: { p_id: string }; Returns: undefined }
+      delete_host_salary_record: { Args: { p_id: string }; Returns: undefined }
+      delete_salary_record: { Args: { p_id: string }; Returns: undefined }
+      delete_staff_salary_record: { Args: { p_id: string }; Returns: undefined }
+      get_ledger_summary: {
+        Args: { p_end: string; p_start: string }
+        Returns: Json
+      }
+      is_admin: { Args: never; Returns: boolean }
+      is_dance: { Args: never; Returns: boolean }
+      is_makeup: { Args: never; Returns: boolean }
+      is_team_host: { Args: { team_id: string }; Returns: boolean }
+      list_anchor_delays: {
+        Args: { p_end?: string; p_start?: string }
+        Returns: {
+          anchor_name: string
+          anchor_profile_id: string
+          delay_date: string
+          id: string
+          is_delayed: boolean
+          note: string
+          registered_by: string
+          registered_name: string
+          updated_at: string
+        }[]
+      }
+      list_anchor_members: {
+        Args: never
+        Returns: {
+          id: string
+          name: string
+        }[]
+      }
+      list_anchor_rewards: {
+        Args: { p_end?: string; p_start?: string }
+        Returns: {
+          amount_cents: number
+          anchor_name: string
+          anchor_profile_id: string
+          id: string
+          name: string
+          note: string
+          registered_by: string
+          registered_name: string
+          reward_date: string
+          updated_at: string
+        }[]
+      }
+      recompute_host_salary_record: {
+        Args: { p_adjustments?: Json; p_id: string; p_note?: string }
+        Returns: undefined
+      }
+      recompute_salary_record:
+        | {
+            Args: {
+              p_adjustments?: Json
+              p_attendance_bonus_bps?: Json
+              p_dy_task_bonus_bps?: Json
+              p_id: string
+              p_note?: string
+            }
+            Returns: undefined
+          }
+        | {
+            Args: {
+              p_commission_rate_bps: number
+              p_gross_cents: number
+              p_guaranteed_component_cents: number
+              p_id: string
+              p_is_grace_period: boolean
+              p_is_qualified: boolean
+              p_net_cents: number
+              p_note?: string
+              p_performance_component_cents: number
+              p_revenue_cents: number
+              p_service_fee_cents: number
+              p_tenure_month: number
+              p_threshold_cents: number
+            }
+            Returns: undefined
+          }
+      recompute_staff_salary_record: {
+        Args: { p_id: string; p_note?: string }
+        Returns: undefined
+      }
+      set_anchor_delays: {
+        Args: {
+          p_anchor_ids: string[]
+          p_delay_date: string
+          p_is_delayed: boolean
+          p_note?: string
+        }
+        Returns: number
+      }
+      set_anchor_rewards: {
+        Args: {
+          p_amount_cents: number
+          p_anchor_ids: string[]
+          p_name: string
+          p_note?: string
+          p_reward_date: string
+        }
+        Returns: number
+      }
+      set_staff_base_income: {
+        Args: { p_cents: number; p_position_code: string; p_profile_id: string }
         Returns: undefined
       }
       settle_anchor_revenue: {
         Args: {
-          p_team_id: string | null
-          p_period_start: string
-          p_period_end: string
           p_members: Json
+          p_period_end: string
+          p_period_start: string
+          p_replace_overlapping?: boolean
+          p_team_id: string
         }
         Returns: number
-      }
-      recompute_salary_record: {
-        Args: {
-          p_id: string
-          p_attendance_bonus_bps?: Json
-          p_dy_task_bonus_bps?: Json
-          p_adjustments?: Json
-          p_note?: string | null
-        }
-        Returns: undefined
       }
       settle_host_payroll: {
         Args: {
-          p_period_start: string
-          p_period_end: string
           p_hosts: Json
+          p_period_end: string
+          p_period_start: string
+          p_replace_overlapping?: boolean
         }
         Returns: number
-      }
-      recompute_host_salary_record: {
-        Args: {
-          p_id: string
-          p_adjustments?: Json
-          p_note?: string | null
-        }
-        Returns: undefined
       }
       transition_host_salary_status: {
         Args: {
           p_id: string
-          p_to_status: "pending_review" | "pending_confirm" | "confirmed" | "completed"
-          p_operator_profile_id?: string | null
-          p_note?: string | null
+          p_note?: string
+          p_operator_profile_id?: string
+          p_to_status: Database["public"]["Enums"]["salary_record_status"]
         }
         Returns: undefined
       }
-      is_makeup: { Args: never; Returns: boolean }
-      list_anchor_members: {
-        Args: never
-        Returns: { id: string; name: string }[]
-      }
-      list_anchor_delays: {
-        Args: { p_start?: string | null; p_end?: string | null }
-        Returns: {
-          id: string
-          anchor_profile_id: string
-          anchor_name: string
-          delay_date: string
-          is_delayed: boolean
-          registered_by: string | null
-          registered_name: string | null
-          note: string | null
-          updated_at: string
-        }[]
-      }
-      set_anchor_delays: {
-        Args: {
-          p_delay_date: string
-          p_anchor_ids: string[]
-          p_is_delayed: boolean
-          p_note?: string | null
-        }
-        Returns: number
-      }
-      is_dance: { Args: never; Returns: boolean }
-      list_anchor_rewards: {
-        Args: { p_start?: string | null; p_end?: string | null }
-        Returns: {
-          id: string
-          anchor_profile_id: string
-          anchor_name: string
-          reward_date: string
-          name: string
-          amount_cents: number
-          registered_by: string | null
-          registered_name: string | null
-          note: string | null
-          updated_at: string
-        }[]
-      }
-      set_anchor_rewards: {
-        Args: {
-          p_reward_date: string
-          p_anchor_ids: string[]
-          p_name: string
-          p_amount_cents: number
-          p_note?: string | null
-        }
-        Returns: number
-      }
-      update_anchor_reward: {
+      transition_salary_status: {
         Args: {
           p_id: string
-          p_name: string
-          p_amount_cents: number
-          p_note?: string | null
+          p_note?: string
+          p_operator_profile_id?: string
+          p_to_status: Database["public"]["Enums"]["salary_record_status"]
         }
-        Returns: undefined
-      }
-      delete_anchor_reward: {
-        Args: { p_id: string }
-        Returns: undefined
-      }
-      set_staff_base_income: {
-        Args: {
-          p_profile_id: string
-          p_position_code: string
-          p_cents: number
-        }
-        Returns: undefined
-      }
-      create_staff_salary_records: {
-        Args: {
-          p_period_start: string
-          p_period_end: string
-          p_records: Json
-        }
-        Returns: number
-      }
-      recompute_staff_salary_record: {
-        Args: { p_id: string; p_note?: string | null }
         Returns: undefined
       }
       transition_staff_salary_status: {
         Args: {
           p_id: string
-          p_to_status: "pending_review" | "pending_confirm" | "confirmed" | "completed"
-          p_operator_profile_id?: string | null
-          p_note?: string | null
+          p_note?: string
+          p_operator_profile_id?: string
+          p_to_status: Database["public"]["Enums"]["salary_record_status"]
+        }
+        Returns: undefined
+      }
+      update_anchor_reward: {
+        Args: {
+          p_amount_cents: number
+          p_id: string
+          p_name: string
+          p_note?: string
         }
         Returns: undefined
       }
@@ -1354,12 +1698,40 @@ export type Database = {
       anchor_type: "new" | "experienced"
       change_request_status: "pending" | "approved" | "rejected" | "superseded"
       employment_status: "active" | "disabled"
-      salary_record_status: "pending_review" | "pending_confirm" | "confirmed" | "completed"
+      salary_record_status:
+        | "pending_review"
+        | "pending_confirm"
+        | "confirmed"
+        | "completed"
       scheme_status: "active" | "archived"
       system_role: "admin" | "user"
     }
     CompositeTypes: {
-      [_ in never]: never
+      anchor_payroll_detail: {
+        threshold_cents: number | null
+        is_qualified: boolean | null
+        is_grace_period: boolean | null
+        base_guarantee_cents: number | null
+        commission_start_cents: number | null
+        commission_rate_bps: number | null
+        guaranteed_component_cents: number | null
+        performance_component_cents: number | null
+        gross_cents: number | null
+        service_fee_cents: number | null
+        net_cents: number | null
+      }
+      host_payroll_detail: {
+        threshold_cents: number | null
+        is_qualified: boolean | null
+        tier_steps: number | null
+        tier_bonus_bps: number | null
+        commission_rate_bps: number | null
+        base_income_cents: number | null
+        performance_component_cents: number | null
+        gross_cents: number | null
+        service_fee_cents: number | null
+        net_cents: number | null
+      }
     }
   }
 }
@@ -1487,7 +1859,12 @@ export const Constants = {
       anchor_type: ["new", "experienced"],
       change_request_status: ["pending", "approved", "rejected", "superseded"],
       employment_status: ["active", "disabled"],
-      salary_record_status: ["pending_review", "pending_confirm", "confirmed", "completed"],
+      salary_record_status: [
+        "pending_review",
+        "pending_confirm",
+        "confirmed",
+        "completed",
+      ],
       scheme_status: ["active", "archived"],
       system_role: ["admin", "user"],
     },

@@ -68,7 +68,7 @@ describe("listAnchorRewards 查询映射", () => {
       error: null,
     });
     const rows = await listAnchorRewards();
-    expect(client.rpc).toHaveBeenCalledWith("list_anchor_rewards", { p_start: null, p_end: null });
+    expect(client.rpc).toHaveBeenCalledWith("list_anchor_rewards", { p_start: undefined, p_end: undefined });
     expect(rows[0]).toEqual({
       id: "x",
       anchorProfileId: "a1",
