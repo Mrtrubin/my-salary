@@ -1076,7 +1076,46 @@ export type Database = {
           },
         ]
       }
-      staff_adjustment_records: {
+      staff_base_incomes: {
+        Row: {
+          base_income_cents: number
+          id: number
+          profile_id: string
+          role_id: number
+          updated_at: string
+        }
+        Insert: {
+          base_income_cents?: number
+          id?: never
+          profile_id: string
+          role_id: number
+          updated_at?: string
+        }
+        Update: {
+          base_income_cents?: number
+          id?: never
+          profile_id?: string
+          role_id?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_base_incomes_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_base_incomes_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      staff_performance_records: {
         Row: {
           adjust_date: string
           amount_cents: number
@@ -1126,45 +1165,6 @@ export type Database = {
             columns: ["registered_by"]
             isOneToOne: false
             referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      staff_base_incomes: {
-        Row: {
-          base_income_cents: number
-          id: number
-          profile_id: string
-          role_id: number
-          updated_at: string
-        }
-        Insert: {
-          base_income_cents?: number
-          id?: never
-          profile_id: string
-          role_id: number
-          updated_at?: string
-        }
-        Update: {
-          base_income_cents?: number
-          id?: never
-          profile_id?: string
-          role_id?: number
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "staff_base_incomes_profile_id_fkey"
-            columns: ["profile_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "staff_base_incomes_role_id_fkey"
-            columns: ["role_id"]
-            isOneToOne: false
-            referencedRelation: "roles"
             referencedColumns: ["id"]
           },
         ]
@@ -1700,7 +1700,15 @@ export type Database = {
           updated_at: string
         }[]
       }
-      list_staff_adjustments: {
+      list_staff_members: {
+        Args: { p_role_code: string }
+        Returns: {
+          base_income_cents: number
+          id: string
+          name: string
+        }[]
+      }
+      list_staff_performance: {
         Args: { p_end?: string; p_role_code?: string; p_start?: string }
         Returns: {
           adjust_date: string
@@ -1714,14 +1722,6 @@ export type Database = {
           registered_name: string
           role_code: string
           updated_at: string
-        }[]
-      }
-      list_staff_members: {
-        Args: { p_role_code: string }
-        Returns: {
-          base_income_cents: number
-          id: string
-          name: string
         }[]
       }
       recompute_host_salary_record: {
@@ -1784,7 +1784,11 @@ export type Database = {
         Args: { p_date: string; p_entries: Json; p_registered_by?: string }
         Returns: number
       }
-      set_staff_adjustments: {
+      set_staff_base_income: {
+        Args: { p_cents: number; p_profile_id: string; p_role_code: string }
+        Returns: undefined
+      }
+      set_staff_performance: {
         Args: {
           p_date: string
           p_entries: Json
@@ -1792,10 +1796,6 @@ export type Database = {
           p_role_code: string
         }
         Returns: number
-      }
-      set_staff_base_income: {
-        Args: { p_cents: number; p_profile_id: string; p_role_code: string }
-        Returns: undefined
       }
       settle_anchor_revenue: {
         Args: {

@@ -20,13 +20,17 @@ export default function UserLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const profile = useCurrentProfile();
 
-  // 化妆师把「业绩」标签换成「延误」；舞蹈老师换成「练舞」；其它角色保持「业绩」。
+  // 化妆师把「业绩」标签换成「延误」；舞蹈老师换成「练舞」；人事主管换成「人事」；其它角色保持「业绩」。
   const isMakeup = useMemo(
     () => profile.data?.user_roles?.some(({ role }) => role?.code === "makeup") ?? false,
     [profile.data],
   );
   const isDance = useMemo(
     () => profile.data?.user_roles?.some(({ role }) => role?.code === "dance") ?? false,
+    [profile.data],
+  );
+  const isHrManager = useMemo(
+    () => profile.data?.user_roles?.some(({ role }) => role?.code === "hr_manager") ?? false,
     [profile.data],
   );
 
@@ -47,8 +51,16 @@ export default function UserLayout({ children }: { children: ReactNode }) {
         TABS[3],
       ];
     }
+    if (isHrManager) {
+      return [
+        TABS[0],
+        { href: "/user/hr", label: "人事", icon: <IconBriefcase /> },
+        TABS[2],
+        TABS[3],
+      ];
+    }
     return TABS;
-  }, [isMakeup, isDance]);
+  }, [isMakeup, isDance, isHrManager]);
 
   // 仅在主 tab 页显示底部导航栏；二级页面（如设置）隐藏
   const showTabBar = tabs.some((tab) => pathname.startsWith(tab.href));
@@ -122,6 +134,9 @@ function IconGift() {
 }
 function IconWallet() {
   return <IconBase><rect x="3" y="6" width="18" height="13" rx="2" /><path d="M3 10h18" /><circle cx="17" cy="14" r="1" /></IconBase>;
+}
+function IconBriefcase() {
+  return <IconBase><rect x="3" y="7" width="18" height="13" rx="2" /><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" /><path d="M3 12h18" /></IconBase>;
 }
 function IconUser() {
   return <IconBase><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 4-6 8-6s8 2 8 6" /></IconBase>;

@@ -1531,6 +1531,97 @@ export async function setStaffBaseIncome(input: {
   }
 }
 
+// ==================== 人事绩效（人事主管）====================
+
+/** 某角色的在职成员（含当前基础薪资）。 */
+export interface StaffMember {
+  id: string;
+  name: string;
+  baseIncomeCents: number;
+}
+
+export async function listStaffMembers(roleCode: string): Promise<StaffMember[]> {
+  const { data, error } = await getBrowserSupabase().rpc("list_staff_members", { p_role_code: roleCode });
+  if (error) fail(error);
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    baseIncomeCents: row.base_income_cents,
+  }));
+}
+
+/** 人事绩效记录（含成员名 / 登记人名）。amountCents 有符号。 */
+export interface StaffPerformanceRow {
+  id: string;
+  profileId: string;
+  profileName: string;
+  roleCode: string;
+  adjustDate: string;
+  name: string;
+  amountCents: number;
+  registeredBy: string | null;
+  registeredName: string | null;
+  note: string | null;
+  updatedAt: string;
+}
+
+/** 查询人事绩效；按角色 + 日期区间过滤。 */
+export async function listStaffPerformance(input?: {
+  roleCode?: string;
+  range?: { start?: string; end?: string };
+}): Promise<StaffPerformanceRow[]> {
+  const { data, error } = await getBrowserSupabase().rpc("list_staff_performance", {
+    p_role_code: input?.roleCode ?? "hr",
+    p_start: input?.range?.start,
+    p_end: input?.range?.end,
+  });
+  if (error) fail(error);
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    profileId: row.profile_id,
+    profileName: row.profile_name,
+    roleCode: row.role_code,
+    adjustDate: row.adjust_date,
+    name: row.name,
+    amountCents: row.amount_cents,
+    registeredBy: row.registered_by,
+    registeredName: row.registered_name,
+    note: row.note,
+    updatedAt: row.updated_at,
+  }));
+}
+
+/** 单条人事绩效输入。 */
+export interface StaffPerformanceItemInput {
+  name: string;
+  amountCents: number;
+  note?: string;
+}
+
+/** 批量设置某角色成员某天的绩效；空 items 表示清空该成员当日记录。 */
+export async function setStaffPerformance(input: {
+  roleCode: string;
+  date: string;
+  entries: { profileId: string; items: StaffPerformanceItemInput[] }[];
+  registeredBy?: string;
+}): Promise<number> {
+  const { data, error } = await getBrowserSupabase().rpc("set_staff_performance", {
+    p_role_code: input.roleCode,
+    p_date: input.date,
+    p_entries: input.entries as unknown as Json,
+    p_registered_by: input.registeredBy,
+  });
+  if (error) {
+    const msg = error.message ?? "";
+    if (msg.includes("FORBIDDEN")) throw new ApiError(ApiErrorCode.FORBIDDEN, "无权设置人事绩效");
+    if (msg.includes("INVALID_PERFORMANCE_DATE")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "日期无效");
+    if (msg.includes("INVALID_PERFORMANCE_NAME")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "绩效名称需为 1-50 个字符");
+    if (msg.includes("INVALID_PERFORMANCE_AMOUNT")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "金额不合法（最多两位小数，且不能为 0）");
+    fail(error);
+  }
+  return (data as number) ?? 0;
+}
+
 /** 主播延误记录（含主播名 / 登记化妆师名）。 */
 export interface AnchorDelayRow {
   id: string;

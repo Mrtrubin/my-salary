@@ -59,6 +59,9 @@ import {
   rejectAndRecomputeStaffSalary,
   listStaffSalaryStatusLogs,
   setStaffBaseIncome,
+  listStaffMembers,
+  listStaffPerformance,
+  setStaffPerformance,
   listAnchorMembers,
   listAnchorDelays,
   setAnchorDelays,
@@ -81,7 +84,7 @@ import {
   deleteHostSalaryRecord,
   deleteStaffSalaryRecord,
 } from "./data";
-import type { Member, AnchorSettleMember, HostSettleMember, StaffSalaryCreateItem, LedgerEntryInput, AnchorAdjustmentSource, DanceAdjustmentItemInput } from "./data";
+import type { Member, AnchorSettleMember, HostSettleMember, StaffSalaryCreateItem, LedgerEntryInput, AnchorAdjustmentSource, DanceAdjustmentItemInput, StaffPerformanceItemInput } from "./data";
 import type { PeriodRange } from "@/lib/domain/settlement/cycle";
 import { readCachedProfile, writeCachedProfile } from "./profile-cache";
 
@@ -104,6 +107,7 @@ export const keys = {
   hostSalaryStatusLogs: ["hostSalaryStatusLogs"] as const,
   staffSalary: ["staffSalary"] as const,
   staffSalaryStatusLogs: ["staffSalaryStatusLogs"] as const,
+  staffPerformance: ["staffPerformance"] as const,
   anchorMembers: ["anchorMembers"] as const,
   anchorDelays: ["anchorDelays"] as const,
   anchorRewards: ["anchorRewards"] as const,
@@ -531,7 +535,39 @@ export function useSetStaffBaseIncome() {
   return useMutation({
     mutationFn: ({ profileId, roleCode, baseIncomeInCents }: { profileId: string; roleCode: string; baseIncomeInCents: number }) =>
       setStaffBaseIncome({ profileId, roleCode, baseIncomeInCents }),
-    onSuccess: () => invalidateRelatedQueries(client, keys.members),
+    onSuccess: () => {
+      invalidateRelatedQueries(client, keys.members);
+      client.invalidateQueries({ queryKey: keys.staffPerformance });
+    },
+  });
+}
+
+/** 某角色的在职成员（含当前基础薪资）。 */
+export function useStaffMembers(roleCode: string) {
+  return useQuery({
+    queryKey: [...keys.staffPerformance, "members", roleCode],
+    queryFn: () => listStaffMembers(roleCode),
+  });
+}
+
+/** 人事绩效；range 为空返回全部（页面自行取最新日期）。 */
+export function useStaffPerformance(roleCode: string, range?: { start?: string; end?: string }) {
+  return useQuery({
+    queryKey: [...keys.staffPerformance, roleCode, range?.start ?? "", range?.end ?? ""],
+    queryFn: () => listStaffPerformance({ roleCode, range }),
+  });
+}
+
+export function useSetStaffPerformance() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      roleCode: string;
+      date: string;
+      entries: { profileId: string; items: StaffPerformanceItemInput[] }[];
+      registeredBy?: string;
+    }) => setStaffPerformance(input),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.staffPerformance }),
   });
 }
 

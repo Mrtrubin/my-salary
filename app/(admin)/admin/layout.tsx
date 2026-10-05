@@ -35,6 +35,7 @@ const NAV_ITEMS = [
   { href: "/admin/members", label: "成员管理", icon: <TeamOutlined /> },
   { href: "/admin/anchors", label: "主播管理", icon: <UserOutlined /> },
   { href: "/admin/hosts", label: "主持管理", icon: <IdcardOutlined /> },
+  { href: "/admin/hr", label: "人事管理", icon: <IdcardOutlined /> },
   { href: "/admin/base-salary", label: "基础薪资管理", icon: <IdcardOutlined /> },
   { href: "/admin/teams", label: "团队管理", icon: <ApartmentOutlined /> },
   { href: "/admin/team-points", label: "绩效点管理", icon: <StarOutlined /> },
