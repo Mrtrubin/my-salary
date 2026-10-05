@@ -14,6 +14,60 @@ export type Database = {
   }
   public: {
     Tables: {
+      anchor_adjustment_records: {
+        Row: {
+          adjust_date: string
+          amount_cents: number
+          anchor_profile_id: string
+          created_at: string
+          id: string
+          name: string
+          note: string | null
+          registered_by: string | null
+          source: string
+          updated_at: string
+        }
+        Insert: {
+          adjust_date: string
+          amount_cents: number
+          anchor_profile_id: string
+          created_at?: string
+          id?: string
+          name: string
+          note?: string | null
+          registered_by?: string | null
+          source: string
+          updated_at?: string
+        }
+        Update: {
+          adjust_date?: string
+          amount_cents?: number
+          anchor_profile_id?: string
+          created_at?: string
+          id?: string
+          name?: string
+          note?: string | null
+          registered_by?: string | null
+          source?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "anchor_adjustment_records_anchor_profile_id_fkey"
+            columns: ["anchor_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "anchor_adjustment_records_registered_by_fkey"
+            columns: ["registered_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       anchor_delay_records: {
         Row: {
           anchor_profile_id: string
@@ -1022,6 +1076,60 @@ export type Database = {
           },
         ]
       }
+      staff_adjustment_records: {
+        Row: {
+          adjust_date: string
+          amount_cents: number
+          created_at: string
+          id: string
+          name: string
+          note: string | null
+          profile_id: string
+          registered_by: string | null
+          role_code: string
+          updated_at: string
+        }
+        Insert: {
+          adjust_date: string
+          amount_cents: number
+          created_at?: string
+          id?: string
+          name: string
+          note?: string | null
+          profile_id: string
+          registered_by?: string | null
+          role_code?: string
+          updated_at?: string
+        }
+        Update: {
+          adjust_date?: string
+          amount_cents?: number
+          created_at?: string
+          id?: string
+          name?: string
+          note?: string | null
+          profile_id?: string
+          registered_by?: string | null
+          role_code?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_adjustment_records_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_adjustment_records_registered_by_fkey"
+            columns: ["registered_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       staff_base_incomes: {
         Row: {
           base_income_cents: number
@@ -1536,8 +1644,25 @@ export type Database = {
       }
       is_admin: { Args: never; Returns: boolean }
       is_dance: { Args: never; Returns: boolean }
+      is_hr_manager: { Args: never; Returns: boolean }
       is_makeup: { Args: never; Returns: boolean }
       is_team_host: { Args: { team_id: string }; Returns: boolean }
+      list_anchor_adjustments: {
+        Args: { p_end?: string; p_source?: string; p_start?: string }
+        Returns: {
+          adjust_date: string
+          amount_cents: number
+          anchor_name: string
+          anchor_profile_id: string
+          id: string
+          name: string
+          note: string
+          registered_by: string
+          registered_name: string
+          source: string
+          updated_at: string
+        }[]
+      }
       list_anchor_delays: {
         Args: { p_end?: string; p_start?: string }
         Returns: {
@@ -1555,6 +1680,7 @@ export type Database = {
       list_anchor_members: {
         Args: never
         Returns: {
+          base_salary_cents: number
           id: string
           name: string
         }[]
@@ -1572,6 +1698,30 @@ export type Database = {
           registered_name: string
           reward_date: string
           updated_at: string
+        }[]
+      }
+      list_staff_adjustments: {
+        Args: { p_end?: string; p_role_code?: string; p_start?: string }
+        Returns: {
+          adjust_date: string
+          amount_cents: number
+          id: string
+          name: string
+          note: string
+          profile_id: string
+          profile_name: string
+          registered_by: string
+          registered_name: string
+          role_code: string
+          updated_at: string
+        }[]
+      }
+      list_staff_members: {
+        Args: { p_role_code: string }
+        Returns: {
+          base_income_cents: number
+          id: string
+          name: string
         }[]
       }
       recompute_host_salary_record: {
@@ -1627,6 +1777,19 @@ export type Database = {
           p_name: string
           p_note?: string
           p_reward_date: string
+        }
+        Returns: number
+      }
+      set_dance_adjustments: {
+        Args: { p_date: string; p_entries: Json; p_registered_by?: string }
+        Returns: number
+      }
+      set_staff_adjustments: {
+        Args: {
+          p_date: string
+          p_entries: Json
+          p_registered_by?: string
+          p_role_code: string
         }
         Returns: number
       }

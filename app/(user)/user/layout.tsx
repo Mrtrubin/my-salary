@@ -20,7 +20,7 @@ export default function UserLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const profile = useCurrentProfile();
 
-  // 化妆师把「业绩」标签换成「延误」；舞蹈老师换成「奖励」；其它角色保持「业绩」。
+  // 化妆师把「业绩」标签换成「延误」；舞蹈老师换成「练舞」；其它角色保持「业绩」。
   const isMakeup = useMemo(
     () => profile.data?.user_roles?.some(({ role }) => role?.code === "makeup") ?? false,
     [profile.data],
@@ -42,7 +42,7 @@ export default function UserLayout({ children }: { children: ReactNode }) {
     if (isDance) {
       return [
         TABS[0],
-        { href: "/user/rewards", label: "奖励", icon: <IconGift /> },
+        { href: "/user/practice", label: "练舞", icon: <IconGift /> },
         TABS[2],
         TABS[3],
       ];

@@ -24,14 +24,14 @@ import { zebraRowClassName } from "@/components/admin/table-zebra";
 import { useConfirm } from "@/components/admin/use-confirm";
 import {
   useAnchorDelays,
-  useAnchorRewards,
+  useAnchorAdjustments,
   useAnchorRevenuePerf,
   useAnchorSettlementContexts,
   useSalaryRecords,
   useSettleAnchorRevenue,
   useTeams,
 } from "@/lib/api/hooks";
-import { rewardAdjustmentsByProfile, settlementMemberKey } from "@/lib/api/data";
+import { anchorAdjustmentsByProfile, settlementMemberKey } from "@/lib/api/data";
 import type {
   AnchorRevenuePerfRow,
   AnchorSettleMember,
@@ -182,7 +182,7 @@ function AnchorRevenueWorkspace() {
   const perfQuery = useAnchorRevenuePerf(teamId, period);
   const contextsQuery = useAnchorSettlementContexts(teamId, period);
   const delayQuery = useAnchorDelays(period ? { start: period.start, end: period.end } : undefined);
-  const rewardQuery = useAnchorRewards(period ? { start: period.start, end: period.end } : undefined);
+  const rewardQuery = useAnchorAdjustments("dance", period ? { start: period.start, end: period.end } : undefined);
   const settleMutation = useSettleAnchorRevenue();
   const salaryRecordsQuery = useSalaryRecords();
 
@@ -235,9 +235,9 @@ function AnchorRevenueWorkspace() {
     return map;
   }, [delayQuery.data]);
 
-  // 每名主播在本周期内的「奖励项」：由舞蹈老师登记 → 结算逐条预填调整项（正数）。
+  // 每名主播在本周期内的「练舞调整项」（舞蹈老师登记）：结算逐条预填调整项（有符号）。
   const rewardAdjustments = useMemo(
-    () => rewardAdjustmentsByProfile(rewardQuery.data ?? []),
+    () => anchorAdjustmentsByProfile(rewardQuery.data ?? []),
     [rewardQuery.data],
   );
 
@@ -448,36 +448,39 @@ function AnchorRevenueWorkspace() {
     });
   }, [rows, delayCountByProfile, existingRecordsByMember, period]);
 
-  // 结算草稿自动预填：把本周期「奖励项」（舞蹈老师登记）逐条预填为奖励调整项。
-  // 与延误/停播不同：即便已有工资记录也要补填（奖励可能结算后才补录），按「名称+金额」去重，
+  // 结算草稿自动预填：把本周期「练舞调整项」中**负数（延误等扣款）**逐条预填为调整项。
+  // 正数（补助等）不计入工资，已在收支明细中记为系统支出，此处忽略。
+  // 与停播不同：即便已有工资记录也要补填（可能结算后才补录），按「名称+方向+金额」去重，
   // 不覆盖手动编辑；无新增时返回原状态，避免渲染循环。
   useEffect(() => {
     if (!rows.length) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 依据加载完成的奖励数据同步预填调整项
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 依据加载完成的练舞调整数据同步预填调整项
     setAdjustments((prev) => {
       let changed = false;
       const next = { ...prev };
       for (const row of rows) {
         if (!row.hasScheme) continue;
-        const rewards = rewardAdjustments[row.profileId] ?? [];
-        if (!rewards.length) continue;
+        const items = (rewardAdjustments[row.profileId] ?? []).filter((item) => item.amountCents < 0);
+        if (!items.length) continue;
         const existing = [...(next[row.memberKey] ?? [])];
         const before = existing.length;
-        for (const reward of rewards) {
+        for (const item of items) {
+          const direction = "deduction" as const;
+          const absCents = Math.abs(item.amountCents);
           const duplicate = existing.some(
             (draft) =>
-              draft.name.trim() === reward.name.trim() &&
-              draft.direction === "reward" &&
-              parseAdjustmentAmountYuan(draft.amountYuan) === reward.amountCents,
+              draft.name.trim() === item.name.trim() &&
+              draft.direction === direction &&
+              parseAdjustmentAmountYuan(draft.amountYuan) === absCents,
           );
           if (duplicate) continue;
           existing.push({
             id: crypto.randomUUID(),
-            name: reward.name,
-            direction: "reward",
-            amountYuan: (reward.amountCents / 100).toFixed(2),
-            sourceDate: reward.sourceDate,
-            sourceOperator: reward.sourceOperator,
+            name: item.name,
+            direction,
+            amountYuan: (absCents / 100).toFixed(2),
+            sourceDate: item.sourceDate,
+            sourceOperator: item.sourceOperator,
           });
         }
         if (existing.length !== before) {

@@ -1544,11 +1544,21 @@ export interface AnchorDelayRow {
   updatedAt: string;
 }
 
-/** 全部在职主播（供化妆师标记延误时搜索多选）。 */
-export async function listAnchorMembers(): Promise<{ id: string; name: string }[]> {
+/** 全部在职主播（供筛选多选）；含当前生效基础薪资，用于延误默认扣款 保底/260。 */
+export interface AnchorMember {
+  id: string;
+  name: string;
+  baseSalaryCents: number;
+}
+
+export async function listAnchorMembers(): Promise<AnchorMember[]> {
   const { data, error } = await getBrowserSupabase().rpc("list_anchor_members");
   if (error) fail(error);
-  return (data ?? []) as { id: string; name: string }[];
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    baseSalaryCents: row.base_salary_cents,
+  }));
 }
 
 /** 查询延误记录；不传区间返回全部（页面自行取最新日期）。 */
@@ -1696,6 +1706,98 @@ export function rewardAdjustmentsByProfile(rows: AnchorRewardRow[]): Record<stri
       name: row.name,
       amountCents: row.amountCents,
       sourceDate: row.rewardDate,
+      sourceOperator: row.registeredName ?? undefined,
+    });
+  }
+  return map;
+}
+
+// ==================== 主播统一调整项（主持/化妆师/舞蹈老师）====================
+
+/** 调整项来源角色。 */
+export type AnchorAdjustmentSource = "host" | "makeup" | "dance";
+
+/** 统一调整项记录（含主播名 / 登记人名）。amountCents 有符号：正=增加，负=扣减。 */
+export interface AnchorAdjustmentRow {
+  id: string;
+  anchorProfileId: string;
+  anchorName: string;
+  adjustDate: string;
+  name: string;
+  amountCents: number;
+  source: AnchorAdjustmentSource;
+  registeredBy: string | null;
+  registeredName: string | null;
+  note: string | null;
+  updatedAt: string;
+}
+
+/** 查询调整项；按 source / 日期区间过滤，不传过滤则返回全部。 */
+export async function listAnchorAdjustments(input?: {
+  source?: AnchorAdjustmentSource;
+  range?: { start?: string; end?: string };
+}): Promise<AnchorAdjustmentRow[]> {
+  const { data, error } = await getBrowserSupabase().rpc("list_anchor_adjustments", {
+    p_source: input?.source,
+    p_start: input?.range?.start,
+    p_end: input?.range?.end,
+  });
+  if (error) fail(error);
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    anchorProfileId: row.anchor_profile_id,
+    anchorName: row.anchor_name,
+    adjustDate: row.adjust_date,
+    name: row.name,
+    amountCents: row.amount_cents,
+    source: row.source as AnchorAdjustmentSource,
+    registeredBy: row.registered_by,
+    registeredName: row.registered_name,
+    note: row.note,
+    updatedAt: row.updated_at,
+  }));
+}
+
+/** 练舞页单条调整项输入（补助为正、延误为负）。 */
+export interface DanceAdjustmentItemInput {
+  name: string;
+  amountCents: number;
+  note?: string;
+}
+
+/** 舞蹈老师批量设置当日各主播的调整项；空 items 表示清空该主播当日记录。 */
+export async function setDanceAdjustments(input: {
+  date: string;
+  entries: { anchorId: string; items: DanceAdjustmentItemInput[] }[];
+  /** 保留提交人（编辑既有卡片时传入）；缺省为当前操作人。 */
+  registeredBy?: string;
+}): Promise<number> {
+  const { data, error } = await getBrowserSupabase().rpc("set_dance_adjustments", {
+    p_date: input.date,
+    p_entries: input.entries as unknown as Json,
+    p_registered_by: input.registeredBy,
+  });
+  if (error) {
+    const msg = error.message ?? "";
+    if (msg.includes("FORBIDDEN")) throw new ApiError(ApiErrorCode.FORBIDDEN, "无权设置练舞调整项");
+    if (msg.includes("INVALID_ADJUSTMENT_DATE")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "日期无效");
+    if (msg.includes("INVALID_ADJUSTMENT_NAME")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "调整项名称需为 1-50 个字符");
+    if (msg.includes("INVALID_ADJUSTMENT_AMOUNT")) throw new ApiError(ApiErrorCode.INVALID_INPUT, "金额不合法（补助需大于 0，延误需小于 0）");
+    fail(error);
+  }
+  return (data as number) ?? 0;
+}
+
+/** 把统一调整项按主播聚合为工资调整项（有符号，携带来源日期/登记人留痕）。 */
+export function anchorAdjustmentsByProfile(
+  rows: AnchorAdjustmentRow[],
+): Record<string, PayrollAdjustment[]> {
+  const map: Record<string, PayrollAdjustment[]> = {};
+  for (const row of rows) {
+    (map[row.anchorProfileId] ??= []).push({
+      name: row.name,
+      amountCents: row.amountCents,
+      sourceDate: row.adjustDate,
       sourceOperator: row.registeredName ?? undefined,
     });
   }

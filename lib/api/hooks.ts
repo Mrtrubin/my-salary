@@ -66,6 +66,8 @@ import {
   setAnchorRewards,
   updateAnchorReward,
   deleteAnchorReward,
+  listAnchorAdjustments,
+  setDanceAdjustments,
   listLedgerEntries,
   createLedgerEntry,
   updateLedgerEntry,
@@ -79,7 +81,7 @@ import {
   deleteHostSalaryRecord,
   deleteStaffSalaryRecord,
 } from "./data";
-import type { Member, AnchorSettleMember, HostSettleMember, StaffSalaryCreateItem, LedgerEntryInput } from "./data";
+import type { Member, AnchorSettleMember, HostSettleMember, StaffSalaryCreateItem, LedgerEntryInput, AnchorAdjustmentSource, DanceAdjustmentItemInput } from "./data";
 import type { PeriodRange } from "@/lib/domain/settlement/cycle";
 import { readCachedProfile, writeCachedProfile } from "./profile-cache";
 
@@ -105,6 +107,7 @@ export const keys = {
   anchorMembers: ["anchorMembers"] as const,
   anchorDelays: ["anchorDelays"] as const,
   anchorRewards: ["anchorRewards"] as const,
+  anchorAdjustments: ["anchorAdjustments"] as const,
   ledgerEntries: ["ledgerEntries"] as const,
   ledgerSummary: ["ledgerSummary"] as const,
   ledgerTags: ["ledgerTags"] as const,
@@ -584,6 +587,23 @@ export function useDeleteAnchorReward() {
   return useMutation({
     mutationFn: (id: string) => deleteAnchorReward(id),
     onSuccess: () => client.invalidateQueries({ queryKey: keys.anchorRewards }),
+  });
+}
+
+/** 统一调整项（主播）：range 为空返回全部（页面自行取最新日期）。 */
+export function useAnchorAdjustments(source?: AnchorAdjustmentSource, range?: { start?: string; end?: string }) {
+  return useQuery({
+    queryKey: [...keys.anchorAdjustments, source ?? "", range?.start ?? "", range?.end ?? ""],
+    queryFn: () => listAnchorAdjustments({ source, range }),
+  });
+}
+
+export function useSetDanceAdjustments() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { date: string; entries: { anchorId: string; items: DanceAdjustmentItemInput[] }[]; registeredBy?: string }) =>
+      setDanceAdjustments(input),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.anchorAdjustments }),
   });
 }
 
