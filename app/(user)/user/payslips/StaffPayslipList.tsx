@@ -137,7 +137,7 @@ export function StaffPayslipList({ records }: { records: StaffSalaryRecord[] }) 
                 <dl className="space-y-2.5 text-sm">
                   <Row label="基础薪资" value={formatCentsToYuan(detailItem.base_income_cents)} />
                   <Row
-                    label="总违约"
+                    label="总扣款"
                     value={detailItem.penalty_cents ? signedAmount(detailItem.penalty_cents) : "—"}
                     tone={detailItem.penalty_cents ? "danger" : "muted"}
                   />
@@ -152,9 +152,9 @@ export function StaffPayslipList({ records }: { records: StaffSalaryRecord[] }) 
                     tone={detailItem.adjustment_cents < 0 ? "danger" : detailItem.adjustment_cents > 0 ? "success" : "muted"}
                   />
                   <Row label="实发收益" value={formatCentsToYuan(detailItem.gross_cents)} />
-                  <Row label="个税" value={formatCentsToYuan(detailItem.tax_cents)} tone="muted" />
+                  <Row label="全勤" value={formatCentsToYuan(detailItem.tax_cents)} tone="muted" />
                   <Row label="到手收益" value={formatCentsToYuan(detailItem.net_cents)} tone="strong" />
-                  {detailItem.note ? <Row label="备注" value={detailItem.note} tone="muted" /> : null}
+                  {detailItem.note ? <Row label="绩效" value={detailItem.note} tone="muted" /> : null}
                 </dl>
               </section>
 

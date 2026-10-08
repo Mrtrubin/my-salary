@@ -35,17 +35,6 @@ function makeKey() {
     : Math.random().toString(36).slice(2);
 }
 
-/** 有符号元金额 → 整数分；空/非法/零返回 null。 */
-function parseSignedYuan(value: string): number | null {
-  const text = value.trim();
-  if (!/^[+-]?(\d+(\.\d{0,2})?|\.\d{1,2})$/.test(text)) return null;
-  const negative = text.startsWith("-");
-  const magnitude = parseAdjustmentAmountYuan(text.replace(/^[+-]/, ""));
-  if (magnitude === null) return null;
-  const cents = negative ? -magnitude : magnitude;
-  return cents === 0 ? null : cents;
-}
-
 export default function UserHrPage() {
   const [view, setView] = useState<"performance" | "base" | "payroll">("performance");
   const options = [
@@ -81,7 +70,8 @@ export default function UserHrPage() {
 
 // ==================== 绩效 ====================
 
-type DraftItem = { key: string; name: string; amount: string };
+type PerformanceCategory = "penalty" | "reward";
+type DraftItem = { key: string; name: string; amount: string; category: PerformanceCategory };
 type MemberDraft = { items: DraftItem[] };
 
 function PerformanceSection() {
@@ -160,7 +150,12 @@ function PerformanceSection() {
         (r) => r.adjustDate === group.adjustDate && (r.registeredBy ?? null) === group.registeredBy,
       )) {
         const draft = (seeded[row.profileId] ??= { items: [] });
-        draft.items.push({ key: makeKey(), name: row.name, amount: (row.amountCents / 100).toFixed(2) });
+        draft.items.push({
+          key: makeKey(),
+          name: row.name,
+          amount: (Math.abs(row.amountCents) / 100).toFixed(2),
+          category: row.amountCents < 0 ? "penalty" : "reward",
+        });
       }
     }
     setIsEditing(Boolean(group));
@@ -187,10 +182,12 @@ function PerformanceSection() {
     });
   }
 
-  function addItem(profileId: string, item: Omit<DraftItem, "key">) {
+  function addItem(profileId: string, category: PerformanceCategory) {
     setDrafts((prev) => ({
       ...prev,
-      [profileId]: { items: [...prev[profileId].items, { key: makeKey(), ...item }] },
+      [profileId]: {
+        items: [...prev[profileId].items, { key: makeKey(), name: "", amount: "", category }],
+      },
     }));
   }
 
@@ -222,12 +219,13 @@ function PerformanceSection() {
           setFeedback({ ok: false, message: "请填写绩效名称" });
           return;
         }
-        const cents = parseSignedYuan(amount);
-        if (cents === null) {
-          setFeedback({ ok: false, message: `「${name}」金额不合法（最多两位小数，且不能为 0）` });
+        const magnitude = parseAdjustmentAmountYuan(amount);
+        if (magnitude === null || magnitude === 0) {
+          setFeedback({ ok: false, message: `「${name}」金额须为正数且最多两位小数` });
           return;
         }
-        items.push({ name, amountCents: cents });
+        const amountCents = item.category === "penalty" ? -magnitude : magnitude;
+        items.push({ name, amountCents });
       }
       entries.push({ profileId, items });
     }
@@ -375,6 +373,13 @@ function PerformanceSection() {
                     <div className="space-y-2">
                       {draft.items.map((item) => (
                         <div key={item.key} className="flex items-center gap-2">
+                          <span
+                            className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${
+                              item.category === "penalty" ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-600"
+                            }`}
+                          >
+                            {item.category === "penalty" ? "扣款" : "奖励"}
+                          </span>
                           <input
                             type="text"
                             maxLength={50}
@@ -400,14 +405,42 @@ function PerformanceSection() {
                           </button>
                         </div>
                       ))}
-                      <button
-                        type="button"
-                        onClick={() => addItem(profileId, { name: "", amount: "" })}
-                        className="rounded border border-dashed border-slate-300 px-3 py-1 text-xs text-slate-500"
-                      >
-                        + 添加绩效
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => addItem(profileId, "penalty")}
+                          className="rounded border border-dashed border-red-300 px-3 py-1 text-xs text-red-600"
+                        >
+                          + 扣款
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => addItem(profileId, "reward")}
+                          className="rounded border border-dashed border-emerald-300 px-3 py-1 text-xs text-emerald-600"
+                        >
+                          + 奖励
+                        </button>
+                      </div>
                     </div>
+                    {(() => {
+                      let penalty = 0;
+                      let reward = 0;
+                      for (const it of draft.items) {
+                        const magnitude = parseAdjustmentAmountYuan(it.amount.trim() || "0");
+                        if (magnitude === null) continue;
+                        if (it.category === "penalty") penalty += magnitude;
+                        else reward += magnitude;
+                      }
+                      return (
+                        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-slate-100 pt-2 text-xs">
+                          <span className="text-emerald-600">奖励 +{formatCentsToYuan(reward)}</span>
+                          <span className="text-red-500">扣款 -{formatCentsToYuan(penalty)}</span>
+                          <span className="ml-auto font-medium text-slate-600">
+                            总绩效 {formatCentsToYuan(reward - penalty)}
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </li>
                 ))}
                 {!draftList.length ? (
@@ -537,6 +570,7 @@ function HrPayroll() {
 
   const [period, setPeriod] = useState<PeriodRange>(() => getPresetRange("thisMonth"));
   const [drafts, setDrafts] = useState<Record<string, Partial<DraftRow>>>({});
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
 
   const roleId = useMemo(() => (roles.data ?? []).find((r) => r.code === ROLE_CODE)?.id, [roles.data]);
@@ -550,11 +584,12 @@ function HrPayroll() {
   const performance = useStaffPerformance(ROLE_CODE, { start: period.start, end: period.end });
 
   const summary = useMemo(() => {
-    const map = new Map<string, { penaltyCents: number; rewardCents: number }>();
+    const map = new Map<string, { penaltyCents: number; rewardCents: number; byName: Map<string, number> }>();
     for (const row of performance.data ?? []) {
-      const item = map.get(row.profileId) ?? { penaltyCents: 0, rewardCents: 0 };
+      const item = map.get(row.profileId) ?? { penaltyCents: 0, rewardCents: 0, byName: new Map<string, number>() };
       if (row.amountCents < 0) item.penaltyCents += -row.amountCents;
       else item.rewardCents += row.amountCents;
+      item.byName.set(row.name, (item.byName.get(row.name) ?? 0) + row.amountCents);
       map.set(row.profileId, item);
     }
     return map;
@@ -576,11 +611,48 @@ function HrPayroll() {
     const item = summary.get(profileId);
     if (field === "penalty") return item ? yuan(item.penaltyCents) : "0.00";
     if (field === "reward") return item ? yuan(item.rewardCents) : "0.00";
+    if (field === "note") return item ? yuan(item.rewardCents - item.penaltyCents) : "0.00";
     return "";
   }
 
   function setField(profileId: string, field: keyof DraftRow, value: string) {
     setDrafts((prev) => ({ ...prev, [profileId]: { ...prev[profileId], [field]: value } }));
+  }
+
+  /** 按当前表单值预览税前工资：基础薪资 − 总扣款 + 总奖励。非法金额返回 null。 */
+  function previewGrossCents(member: StaffMember): number | null {
+    const penalty = parseAdjustmentAmountYuan(valueOf(member.id, "penalty").trim() || "0");
+    const reward = parseAdjustmentAmountYuan(valueOf(member.id, "reward").trim() || "0");
+    if (penalty === null || reward === null) return null;
+    return member.baseIncomeCents - penalty + reward;
+  }
+
+  const memberList = useMemo(() => members.data ?? [], [members.data]);
+  const allSelected = memberList.length > 0 && selected.size === memberList.length;
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelected((prev) => (prev.size === memberList.length ? new Set() : new Set(memberList.map((m) => m.id))));
+  }
+
+  /** 提交条件：至少选中一位，且所选成员的金额均合法。 */
+  function selectedReady(): boolean {
+    if (!selected.size) return false;
+    for (const id of selected) {
+      const penalty = parseAdjustmentAmountYuan(valueOf(id, "penalty").trim() || "0");
+      const reward = parseAdjustmentAmountYuan(valueOf(id, "reward").trim() || "0");
+      const tax = parseAdjustmentAmountYuan(valueOf(id, "tax").trim() || "0");
+      if (penalty === null || reward === null || tax === null) return false;
+    }
+    return true;
   }
 
   async function submit() {
@@ -593,9 +665,9 @@ function HrPayroll() {
       setFeedback({ ok: false, message: "起止日期无效" });
       return;
     }
-    const list = members.data ?? [];
+    const list = memberList.filter((member) => selected.has(member.id));
     if (!list.length) {
-      setFeedback({ ok: false, message: "没有在职的人事成员" });
+      setFeedback({ ok: false, message: "请至少选择一位成员" });
       return;
     }
     const records = [];
@@ -619,6 +691,7 @@ function HrPayroll() {
     try {
       await create.mutateAsync({ period, records });
       setDrafts({});
+      setSelected(new Set());
       setFeedback({ ok: true, message: `已生成/覆盖 ${records.length} 条人事工资条（待审核）` });
     } catch (err) {
       setFeedback({ ok: false, message: err instanceof Error ? err.message : "生成失败，请稍后重试" });
@@ -654,7 +727,7 @@ function HrPayroll() {
           />
         </div>
         <p className="text-xs text-slate-400">
-          已按周期内「绩效」自动汇总总违约/总奖励，可手动修改后生成。
+          已按周期内「绩效」自动汇总总扣款/总奖励，可手动修改后生成。
         </p>
       </Card>
 
@@ -667,18 +740,22 @@ function HrPayroll() {
       <ul className="space-y-2">
         {(members.data ?? []).map((member) => {
           const item = summary.get(member.id);
+          const checked = selected.has(member.id);
           return (
             <li key={member.id}>
-              <Card className="space-y-2 px-4 py-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">{member.name}</span>
-                  <span className="text-xs text-slate-400">
+              <Card className={`space-y-2 px-4 py-3 ${checked ? "ring-1 ring-indigo-300" : ""}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <label className="flex min-w-0 cursor-pointer items-center gap-2">
+                    <input type="checkbox" checked={checked} onChange={() => toggleSelect(member.id)} />
+                    <span className="truncate text-sm font-medium">{member.name}</span>
+                  </label>
+                  <span className="shrink-0 text-xs text-slate-400">
                     基础薪资 {formatCentsToYuan(member.baseIncomeCents)}
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <label className="text-xs text-slate-500">
-                    总违约（元）
+                    总扣款（元）
                     <input
                       type="text"
                       inputMode="decimal"
@@ -698,7 +775,7 @@ function HrPayroll() {
                     />
                   </label>
                   <label className="text-xs text-slate-500">
-                    个税（元）
+                    全勤（元）
                     <input
                       type="text"
                       inputMode="decimal"
@@ -709,7 +786,7 @@ function HrPayroll() {
                     />
                   </label>
                   <label className="text-xs text-slate-500">
-                    备注
+                    绩效
                     <input
                       type="text"
                       maxLength={200}
@@ -719,20 +796,52 @@ function HrPayroll() {
                     />
                   </label>
                 </div>
-                {item ? (
-                  <p className="text-xs text-slate-400">
-                    自动汇总：违约 {formatCentsToYuan(-item.penaltyCents)} · 奖励 {formatCentsToYuan(item.rewardCents)}
-                  </p>
+                {item && item.byName.size ? (
+                  <div className="flex flex-wrap items-center gap-1">
+                    <span className="text-xs text-slate-400">绩效明细</span>
+                    {[...item.byName.entries()].map(([name, cents]) => (
+                      <Badge key={name} tone={cents >= 0 ? "green" : "red"}>
+                        {name} {cents >= 0 ? "+" : "-"}
+                        {formatCentsToYuan(Math.abs(cents))}
+                      </Badge>
+                    ))}
+                  </div>
                 ) : null}
+                {(() => {
+                  const gross = previewGrossCents(member);
+                  return (
+                    <div className="flex items-center justify-between border-t border-slate-100 pt-2">
+                      <span className="text-xs text-slate-500">税前工资</span>
+                      <span
+                        className={`tabular-nums text-sm font-semibold ${gross !== null && gross < 0 ? "text-danger" : "text-foreground"}`}
+                      >
+                        {gross === null ? "金额不合法" : formatCentsToYuan(gross)}
+                      </span>
+                    </div>
+                  );
+                })()}
               </Card>
             </li>
           );
         })}
       </ul>
 
-      <Button className="w-full" disabled={create.isPending} onClick={submit}>
-        {create.isPending ? "生成中…" : "生成人事工资条"}
-      </Button>
+      <div className="sticky bottom-0 z-10 -mx-1 flex items-center gap-3 border-t border-slate-200 bg-white/95 px-1 py-3 backdrop-blur">
+        <span className="text-xs text-slate-500">
+          已选 {selected.size} / {memberList.length}
+        </span>
+        <Button
+          variant="ghost"
+          className="ml-auto"
+          onClick={toggleAll}
+          disabled={!memberList.length}
+        >
+          {allSelected ? "取消全选" : "全选"}
+        </Button>
+        <Button disabled={!selectedReady() || create.isPending} onClick={submit}>
+          {create.isPending ? "生成中…" : `生成工资条（${selected.size}）`}
+        </Button>
+      </div>
 
       <div className="pt-1">
         <p className="mb-2 text-xs text-slate-500">已生成的人事工资条</p>
@@ -752,6 +861,7 @@ function HrPayroll() {
                   <p className="mt-1 text-xs text-slate-400">
                     {record.period_start} ~ {record.period_end} · 到手 {formatCentsToYuan(record.net_cents)}
                   </p>
+                  {record.note ? <p className="mt-1 text-xs text-slate-500">绩效：{record.note}</p> : null}
                 </Card>
               </li>
             );
