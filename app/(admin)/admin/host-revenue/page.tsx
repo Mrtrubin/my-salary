@@ -30,7 +30,7 @@ import {
 } from "@/lib/api/hooks";
 import type { HostSalaryRecord, HostSettleMember, HostSettlementContext } from "@/lib/api/data";
 import { SalaryRecordStatusBadge } from "@/components/admin/status-tag";
-import { PeriodRangeFilter } from "@/components/admin/period-range-filter";
+import { TimeRangeFilter } from "@/components/admin/time-range-filter";
 import { getPresetRange } from "@/lib/domain/settlement/cycle";
 import type { PeriodRange } from "@/lib/domain/settlement/cycle";
 import { parseAdjustmentAmountYuan } from "@/lib/domain/payroll/adjustment";
@@ -553,16 +553,17 @@ function HostRevenueWorkspace() {
   return (
     <>
       <Card style={{ marginBottom: 16 }}>
-        <PeriodRangeFilter
+        <TimeRangeFilter
           value={period}
           onChange={(range) => {
+            if (!range) return;
             setPeriod(range);
             resetDraft();
           }}
           disabled={settleMutation.isPending}
         />
         <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
-          默认为本月；可快捷切换当日/昨日/本周或自选起止日期，点击「查询」后应用。团总流水 = 该主持名下所有团队在该区间内的主播流水合计，团队明细可点击行内标签查看。工资由管理员勾选后手动结算。
+          默认为本月；可快捷切换今天/昨天/近7天/近30天/本月/上月或自选起止日期，选择后立即应用。团总流水 = 该主持名下所有团队在该区间内的主播流水合计，团队明细可点击行内标签查看。工资由管理员勾选后手动结算。
         </Typography.Paragraph>
       </Card>
 

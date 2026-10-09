@@ -12,6 +12,7 @@ import { QueryMessage } from "@/components/admin/query-message";
 import { ResizableTable } from "@/components/admin/resizable-table";
 import { StatCard } from "@/components/admin/stat-card";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
+import { TimeRangeFilter } from "@/components/admin/time-range-filter";
 import { useConfirm } from "@/components/admin/use-confirm";
 import type { LedgerEntry } from "@/lib/api/data";
 import {
@@ -22,7 +23,8 @@ import {
   useLedgerTags,
   useUpdateLedgerEntry,
 } from "@/lib/api/hooks";
-import { currentMonthRange, currentYearRange, toSignedCents, type LedgerDirection } from "@/lib/domain/ledger";
+import { toSignedCents, type LedgerDirection } from "@/lib/domain/ledger";
+import { getPresetRange, type PeriodRange } from "@/lib/domain/settlement/cycle";
 import { formatCentsToYuan, formatDateTime } from "@/lib/format";
 import { LedgerCharts } from "./LedgerCharts";
 
@@ -43,13 +45,12 @@ export default function LedgerPage() {
   const update = useUpdateLedgerEntry();
   const remove = useDeleteLedgerEntry();
 
-  const [range, setRange] = useState(currentMonthRange);
+  const [range, setRange] = useState<PeriodRange>(() => getPresetRange("thisMonth"));
   const [direction, setDirection] = useState<"all" | Direction>("all");
   const [tagFilter, setTagFilter] = useState<string>("all");
 
   const entries = useLedgerEntries(range);
-  const month = useLedgerSummary(useMemo(() => currentMonthRange(), []));
-  const year = useLedgerSummary(useMemo(() => currentYearRange(), []));
+  const summary = useLedgerSummary(range);
 
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<LedgerEntry | null>(null);
@@ -153,39 +154,22 @@ export default function LedgerPage() {
       />
 
       <Row gutter={[16, 16]}>
-        <Col xs={24} md={12} xl={8}>
-          <StatCard label="本月收入" value={formatCentsToYuan(month.data?.incomeCents ?? 0)} accent="positive" />
+        <Col xs={24} md={8}>
+          <StatCard label="收入" value={formatCentsToYuan(summary.data?.incomeCents ?? 0)} accent="positive" />
         </Col>
-        <Col xs={24} md={12} xl={8}>
-          <StatCard label="本月支出" value={formatCentsToYuan(month.data?.expenseCents ?? 0)} accent="negative" />
+        <Col xs={24} md={8}>
+          <StatCard label="支出" value={formatCentsToYuan(summary.data?.expenseCents ?? 0)} accent="negative" />
         </Col>
-        <Col xs={24} md={12} xl={8}>
-          <StatCard label="本月结余" value={formatCentsToYuan(month.data?.netCents ?? 0)} />
-        </Col>
-        <Col xs={24} md={12} xl={8}>
-          <StatCard label="本年收入" value={formatCentsToYuan(year.data?.incomeCents ?? 0)} accent="positive" />
-        </Col>
-        <Col xs={24} md={12} xl={8}>
-          <StatCard label="本年支出" value={formatCentsToYuan(year.data?.expenseCents ?? 0)} accent="negative" />
-        </Col>
-        <Col xs={24} md={12} xl={8}>
-          <StatCard label="本年结余" value={formatCentsToYuan(year.data?.netCents ?? 0)} />
+        <Col xs={24} md={8}>
+          <StatCard label="结余" value={formatCentsToYuan(summary.data?.netCents ?? 0)} />
         </Col>
       </Row>
 
-      {year.data ? <LedgerCharts summary={year.data} /> : null}
+      {summary.data ? <LedgerCharts summary={summary.data} /> : null}
 
       <Card title="收支流水" style={{ marginTop: 16 }}>
-        <Flex gap={12} wrap style={{ marginBottom: 16 }}>
-          <DatePicker.RangePicker
-            value={[dayjs(range.start), dayjs(range.end)]}
-            allowClear={false}
-            onChange={(dates) => {
-              if (dates && dates[0] && dates[1]) {
-                setRange({ start: dates[0].format("YYYY-MM-DD"), end: dates[1].format("YYYY-MM-DD") });
-              }
-            }}
-          />
+        <Flex gap={12} wrap align="center" style={{ marginBottom: 16 }}>
+          <TimeRangeFilter value={range} onChange={(next) => next && setRange(next)} />
           <Select
             value={direction}
             onChange={setDirection}

@@ -1,14 +1,15 @@
 "use client";
 
-import { Button, Card, DatePicker, Flex, Input, Modal, Typography } from "antd";
-import type { Dayjs } from "dayjs";
+import { Button, Card, Flex, Input, Modal, Typography } from "antd";
 import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/admin/page-header";
 import { QueryMessage } from "@/components/admin/query-message";
 import { ResizableTable } from "@/components/admin/resizable-table";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
+import { TimeRangeFilter } from "@/components/admin/time-range-filter";
 import { useTeamPerformance } from "@/lib/api/hooks";
 import type { TeamPerformanceRow } from "@/lib/api/data";
+import type { PeriodRange } from "@/lib/domain/settlement/cycle";
 import { buildRevenueRecordFields, formatAdjustmentItems } from "@/lib/domain/performance/recordView";
 import { formatCentsToYuan, formatDate } from "@/lib/format";
 
@@ -23,13 +24,13 @@ function signedCents(cents: number): string {
 }
 
 export default function TeamReviewPage() {
-  const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
+  const [range, setRange] = useState<PeriodRange | null>(null);
   const [keyword, setKeyword] = useState("");
   const [detail, setDetail] = useState<TeamPerformanceRow | null>(null);
 
   const query = useTeamPerformance({
-    start: range?.[0] ? range[0].format("YYYY-MM-DD") : undefined,
-    end: range?.[1] ? range[1].format("YYYY-MM-DD") : undefined,
+    start: range?.start,
+    end: range?.end,
   });
 
   const filtered = useMemo(() => {
@@ -54,11 +55,7 @@ export default function TeamReviewPage() {
         title="流水记录"
         extra={
           <Flex align="center" gap={12} wrap>
-            <DatePicker.RangePicker
-              value={range}
-              onChange={(value) => setRange(value)}
-              allowEmpty={[true, true]}
-            />
+            <TimeRangeFilter allowAll value={range} onChange={setRange} />
             <Input.Search
               allowClear
               style={{ width: 220 }}

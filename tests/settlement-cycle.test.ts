@@ -61,6 +61,42 @@ describe("cycle.getPresetRange", () => {
       end: "2028-02-29",
     });
   });
+  it("近7天：含当天，共 7 天", () => {
+    expect(getPresetRange("last7Days", "2026-01-15")).toEqual({
+      start: "2026-01-09",
+      end: "2026-01-15",
+    });
+  });
+  it("近7天：跨月安全", () => {
+    expect(getPresetRange("last7Days", "2026-03-02")).toEqual({
+      start: "2026-02-24",
+      end: "2026-03-02",
+    });
+  });
+  it("近30天：含当天，跨年安全", () => {
+    expect(getPresetRange("last30Days", "2026-01-15")).toEqual({
+      start: "2025-12-17",
+      end: "2026-01-15",
+    });
+  });
+  it("上月：跨年安全", () => {
+    expect(getPresetRange("lastMonth", "2026-01-15")).toEqual({
+      start: "2025-12-01",
+      end: "2025-12-31",
+    });
+  });
+  it("上月：平年 2 月为 28 天", () => {
+    expect(getPresetRange("lastMonth", "2026-03-31")).toEqual({
+      start: "2026-02-01",
+      end: "2026-02-28",
+    });
+  });
+  it("上月：闰年 2 月为 29 天", () => {
+    expect(getPresetRange("lastMonth", "2028-03-05")).toEqual({
+      start: "2028-02-01",
+      end: "2028-02-29",
+    });
+  });
 });
 
 describe("cycle.addDays / nextDay", () => {

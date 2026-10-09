@@ -1,13 +1,13 @@
 "use client";
 
-import { App, Button, Card, Col, DatePicker, Flex, Input, Modal, Row, Select, Typography } from "antd";
+import { App, Button, Card, Col, Flex, Input, Modal, Row, Select, Typography } from "antd";
 import { DownloadOutlined, PlusOutlined } from "@ant-design/icons";
-import dayjs from "dayjs";
 import { useMemo, useState, type Key } from "react";
 import { QueryMessage } from "@/components/admin/query-message";
 import { ResizableTable, type ResizableColumnType } from "@/components/admin/resizable-table";
 import { SalaryRecordStatusBadge } from "@/components/admin/status-tag";
 import { zebraRowClassName } from "@/components/admin/table-zebra";
+import { TimeRangeFilter } from "@/components/admin/time-range-filter";
 import { useConfirm } from "@/components/admin/use-confirm";
 import {
   useCreateStaffSalaryRecords,
@@ -532,18 +532,7 @@ export function StaffPayrollPanel({
         <Flex vertical gap={16}>
           <Flex align="center" gap={12} wrap>
             <Typography.Text>结算周期</Typography.Text>
-            <DatePicker.RangePicker
-              allowClear={false}
-              value={[dayjs(draftPeriod.start), dayjs(draftPeriod.end)]}
-              onChange={(dates) => {
-                if (dates?.[0] && dates?.[1]) {
-                  setDraftPeriod({
-                    start: dates[0].format("YYYY-MM-DD"),
-                    end: dates[1].format("YYYY-MM-DD"),
-                  });
-                }
-              }}
-            />
+            <TimeRangeFilter value={draftPeriod} onChange={(range) => range && setDraftPeriod(range)} />
           </Flex>
 
           <div>

@@ -18,7 +18,14 @@ export interface PeriodRange {
 }
 
 /** 常用快捷区间。 */
-export type DateRangePreset = "today" | "yesterday" | "thisWeek" | "thisMonth";
+export type DateRangePreset =
+  | "today"
+  | "yesterday"
+  | "last7Days"
+  | "last30Days"
+  | "thisWeek"
+  | "thisMonth"
+  | "lastMonth";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -115,9 +122,17 @@ export function getPresetRange(preset: DateRangePreset, asOf?: string): PeriodRa
       const day = prevDay(today);
       return { start: day, end: day };
     }
+    case "last7Days":
+      return { start: addDays(today, -6), end: today };
+    case "last30Days":
+      return { start: addDays(today, -29), end: today };
     case "thisWeek":
       return weekRange(today);
     case "thisMonth":
       return { start: toDate(y, m, 1), end: toDate(y, m, daysInMonth(y, m)) };
+    case "lastMonth": {
+      const [py, pm] = addMonths(y, m, -1);
+      return { start: toDate(py, pm, 1), end: toDate(py, pm, daysInMonth(py, pm)) };
+    }
   }
 }
