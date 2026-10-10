@@ -307,6 +307,8 @@ export interface TeamPerformanceRow {
   id: string;
   team_id: string;
   profile_id: string;
+  /** 录入该记录的主持（上传者），用于删除后通知与按主持筛选。 */
+  host_profile_id: string | null;
   point_id: string | null;
   perf_date: string;
   broadcast_minutes: number;
@@ -456,6 +458,15 @@ export async function replaceTeamPerformanceRecords(input: {
 
   // 4. 仅对「有变化的成员」做 upsert（同 key 直接更新，不新建）。
   await createTeamPerformanceRecords({ ...input, items: changedItems });
+}
+
+/**
+ * 删除单条主播流水记录（管理员）。数据库端在单事务内删除记录并给上传者（录入主持）发站内通知；
+ * 非管理员将被数据库拒绝。
+ */
+export async function deleteTeamPerformanceRecord(id: string): Promise<void> {
+  const { error } = await getBrowserSupabase().rpc("delete_anchor_revenue_record", { p_id: id });
+  if (error) fail(error);
 }
 
 export async function listSchemes(): Promise<SalaryScheme[]> {

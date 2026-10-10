@@ -3,7 +3,7 @@
 import { DownOutlined } from "@ant-design/icons";
 import { Button, DatePicker, Dropdown, Flex } from "antd";
 import dayjs from "dayjs";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { getPresetRange } from "@/lib/domain/settlement/cycle";
 import type { DateRangePreset, PeriodRange } from "@/lib/domain/settlement/cycle";
 
@@ -36,6 +36,15 @@ export function TimeRangeFilter({ value, onChange, allowAll = false, disabled }:
   const [open, setOpen] = useState(false);
   const [customOpen, setCustomOpen] = useState(false);
 
+  // 外部把区间复位为「全部时间」（value=null）时退出自定义模式，
+  // 避免残留的日期选择器。用户从「全部时间」点击自定义不会改变 value，故不受影响。
+  useEffect(() => {
+    if (value === null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 同步外部「全部时间」复位，非派生状态
+      setCustomOpen(false);
+    }
+  }, [value]);
+
   const isAll = value === null;
   const matched = value
     ? PRESETS.find((preset) => {
@@ -43,12 +52,14 @@ export function TimeRangeFilter({ value, onChange, allowAll = false, disabled }:
         return range.start === value.start && range.end === value.end;
       })?.key
     : undefined;
-  const isCustom = !isAll && (customOpen || matched === undefined);
-  const activeKey = isAll ? ALL : isCustom ? CUSTOM : (matched ?? CUSTOM);
-  const activeLabel = isAll
-    ? "全部时间"
-    : isCustom
-      ? "自定义"
+  // customOpen 优先：从「全部时间」切到自定义时 value 仍为 null，
+  // 不能因 isAll 而判定为非自定义，否则日期选择器无法展开。
+  const isCustom = customOpen || (!isAll && matched === undefined);
+  const activeKey = isCustom ? CUSTOM : isAll ? ALL : (matched ?? CUSTOM);
+  const activeLabel = isCustom
+    ? "自定义"
+    : isAll
+      ? "全部时间"
       : (PRESETS.find((preset) => preset.key === matched)?.label ?? "自定义");
 
   function handleSelect(key: string) {
@@ -88,12 +99,12 @@ export function TimeRangeFilter({ value, onChange, allowAll = false, disabled }:
           <DownOutlined style={{ fontSize: 10, marginInlineStart: 6 }} />
         </Button>
       </Dropdown>
-      {isCustom && value ? (
+      {isCustom ? (
         <DatePicker.RangePicker
           aria-label="自定义日期区间"
           allowClear={false}
           disabled={disabled}
-          value={[dayjs(value.start), dayjs(value.end)]}
+          value={value ? [dayjs(value.start), dayjs(value.end)] : null}
           onChange={(dates) => {
             if (dates?.[0] && dates?.[1]) {
               onChange({

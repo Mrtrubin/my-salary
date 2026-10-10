@@ -13,6 +13,7 @@ import {
   createTeamPerformanceRecords,
   deletePerformancePoint,
   deleteTeam,
+  deleteTeamPerformanceRecord,
   getCurrentProfile,
   listMembers,
   listMyChangeRequests,
@@ -226,6 +227,13 @@ export function useReplaceTeamPerformanceRecords() {
     onSuccess: () => {
       return invalidateRelatedQueries(client, keys.teamPerformance);
     },
+  });
+}
+export function useDeleteTeamPerformanceRecord() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteTeamPerformanceRecord(id),
+    onSuccess: () => invalidateRelatedQueries(client, keys.teamPerformance),
   });
 }
 export function useUpdateAnchorSettings() {

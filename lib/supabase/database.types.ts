@@ -1634,6 +1634,7 @@ export type Database = {
       }
       current_member_team_id: { Args: never; Returns: string }
       current_profile_id: { Args: never; Returns: string }
+      delete_anchor_revenue_record: { Args: { p_id: string }; Returns: undefined }
       delete_anchor_reward: { Args: { p_id: string }; Returns: undefined }
       delete_host_salary_record: { Args: { p_id: string }; Returns: undefined }
       delete_salary_record: { Args: { p_id: string }; Returns: undefined }
