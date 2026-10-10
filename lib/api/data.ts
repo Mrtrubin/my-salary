@@ -1188,6 +1188,120 @@ export async function listHostSalaryRecords(): Promise<HostSalaryRecord[]> {
   return data as unknown as HostSalaryRecord[];
 }
 
+/** 进行中周期某一天的团总流水与直播时长（团队当日时长取 MAX 去重后跨团汇总）。 */
+export interface MyHostCycleDaily {
+  date: string;
+  revenueCents: number;
+  broadcastMinutes: number;
+}
+
+/** 主持本人一个周期的团总流水概览：跨团队汇总 + 日趋势 + 团队明细。 */
+export interface MyHostCycleOverview {
+  revenueCents: number;
+  broadcastMinutes: number;
+  daily: MyHostCycleDaily[];
+  teamBreakdown: HostTeamBreakdown[];
+}
+
+/** 主持本人按月汇总的流水概览（month 为 "YYYY-MM"）。 */
+export interface MyHostMonthlyOverview extends MyHostCycleOverview {
+  month: string;
+}
+
+/** 主持流水原始行（anchor_revenue_records 选中列）。 */
+interface HostRevenueRow {
+  team_id: string;
+  perf_date: string;
+  revenue_cents: number;
+  broadcast_minutes: number;
+  no_perf: boolean;
+  team: { name: string | null } | null;
+}
+
+/**
+ * 汇总主持流水行：流水累加，直播时长按 (团队, 日期) 取 MAX 去重后汇总，
+ * 避免「团队当日总时长」被成员数放大（口径同 getHostSettlementContexts）。
+ */
+function aggregateHostRevenue(rows: HostRevenueRow[]): MyHostCycleOverview {
+  interface TeamAgg {
+    teamId: string;
+    teamName: string | null;
+    revenueCents: number;
+    dailyBroadcast: Map<string, number>;
+  }
+  const byTeam = new Map<string, TeamAgg>();
+  const dailyRevenue = new Map<string, number>();
+
+  for (const row of rows) {
+    const revenue = row.no_perf ? 0 : row.revenue_cents;
+    const team = byTeam.get(row.team_id) ?? {
+      teamId: row.team_id,
+      teamName: row.team?.name ?? null,
+      revenueCents: 0,
+      dailyBroadcast: new Map<string, number>(),
+    };
+    team.revenueCents += revenue;
+    team.dailyBroadcast.set(row.perf_date, Math.max(team.dailyBroadcast.get(row.perf_date) ?? 0, row.broadcast_minutes));
+    byTeam.set(row.team_id, team);
+    dailyRevenue.set(row.perf_date, (dailyRevenue.get(row.perf_date) ?? 0) + revenue);
+  }
+
+  const teamBreakdown: HostTeamBreakdown[] = [...byTeam.values()]
+    .map((team) => ({
+      teamId: team.teamId,
+      teamName: team.teamName,
+      revenueCents: team.revenueCents,
+      broadcastMinutes: [...team.dailyBroadcast.values()].reduce((sum, value) => sum + value, 0),
+    }))
+    .sort((a, b) => b.revenueCents - a.revenueCents || (a.teamName ?? "").localeCompare(b.teamName ?? "", "zh-CN"));
+
+  const dailyBroadcastByDate = new Map<string, number>();
+  for (const team of byTeam.values()) {
+    for (const [date, minutes] of team.dailyBroadcast) {
+      dailyBroadcastByDate.set(date, (dailyBroadcastByDate.get(date) ?? 0) + minutes);
+    }
+  }
+  const daily: MyHostCycleDaily[] = [...dailyRevenue.keys()]
+    .sort((a, b) => a.localeCompare(b))
+    .map((date) => ({
+      date,
+      revenueCents: dailyRevenue.get(date) ?? 0,
+      broadcastMinutes: dailyBroadcastByDate.get(date) ?? 0,
+    }));
+
+  return {
+    revenueCents: teamBreakdown.reduce((sum, item) => sum + item.revenueCents, 0),
+    broadcastMinutes: teamBreakdown.reduce((sum, item) => sum + item.broadcastMinutes, 0),
+    daily,
+    teamBreakdown,
+  };
+}
+
+/**
+ * 主持本人按月汇总的流水概览：单次查询 host_profile_id 名下全部 anchor_revenue_records，
+ * 按 perf_date 所属月份分组后聚合，返回按月份倒序（最新在前）。RLS 允许主持读取本团队记录。
+ */
+export async function listMyHostMonthlyOverviews(hostProfileId: string): Promise<MyHostMonthlyOverview[]> {
+  const supabase = getBrowserSupabase();
+  const rows = (await readSettlementRows((from, to) => supabase
+    .from("anchor_revenue_records")
+    .select("team_id, perf_date, revenue_cents, broadcast_minutes, no_perf, team:teams(name)")
+    .eq("host_profile_id", hostProfileId)
+    .order("id").range(from, to))) as unknown as HostRevenueRow[];
+
+  const byMonth = new Map<string, HostRevenueRow[]>();
+  for (const row of rows) {
+    const month = row.perf_date.slice(0, 7);
+    const list = byMonth.get(month);
+    if (list) list.push(row);
+    else byMonth.set(month, [row]);
+  }
+
+  return [...byMonth.entries()]
+    .map(([month, monthRows]) => ({ month, ...aggregateHostRevenue(monthRows) }))
+    .sort((a, b) => b.month.localeCompare(a.month));
+}
+
 /**
  * 主持结算上下文：主持角色成员 ∪ 周期内出现过的录入主持，
  * 跨团队汇总团总流水/直播时长，并给出团队明细分项与生效主持方案。

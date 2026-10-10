@@ -48,6 +48,7 @@ import {
   listHostSchemes,
   createHostScheme,
   listHostSalaryRecords,
+  listMyHostMonthlyOverviews,
   getHostSettlementContexts,
   settleHostPayroll,
   transitionHostSalaryStatus,
@@ -103,6 +104,7 @@ export const keys = {
   salaryStatusLogs: ["salaryStatusLogs"] as const,
   hostSchemes: ["hostSchemes"] as const,
   hostSalary: ["hostSalary"] as const,
+  myHostMonthly: ["myHostMonthly"] as const,
   hostSettlementContexts: ["hostSettlementContexts"] as const,
   hostSalaryStatusLogs: ["hostSalaryStatusLogs"] as const,
   staffSalary: ["staffSalary"] as const,
@@ -420,6 +422,15 @@ export function useCreateHostScheme() {
 
 export function useHostSalaryRecords() {
   return useQuery({ queryKey: keys.hostSalary, queryFn: listHostSalaryRecords });
+}
+
+/** 主持本人按月汇总的团总流水概览（最新月份在前）；无 hostProfileId 时不请求。 */
+export function useMyHostMonthlyOverviews(hostProfileId: string | null) {
+  return useQuery({
+    queryKey: [...keys.myHostMonthly, hostProfileId],
+    queryFn: () => listMyHostMonthlyOverviews(hostProfileId!),
+    enabled: !!hostProfileId,
+  });
 }
 
 /** period 为空时不请求；团总流水跨团队汇总，结算口径与系统周期一致。 */

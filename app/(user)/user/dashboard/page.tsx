@@ -1,19 +1,30 @@
 "use client";
 
+import { useMemo } from "react";
 import { QueryMessage } from "@/components/query-message";
 import { useCurrentProfile, useSalaryRecords } from "@/lib/api/hooks";
 import { formatCentsToYuan, formatMonth } from "@/lib/format";
+import { HostDashboard } from "./HostDashboard";
 
 export default function UserDashboardPage() {
   const profile = useCurrentProfile();
+  const isHost = useMemo(
+    () => profile.data?.user_roles?.some(({ role }) => role?.code === "host") ?? false,
+    [profile.data],
+  );
+
+  if (profile.isLoading) return <QueryMessage loading error={profile.error} />;
+  if (profile.data && isHost) return <HostDashboard profile={profile.data} />;
+  return <AnchorDashboard />;
+}
+
+function AnchorDashboard() {
   const salary = useSalaryRecords();
   const latestSalary = salary.data?.[0];
-  const loading = profile.isLoading || salary.isLoading;
-  const error = profile.error || salary.error;
 
   return (
     <div className="space-y-5">
-      <QueryMessage loading={loading} error={error} />
+      <QueryMessage loading={salary.isLoading} error={salary.error} />
 
       {latestSalary ? (
         <div className="rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-600 px-5 py-6 text-white shadow-lg shadow-indigo-500/20">
