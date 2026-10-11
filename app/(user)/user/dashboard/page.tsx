@@ -2,10 +2,16 @@
 
 import { useMemo } from "react";
 import { QueryMessage } from "@/components/query-message";
-import { useCurrentProfile, useSalaryRecords } from "@/lib/api/hooks";
-import { formatCentsToYuan, formatMonth } from "@/lib/format";
+import { useCurrentProfile } from "@/lib/api/hooks";
+import { AnchorDashboard } from "./AnchorDashboard";
 import { HostDashboard } from "./HostDashboard";
 
+/**
+ * 概览页：只做角色分发。
+ *
+ * 主播与主持是两套完全不同的薪资概念，各自独立组件、独立数据源；
+ * 本页只负责「按角色选组件」，不含任何角色实现、查询或渲染逻辑。
+ */
 export default function UserDashboardPage() {
   const profile = useCurrentProfile();
   const isHost = useMemo(
@@ -16,25 +22,4 @@ export default function UserDashboardPage() {
   if (profile.isLoading) return <QueryMessage loading error={profile.error} />;
   if (profile.data && isHost) return <HostDashboard profile={profile.data} />;
   return <AnchorDashboard />;
-}
-
-function AnchorDashboard() {
-  const salary = useSalaryRecords();
-  const latestSalary = salary.data?.[0];
-
-  return (
-    <div className="space-y-5">
-      <QueryMessage loading={salary.isLoading} error={salary.error} />
-
-      {latestSalary ? (
-        <div className="rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-600 px-5 py-6 text-white shadow-lg shadow-indigo-500/20">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-white/70">{formatMonth(latestSalary.month.slice(0, 7))} 实发</span>
-            <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-medium">最新</span>
-          </div>
-          <p className="mt-2 text-3xl font-semibold tabular-nums tracking-tight">{formatCentsToYuan(latestSalary.net_cents)}</p>
-        </div>
-      ) : null}
-    </div>
-  );
 }

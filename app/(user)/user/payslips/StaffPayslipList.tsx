@@ -5,9 +5,9 @@ import { SalaryRecordStatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { QueryMessage } from "@/components/query-message";
-import { useStaffSalaryStatusLogs, useTransitionStaffSalaryStatus } from "@/lib/api/hooks";
-import type { StaffSalaryRecord } from "@/lib/api/data";
+import { useStaffSalaryRecords, useStaffSalaryStatusLogs, useTransitionStaffSalaryStatus } from "@/lib/api/hooks";
 import { formatCentsToYuan, formatDateTime } from "@/lib/format";
+import { hasStaffRole, useMyRoleCodes } from "./roles";
 
 const STATUS_LABELS: Record<string, string> = {
   pending_review: "待审核",
@@ -61,17 +61,28 @@ function Row({ label, value, tone }: { label: string; value: string; tone?: "mut
   );
 }
 
-/** 固定薪资工资条（化妆师/舞蹈老师/行政/运镜/人事）：列表 + 全屏详情（成员端确认收款）。 */
-export function StaffPayslipList({ records }: { records: StaffSalaryRecord[] }) {
+/**
+ * 固定薪资工资条（化妆师/舞蹈老师/行政/运镜/人事/人事主管）：列表 + 全屏详情（成员端确认收款）。
+ *
+ * 自取数据、自渲染；与主播（AnchorPayslipList）、主持（HostPayslipList）互不依赖。
+ */
+export function StaffPayslipList() {
+  const roleCodes = useMyRoleCodes();
+  const query = useStaffSalaryRecords();
   const transition = useTransitionStaffSalaryStatus();
   const [detailId, setDetailId] = useState<string | null>(null);
+
+  // 固定引用，避免 `?? []` 每次渲染产生新数组导致下方 useMemo 失效。
+  const records = useMemo(() => query.data ?? [], [query.data]);
   const detailItem = useMemo(() => records.find((item) => item.id === detailId) ?? null, [records, detailId]);
 
-  if (!records.length) return null;
+  // 未持有固定薪资类角色时不渲染本区块。
+  if (!hasStaffRole(roleCodes)) return null;
 
   return (
     <section className="space-y-3">
       <h2 className="text-sm font-semibold">固定薪资工资条</h2>
+      <QueryMessage loading={query.isLoading} error={query.error} empty={!records.length} />
       <ul className="space-y-3">
         {records.map((item) => (
           <li key={item.id}>

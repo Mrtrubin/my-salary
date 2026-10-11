@@ -3,28 +3,39 @@
 import { useMemo, useState } from "react";
 import { SalaryRecordStatusBadge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { useTransitionHostSalaryStatus } from "@/lib/api/hooks";
-import type { HostSalaryRecord } from "@/lib/api/data";
+import { QueryMessage } from "@/components/query-message";
+import { useHostSalaryRecords, useTransitionHostSalaryStatus } from "@/lib/api/hooks";
 import { formatCentsToYuan } from "@/lib/format";
 import { HostPayslipDetail } from "./HostPayslipDetail";
+import { HOST_ROLE_CODE, useMyRoleCodes } from "./roles";
 
 /**
- * 主持工资条列表：每条压缩为一行（周期 + 团总流水 + 到手收益 + 状态），
- * 点击行打开完整详情面板，避免在列表页堆叠过多字段。
+ * 主持工资条（按团总流水整体计提）。
+ *
+ * 自取数据、自渲染；与主播（AnchorPayslipList）、固定薪资（StaffPayslipList）互不依赖。
+ * 每条压缩为一行（周期 + 团总流水 + 到手收益 + 状态），点击行打开完整详情面板。
  */
-export function HostPayslipList({ records }: { records: HostSalaryRecord[] }) {
+export function HostPayslipList() {
+  const roleCodes = useMyRoleCodes();
+  const query = useHostSalaryRecords();
   const transition = useTransitionHostSalaryStatus();
   const [detailId, setDetailId] = useState<string | null>(null);
+
+  // 固定引用，避免 `?? []` 每次渲染产生新数组导致下方 useMemo 失效。
+  const records = useMemo(() => query.data ?? [], [query.data]);
   const detailItem = useMemo(
     () => records.find((item) => item.id === detailId) ?? null,
     [records, detailId],
   );
 
-  if (!records.length) return null;
+  // 未持有主持角色时不渲染本区块。
+  if (!roleCodes.has(HOST_ROLE_CODE)) return null;
 
   return (
     <section className="space-y-3">
       <h2 className="text-sm font-semibold">主持工资条</h2>
+      <QueryMessage loading={query.isLoading} error={query.error} empty={!records.length} />
+
       <ul className="space-y-3">
         {records.map((item) => (
           <li key={item.id}>
