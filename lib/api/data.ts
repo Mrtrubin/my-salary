@@ -347,6 +347,93 @@ export async function listTeamPerformance(range?: { start?: string; end?: string
   return rows.map((row) => ({ ...row, adjustments: parseAnchorRevenueAdjustments(row.adjustments) }));
 }
 
+/** 主播本人某区间的每日流水（供首页本期预估与近 7 天趋势消费）。 */
+export interface MyAnchorRevenueRow {
+  perfDate: string;
+  revenueCents: number;
+  broadcastMinutes: number;
+  noPerf: boolean;
+}
+
+/**
+ * 查询「本人」在 [start, end] 区间内的每日流水（含端点）。
+ *
+ * 显式按 `profile_id` 过滤：RLS 虽然只放行本人记录，但身兼主持的成员还能读到
+ * 所辖团队的他人流水，不显式过滤会放大首页预估。
+ */
+export async function listMyAnchorRevenue(
+  profileId: string,
+  range: { start: string; end: string },
+): Promise<MyAnchorRevenueRow[]> {
+  const { data, error } = await getBrowserSupabase()
+    .from("anchor_revenue_records")
+    .select("perf_date, revenue_cents, broadcast_minutes, no_perf")
+    .eq("profile_id", profileId)
+    .gte("perf_date", range.start)
+    .lte("perf_date", range.end)
+    .order("perf_date", { ascending: true });
+  if (error) fail(error);
+  return (data as unknown as {
+    perf_date: string;
+    revenue_cents: number;
+    broadcast_minutes: number;
+    no_perf: boolean;
+  }[]).map((row) => ({
+    perfDate: row.perf_date,
+    revenueCents: row.revenue_cents,
+    broadcastMinutes: row.broadcast_minutes,
+    noPerf: row.no_perf,
+  }));
+}
+
+/** 主播本人某区间「每日调整项」（首页 ④ 用）：金额已由 RPC 统一折算为「分」。 */
+export interface MyAnchorAdjustmentRow {
+  /** 调整发生日期。 */
+  adjustDate: string;
+  /** 调整项名称（如 奖励 / 延误 / 停播 / 补助）。 */
+  name: string;
+  /** 有符号金额（分，正为增、负为减）。 */
+  amountCents: number;
+  /** 登记来源：host（主持）/ dance（舞蹈老师）/ makeup（化妆师）。 */
+  source: string;
+  /** 备注。 */
+  note: string | null;
+  /** 登记人姓名（谁记的）。 */
+  registeredName: string | null;
+}
+
+/**
+ * 查询「本人」在 [start, end] 区间内的每日调整项（含端点），按日期倒序。
+ *
+ * 走 `security definer` 只读 RPC：舞蹈（`anchor_adjustment_records`）与化妆（`anchor_delay_records`）
+ * 两源主播本人无读权限，主持来源存的又是「绩效点」，故统一由 RPC 折算成「分」。
+ * 身份由函数内部取 `current_profile_id()`，不接受身份入参。
+ */
+export async function listMyAnchorAdjustments(
+  range: { start: string; end: string },
+): Promise<MyAnchorAdjustmentRow[]> {
+  const { data, error } = await getBrowserSupabase().rpc("list_my_anchor_adjustments", {
+    p_start: range.start,
+    p_end: range.end,
+  });
+  if (error) fail(error);
+  return (data as unknown as {
+    adjust_date: string;
+    name: string;
+    amount_cents: number;
+    source: string;
+    note: string | null;
+    registered_name: string | null;
+  }[]).map((row) => ({
+    adjustDate: row.adjust_date,
+    name: row.name,
+    amountCents: row.amount_cents,
+    source: row.source,
+    note: row.note,
+    registeredName: row.registered_name,
+  }));
+}
+
 /** 团队绩效单条上传项：某成员当日的绩效点/数量/流水，或无绩效备注。 */
 export interface TeamPerformanceUploadItem {
   profileId: string;

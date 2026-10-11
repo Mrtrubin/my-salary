@@ -42,6 +42,11 @@ export function useMyRoleCodes(): ReadonlySet<string> {
   );
 }
 
+/** 是否持有主持角色。 */
+export function hasHostRole(roleCodes: ReadonlySet<string>): boolean {
+  return roleCodes.has(HOST_ROLE_CODE);
+}
+
 /** 是否持有固定薪资类角色之一。 */
 export function hasStaffRole(roleCodes: ReadonlySet<string>): boolean {
   return STAFF_ROLE_CODES.some((code) => roleCodes.has(code));

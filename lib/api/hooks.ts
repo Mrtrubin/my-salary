@@ -20,6 +20,8 @@ import {
   listPendingChangeRequests,
   listPerformancePoints,
   listTeamPerformance,
+  listMyAnchorAdjustments,
+  listMyAnchorRevenue,
   listRoles,
   listSalaryRecords,
   listSchemes,
@@ -95,6 +97,8 @@ export const keys = {
   members: ["members"] as const,
   roles: ["roles"] as const,
   teamPerformance: ["teamPerformance"] as const,
+  myAnchorRevenue: ["myAnchorRevenue"] as const,
+  myAnchorAdjustments: ["myAnchorAdjustments"] as const,
   schemes: ["schemes"] as const,
   salary: ["salary"] as const,
   teams: ["teams"] as const,
@@ -124,6 +128,8 @@ function invalidateSettlementQueries(client: QueryClient) {
   return Promise.all([
     keys.anchorRevenuePerf,
     keys.anchorSettlementContexts,
+    keys.myAnchorRevenue,
+    keys.myAnchorAdjustments,
   ].map((queryKey) => client.invalidateQueries({ queryKey })));
 }
 
@@ -197,6 +203,22 @@ export function useTeamPerformance(range?: { start?: string; end?: string }) {
 }
 export function useSchemes() { return useQuery({ queryKey: keys.schemes, queryFn: listSchemes }); }
 export function useSalaryRecords() { return useQuery({ queryKey: keys.salary, queryFn: listSalaryRecords }); }
+/** 主播本人某区间每日流水（首页预估/趋势用）；无 profileId 或区间为空时不请求。 */
+export function useMyAnchorRevenue(profileId: string | null, range: PeriodRange | null) {
+  return useQuery({
+    queryKey: [...keys.myAnchorRevenue, profileId, range?.start ?? "", range?.end ?? ""],
+    queryFn: () => listMyAnchorRevenue(profileId as string, range as PeriodRange),
+    enabled: !!profileId && range !== null,
+  });
+}
+/** 主播本人某区间每日调整项（首页 ④ 用）；区间为空时不请求。 */
+export function useMyAnchorAdjustments(range: PeriodRange | null) {
+  return useQuery({
+    queryKey: [...keys.myAnchorAdjustments, range?.start ?? "", range?.end ?? ""],
+    queryFn: () => listMyAnchorAdjustments(range as PeriodRange),
+    enabled: range !== null,
+  });
+}
 export function useTeams() { return useQuery({ queryKey: keys.teams, queryFn: listTeams }); }
 
 export function useCreateMember() {

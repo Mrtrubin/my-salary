@@ -1701,6 +1701,17 @@ export type Database = {
           updated_at: string
         }[]
       }
+      list_my_anchor_adjustments: {
+        Args: { p_end?: string; p_start?: string }
+        Returns: {
+          adjust_date: string
+          amount_cents: number
+          name: string
+          note: string
+          registered_name: string
+          source: string
+        }[]
+      }
       list_staff_members: {
         Args: { p_role_code: string }
         Returns: {
