@@ -25,9 +25,9 @@ import { corsHeaders } from "../_shared/cors.ts";
  * 鉴权：校验 JWT，且调用者必须是该团队的管理员/主持/成员（与 public.teams 的
  *      teams_select RLS 策略同一口径），否则 403 —— 避免边缘函数沦为任意团队流水的开放代理。
  *
- * 环境变量：DAILY_INCOME_BASE（可选，默认 http://47.121.31.8:3000）
+ * 环境变量：DAILY_INCOME_BASE（可选，默认 http://1.12.247.193:3000/）
  */
-const DEFAULT_DAILY_INCOME_BASE = "http://47.121.31.8:3000";
+const DEFAULT_DAILY_INCOME_BASE = "http://1.12.247.193:3000/";
 /** 上游超时（毫秒）：外部接口偶发挂死时不要一直占着边缘函数连接。 */
 const UPSTREAM_TIMEOUT_MS = 10_000;
 /** 流水上游按北京时间的「日历日」取数。 */
