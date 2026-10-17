@@ -1,8 +1,8 @@
 "use client";
 
-import { AnchorPayslipList } from "./AnchorPayslipList";
-import { HostPayslipList } from "./HostPayslipList";
-import { StaffPayslipList } from "./StaffPayslipList";
+// import { AnchorPayslipList } from "./AnchorPayslipList";
+// import { HostPayslipList } from "./HostPayslipList";
+// import { StaffPayslipList } from "./StaffPayslipList";
 
 /**
  * 工资条页：只做拼装。
@@ -12,10 +12,11 @@ import { StaffPayslipList } from "./StaffPayslipList";
  */
 export default function UserPayslipsPage() {
   return (
-    <div className="space-y-4">
-      <AnchorPayslipList />
-      <HostPayslipList />
-      <StaffPayslipList />
-    </div>
+    // <div className="space-y-4">
+    //   <AnchorPayslipList />
+    //   <HostPayslipList />
+    //   <StaffPayslipList />
+    // </div>
+    <div>开发中</div>
   );
 }
