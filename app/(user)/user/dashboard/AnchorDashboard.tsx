@@ -81,6 +81,10 @@ export function AnchorDashboard() {
             guaranteedSalaryInCents: activeScheme.guaranteed_salary_cents,
             thresholdMultiplierBps: activeScheme.threshold_multiplier_bps,
             serviceFeeRateBps: activeScheme.service_fee_rate_bps,
+            settlementMode: (activeScheme.settlement_mode ?? "guarantee") as
+              | "guarantee"
+              | "fixed_percent",
+            fixedPercentBps: activeScheme.fixed_percent_bps,
           }
         : null,
     [activeScheme],

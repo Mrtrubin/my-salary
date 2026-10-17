@@ -1,12 +1,17 @@
 /**
  * 主播工资计算（Deno 版，与 lib/domain/payroll/anchor.ts 同口径）。
  * 金额以「分」整数存储，比例以「基点」(bps) 表示（10000 bps = 100%）。
- * 「保底/提成互斥模式」规则：
+ * 结算方式二选一：
+ * 一、保底结算（guarantee，默认）「保底/提成互斥模式」规则：
  *  - 门槛 = ceil(初始保底 × thresholdMultiplierBps / 10000)，达标判定按当月流水
  *  - 基础收益（保底工资）：无责期 → 初始保底（保底保护）；非无责期 → 达标初始保底、不达标降级保底
  *  - 拿提点门槛（提成起征）= 初始保底 × 5（固定），无责期同样适用
  *  - 提成互斥：流水 >= 拿提点门槛 → 总工资 = 总流水 × 最终提成率（不叠加保底工资）；否则 = 保底工资全额
  *  - 阶梯提成：20% 起步，超过拿提点门槛每满 1万 +1%，阶梯加点封顶 5%，最终提成率不封顶
+ * 二、固定百分比（fixed_percent）规则：
+ *  - 总工资 = floor(总流水 × fixedPercentBps)；忽略保底门槛/无责期/阶梯提成。
+ *  - 初始保底仍保留（供停播/延误调整项预设）。
+ * 两种方式共用：
  *  - 服务费 = ceil(总工资 × serviceFeeRateBps / 10000)，实发 = 总工资 − 服务费（允许为负）
  */
 const DEFAULT_SERVICE_FEE_RATE_BPS = 300;
@@ -17,10 +22,17 @@ const COMMISSION_STEP_RATE_BPS = 100;
 const COMMISSION_MAX_STEPS = 5;
 const DEFAULT_COMMISSION_BASE_RATE_BPS = 2000;
 
+/** 固定百分比默认：20% = 2000 bps。 */
+const DEFAULT_FIXED_PERCENT_BPS = 2000;
+
 export interface PayrollScheme {
   baseSalaryInCents: number;
   guaranteedSalaryInCents: number;
   thresholdMultiplierBps: number;
+  /** 结算方式：guarantee = 保底结算（默认）；fixed_percent = 总流水 × 固定百分比。 */
+  settlementMode?: "guarantee" | "fixed_percent";
+  /** 固定百分比（基点，1~10000）。settlementMode = fixed_percent 时参与计算，缺省 2000 bps = 20%。 */
+  fixedPercentBps?: number;
 }
 
 export interface PayrollInput {
@@ -33,6 +45,8 @@ export interface PayrollInput {
 }
 
 export interface PayrollResult {
+  /** 本次采用的结算方式。 */
+  settlementMode: "guarantee" | "fixed_percent";
   baseGuaranteeInCents: number;
   thresholdInCents: number;
   commissionStartInCents: number;
@@ -70,6 +84,43 @@ function resolveCommissionRateBps(
   return baseCommissionRateBps + stepRateBps;
 }
 
+/**
+ * 固定百分比结算：总工资 = floor(总流水 × fixedPercentBps)。
+ * 忽略保底门槛/无责期保护/阶梯提成；调整项与服务费与保底方式共用。
+ */
+function computeFixedPercentPayroll(
+  scheme: PayrollScheme,
+  monthlyRevenueInCents: number,
+  tenureMonth: number,
+  baseCommissionRateBps: number,
+  serviceFeeRateBps: number,
+): PayrollResult {
+  const fixedPercentBps = scheme.fixedPercentBps ?? DEFAULT_FIXED_PERCENT_BPS;
+  if (!Number.isInteger(fixedPercentBps) || fixedPercentBps < 1 || fixedPercentBps > 10000) {
+    throw new Error("固定百分比必须在 0.01%～100% 之间");
+  }
+  const performanceComponentInCents = applyRateFloor(monthlyRevenueInCents, fixedPercentBps);
+  const grossSalaryInCents = performanceComponentInCents;
+  const serviceFeeInCents = applyRateCeil(grossSalaryInCents, serviceFeeRateBps);
+  const netSalaryInCents = grossSalaryInCents - serviceFeeInCents;
+
+  return {
+    settlementMode: "fixed_percent",
+    baseGuaranteeInCents: scheme.baseSalaryInCents,
+    thresholdInCents: 0,
+    commissionStartInCents: 0,
+    commissionRateBps: fixedPercentBps,
+    baseCommissionRateBps,
+    isQualified: true,
+    isGracefulPeriod: tenureMonth >= 1 && tenureMonth <= GRACE_PERIOD_MONTHS,
+    guaranteedComponentInCents: 0,
+    performanceComponentInCents,
+    grossSalaryInCents,
+    serviceFeeInCents,
+    netSalaryInCents,
+  };
+}
+
 export function computePayroll(input: PayrollInput): PayrollResult {
   const { scheme, monthlyRevenueInCents, tenureMonth } = input;
   const baseCommissionRateBps = input.baseCommissionRateBps ?? DEFAULT_COMMISSION_BASE_RATE_BPS;
@@ -78,6 +129,17 @@ export function computePayroll(input: PayrollInput): PayrollResult {
     throw new Error("基础提成率必须在 0.01%～100% 之间");
   }
   const isGracefulPeriod = tenureMonth <= GRACE_PERIOD_MONTHS;
+
+  // 固定百分比结算：与 lib/domain/payroll/anchor.ts 固定分支同口径。
+  if ((scheme.settlementMode ?? "guarantee") === "fixed_percent") {
+    return computeFixedPercentPayroll(
+      scheme,
+      monthlyRevenueInCents,
+      tenureMonth,
+      baseCommissionRateBps,
+      serviceFeeRateBps,
+    );
+  }
 
   // 门槛固定用「初始保底 × 系数」计算，达标判定按当月流水。
   const thresholdInCents = applyRateCeil(
@@ -112,6 +174,7 @@ export function computePayroll(input: PayrollInput): PayrollResult {
   const netSalaryInCents = grossSalaryInCents - serviceFeeInCents;
 
   return {
+    settlementMode: "guarantee",
     baseGuaranteeInCents,
     thresholdInCents,
     commissionStartInCents,

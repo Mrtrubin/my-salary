@@ -195,8 +195,17 @@ export default function UserProfilePage() {
           <dl className="mt-3 space-y-2.5 text-sm">
             <Row label="方案" value={`${scheme.name} v${scheme.version}`} />
             <Row label="基本工资" value={formatCentsToYuan(scheme.base_salary_cents)} />
-            <Row label="保底工资" value={formatCentsToYuan(scheme.guaranteed_salary_cents)} />
-            <Row label="提成" value="基础 20% + 阶梯提点 0%~5%，最终提成率不封顶" />
+            {scheme.settlement_mode === "fixed_percent" ? (
+              <>
+                <Row label="结算方式" value="固定百分比（总流水 × 固定百分比）" />
+                <Row label="固定百分比" value={`${scheme.fixed_percent_bps / 100}%（不叠加阶梯提成与加点）`} />
+              </>
+            ) : (
+              <>
+                <Row label="保底工资" value={formatCentsToYuan(scheme.guaranteed_salary_cents)} />
+                <Row label="提成" value="基础 20% + 阶梯提点 0%~5%，最终提成率不封顶" />
+              </>
+            )}
           </dl>
         ) : (
           <QueryMessage loading={schemes.isLoading} error={schemes.error} empty />

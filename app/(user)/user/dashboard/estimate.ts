@@ -20,13 +20,14 @@ export type AnchorGoalStage =
   | "belowThreshold" // 未达保底门槛
   | "belowCommission" // 已达标但未进入提成模式
   | "inCommission" // 提成模式中，尚未满档
-  | "maxStep"; // 已达最高阶梯
+  | "maxStep" // 已达最高阶梯
+  | "fixedPercent"; // 固定百分比结算：无门槛/阶梯概念
 
 export interface AnchorGoal {
   stage: AnchorGoalStage;
   /** 距离下一里程碑还需的当月流水（分）；maxStep 为 0。 */
   remainingInCents: number;
-  /** 下一档提成率（基点）；仅 inCommission 阶段有值。 */
+  /** 下一档提成率（基点）；仅 inCommission 阶段有值。固定百分比模式为该固定费率。 */
   nextRateBps: number | null;
   /** 当前区间内的进度比例 0~1（用于进度条）。 */
   progressRatio: number;
@@ -83,7 +84,17 @@ export function resolveAnchorGoal(
   monthlyRevenueInCents: number,
   payroll: AnchorPayrollResult,
 ): AnchorGoal {
-  const { thresholdInCents, commissionStartInCents, commissionRateBps } = payroll;
+  const { thresholdInCents, commissionStartInCents, commissionRateBps, settlementMode } = payroll;
+
+  // 固定百分比结算：无门槛/阶梯概念，进度恒满，仅展示固定费率。
+  if (settlementMode === "fixed_percent") {
+    return {
+      stage: "fixedPercent",
+      remainingInCents: 0,
+      nextRateBps: commissionRateBps,
+      progressRatio: 1,
+    };
+  }
 
   if (monthlyRevenueInCents < thresholdInCents) {
     return {

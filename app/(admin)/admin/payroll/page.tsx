@@ -112,9 +112,15 @@ function adjustmentTotal(record: SalaryRecord): number {
   );
 }
 
-/** 主播阶梯提点（bps）：最终提成率减去基础提成率与考勤/dy 加点；未计提成时为 0。 */
+/** 是否按「固定百分比」结算：总工资 = 总流水 × 固定百分比，门槛/保底/阶梯概念不适用。 */
+function isFixedPercentSettlement(record: SalaryRecord): boolean {
+  return record.settlement_mode === "fixed_percent";
+}
+
+/** 主播阶梯提点（bps）：最终提成率减去基础提成率与考勤/dy 加点；未计提成或固定百分比结算时为 0。 */
 function tierBonusBps(record: SalaryRecord): number {
   if (record.commission_rate_bps <= 0) return 0;
+  if (isFixedPercentSettlement(record)) return 0;
   return Math.max(
     record.commission_rate_bps
       - (record.base_commission_rate_bps ?? 0)
@@ -308,8 +314,13 @@ export default function PayrollPage() {
       title: "保底金额",
       width: 110,
       align: "right",
-      exportValue: (record) => centsToYuanNumber(record.base_guarantee_cents),
-      render: (_, record) => formatCentsToYuan(record.base_guarantee_cents),
+      exportValue: (record) => (isFixedPercentSettlement(record) ? null : centsToYuanNumber(record.base_guarantee_cents)),
+      render: (_, record) =>
+        isFixedPercentSettlement(record) ? (
+          <span title="固定百分比结算，不按保底计薪；初始保底仅用于调整项预设">—</span>
+        ) : (
+          formatCentsToYuan(record.base_guarantee_cents)
+        ),
     },
     {
       title: "总音浪",
@@ -342,49 +353,60 @@ export default function PayrollPage() {
       title: "拿提点门槛",
       width: 120,
       align: "right",
-      exportValue: (record) => centsToYuanNumber(record.commission_start_cents),
-      render: (_, record) => formatCentsToYuan(record.commission_start_cents),
+      exportValue: (record) => (isFixedPercentSettlement(record) ? null : centsToYuanNumber(record.commission_start_cents)),
+      render: (_, record) =>
+        isFixedPercentSettlement(record) ? <span title="固定百分比结算，无提成起征概念">—</span> : formatCentsToYuan(record.commission_start_cents),
     },
     {
       title: "拿保底门槛",
       width: 120,
       align: "right",
-      exportValue: (record) => centsToYuanNumber(record.threshold_cents),
-      render: (_, record) => formatCentsToYuan(record.threshold_cents),
+      exportValue: (record) => (isFixedPercentSettlement(record) ? null : centsToYuanNumber(record.threshold_cents)),
+      render: (_, record) =>
+        isFixedPercentSettlement(record) ? <span title="固定百分比结算，无保底门槛概念">—</span> : formatCentsToYuan(record.threshold_cents),
     },
     {
       title: "是否达标",
       width: 100,
-      exportValue: (record) => (record.is_qualified ? "达标" : "未达标"),
-      render: (_, record) => (record.is_qualified ? "达标" : "未达标"),
+      exportValue: (record) => (isFixedPercentSettlement(record) ? "—" : record.is_qualified ? "达标" : "未达标"),
+      render: (_, record) =>
+        isFixedPercentSettlement(record) ? <span title="固定百分比结算，无达标概念">—</span> : record.is_qualified ? "达标" : "未达标",
     },
     {
       title: "基础提成率",
       width: 120,
       align: "right",
-      exportValue: (record) => bpsToRatio(record.base_commission_rate_bps ?? 0),
-      render: (_, record) => (
-        <span title="结算时该主播的基础提成率快照">
-          {formatBpsAsPercent(record.base_commission_rate_bps ?? 0)}
-        </span>
-      ),
+      exportValue: (record) => (isFixedPercentSettlement(record) ? null : bpsToRatio(record.base_commission_rate_bps ?? 0)),
+      render: (_, record) =>
+        isFixedPercentSettlement(record) ? (
+          <span title="固定百分比结算，阶梯提成与加点不参与计算">—</span>
+        ) : (
+          <span title="结算时该主播的基础提成率快照">
+            {formatBpsAsPercent(record.base_commission_rate_bps ?? 0)}
+          </span>
+        ),
     },
     {
       title: "阶梯提点",
       width: 110,
       align: "right",
-      exportValue: (record) => bpsToRatio(tierBonusBps(record)),
-      render: (_, record) => (
-        <span
-          title={
-            record.commission_rate_bps === 0
-              ? "未达提成起征线，本次未计提"
-              : "每满 1 万流水 +1%，最高 +5%"
-          }
-        >
-          {formatBpsAsPercent(tierBonusBps(record))}
-        </span>
-      ),
+      exportValue: (record) => (isFixedPercentSettlement(record) ? null : bpsToRatio(tierBonusBps(record))),
+      render: (_, record) => {
+        if (isFixedPercentSettlement(record)) {
+          return <span title="固定百分比结算，不叠加阶梯提点">—</span>;
+        }
+        return (
+          <span
+            title={
+              record.commission_rate_bps === 0
+                ? "未达提成起征线，本次未计提"
+                : "每满 1 万流水 +1%，最高 +5%"
+            }
+          >
+            {formatBpsAsPercent(tierBonusBps(record))}
+          </span>
+        );
+      },
     },
     {
       title: "考勤加点",
@@ -727,13 +749,22 @@ export default function PayrollPage() {
                               }}
                             >
                               <div>在职月序：{record.tenure_month} 月</div>
-                              <div>保底基准：{formatCentsToYuan(record.base_guarantee_cents)}</div>
-                              <div>达标门槛：{formatCentsToYuan(record.threshold_cents)}</div>
-                              <div>提成起征：{formatCentsToYuan(record.commission_start_cents)}</div>
-                              <div>
-                                考勤加点：{formatBpsAsPercent(attendanceBonusBps)}；dy任务加点：
-                                {formatBpsAsPercent(dyTaskBonusBps)}（未起征时不计入提成）
-                              </div>
+                              {isFixedPercentSettlement(record) ? (
+                                <div>
+                                  结算方式：固定百分比（{formatBpsAsPercent(record.commission_rate_bps)}），
+                                  总工资 = 总流水 × 固定百分比，不叠加阶梯提成与考勤/dy 加点
+                                </div>
+                              ) : (
+                                <>
+                                  <div>保底基准：{formatCentsToYuan(record.base_guarantee_cents)}</div>
+                                  <div>达标门槛：{formatCentsToYuan(record.threshold_cents)}</div>
+                                  <div>提成起征：{formatCentsToYuan(record.commission_start_cents)}</div>
+                                  <div>
+                                    考勤加点：{formatBpsAsPercent(attendanceBonusBps)}；dy任务加点：
+                                    {formatBpsAsPercent(dyTaskBonusBps)}（未起征时不计入提成）
+                                  </div>
+                                </>
+                              )}
                             </div>
                             {adjustments.length ? (
                               <div

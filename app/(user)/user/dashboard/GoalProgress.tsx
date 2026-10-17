@@ -14,6 +14,8 @@ export function goalText(goal: AnchorGoal): string {
       return `再播 ${formatCentsToYuan(goal.remainingInCents)}，提成率升到 ${formatBpsAsPercent(goal.nextRateBps ?? 0)}`;
     case "maxStep":
       return "已达最高阶梯，提成率不再提升";
+    case "fixedPercent":
+      return `固定百分比结算，每 1 元流水按 ${formatBpsAsPercent(goal.nextRateBps ?? 0)} 计工资`;
   }
 }
 
@@ -35,15 +37,18 @@ function MilestoneRow({ label, done }: { label: string; done: boolean }) {
 export function GoalProgress({ estimate }: { estimate: AnchorEstimate }) {
   const { payroll, goal } = estimate;
   const percent = Math.round(goal.progressRatio * 100);
+  const isFixedPercent = payroll.settlementMode === "fixed_percent";
 
   return (
     <section className="rounded-2xl bg-white px-4 py-4 shadow-sm shadow-slate-200/60">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">目标进度</h2>
         <span className="text-xs text-muted">
-          {payroll.commissionRateBps > 0
-            ? `提成模式 · 当前提成率 ${formatBpsAsPercent(payroll.commissionRateBps)}`
-            : "保底模式"}
+          {isFixedPercent
+            ? `固定百分比结算 · 结算比例 ${formatBpsAsPercent(payroll.commissionRateBps)}`
+            : payroll.commissionRateBps > 0
+              ? `提成模式 · 当前提成率 ${formatBpsAsPercent(payroll.commissionRateBps)}`
+              : "保底模式"}
         </span>
       </div>
 
@@ -57,14 +62,23 @@ export function GoalProgress({ estimate }: { estimate: AnchorEstimate }) {
       <p className="mt-2 text-xs text-slate-600">{goalText(goal)}</p>
 
       <ul className="mt-3 space-y-2 border-t border-slate-100 pt-3 text-xs">
-        <MilestoneRow
-          label={`保底达标线 ${formatCentsToYuan(payroll.thresholdInCents)}`}
-          done={payroll.isQualified}
-        />
-        <MilestoneRow
-          label={`拿提点线 ${formatCentsToYuan(payroll.commissionStartInCents)}`}
-          done={payroll.commissionRateBps > 0}
-        />
+        {isFixedPercent ? (
+          <MilestoneRow
+            label={`固定百分比 ${formatBpsAsPercent(payroll.commissionRateBps)}（总工资 = 总流水 × 该比例）`}
+            done
+          />
+        ) : (
+          <>
+            <MilestoneRow
+              label={`保底达标线 ${formatCentsToYuan(payroll.thresholdInCents)}`}
+              done={payroll.isQualified}
+            />
+            <MilestoneRow
+              label={`拿提点线 ${formatCentsToYuan(payroll.commissionStartInCents)}`}
+              done={payroll.commissionRateBps > 0}
+            />
+          </>
+        )}
       </ul>
     </section>
   );

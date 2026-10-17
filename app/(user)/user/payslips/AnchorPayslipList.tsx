@@ -56,7 +56,11 @@ export function AnchorPayslipList() {
                     </p>
                   </div>
                   <div className="flex shrink-0 gap-1">
-                    <Badge tone={item.is_qualified ? "green" : "amber"}>{item.is_qualified ? "达标" : "未达标"}</Badge>
+                    {item.settlement_mode === "fixed_percent" ? (
+                      <Badge tone="green">固定百分比</Badge>
+                    ) : (
+                      <Badge tone={item.is_qualified ? "green" : "amber"}>{item.is_qualified ? "达标" : "未达标"}</Badge>
+                    )}
                     <SalaryRecordStatusBadge status={item.status} />
                   </div>
                 </div>
@@ -70,9 +74,15 @@ export function AnchorPayslipList() {
 
                 <dl className="mt-4 space-y-2.5 text-sm">
                   <Row label="周期流水" value={formatCentsToYuan(item.revenue_cents)} />
-                  <Row label="保障性部分" value={formatCentsToYuan(item.guaranteed_component_cents)} />
+                  {item.settlement_mode !== "fixed_percent" ? (
+                    <Row label="保障性部分" value={formatCentsToYuan(item.guaranteed_component_cents)} />
+                  ) : null}
                   <Row
-                    label={`绩效工资（${formatBpsAsPercent(item.commission_rate_bps)}）`}
+                    label={
+                      item.settlement_mode === "fixed_percent"
+                        ? `固定百分比工资（${formatBpsAsPercent(item.commission_rate_bps)}）`
+                        : `绩效工资（${formatBpsAsPercent(item.commission_rate_bps)}）`
+                    }
                     value={formatCentsToYuan(item.performance_component_cents)}
                   />
                 </dl>

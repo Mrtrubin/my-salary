@@ -176,3 +176,46 @@ describe("近 N 天序列", () => {
     ]);
   });
 });
+
+describe("主播首页预估 - 固定百分比结算", () => {
+  const fixedScheme: AnchorSalaryScheme = {
+    ...scheme,
+    settlementMode: "fixed_percent",
+    fixedPercentBps: 2000,
+  };
+
+  function fixedEstimate(revenue: number, tenureMonth = 4) {
+    return estimateAnchorPayroll({
+      scheme: fixedScheme,
+      monthlyRevenueInCents: revenue,
+      tenureMonth,
+    });
+  }
+
+  it("工资走了固定百分比口径：总工资 = 总流水 × 20%", () => {
+    const { payroll } = fixedEstimate(3_000_000);
+    expect(payroll.settlementMode).toBe("fixed_percent");
+    expect(payroll.commissionRateBps).toBe(2000);
+    expect(payroll.grossSalaryInCents).toBe(600000);
+    expect(payroll.guaranteedComponentInCents).toBe(0);
+  });
+
+  it("目标进度恒满（无门槛/阶梯），下一里程碑为固定费率本身", () => {
+    const { goal } = fixedEstimate(3_000_000);
+    expect(goal.stage).toBe("fixedPercent");
+    expect(goal.remainingInCents).toBe(0);
+    expect(goal.nextRateBps).toBe(2000);
+    expect(goal.progressRatio).toBe(1);
+  });
+
+  it("预估 net 与直接调用 calculateAnchorPayroll 完全一致", () => {
+    const { payroll } = fixedEstimate(1_234_567);
+    const expected = calculateAnchorPayroll({
+      scheme: fixedScheme,
+      monthlyRevenueInCents: 1_234_567,
+      tenureMonth: 4,
+    });
+    expect(payroll.netSalaryInCents).toBe(expected.netSalaryInCents);
+    expect(payroll).toEqual(expected);
+  });
+});

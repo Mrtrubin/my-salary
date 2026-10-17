@@ -2,18 +2,29 @@
  * 主播工资引擎领域类型（阶段5）。
  * 金额一律以「分」为单位的整数存储；比例以「基点」(bps) 表示（10000 bps = 100%）。
  *
- * 薪资模式：保底/提成互斥模式
+ * 薪资结算方式（salary_schemes.settlement_mode，二选一）：
+ *
+ * 一、保底结算（guarantee，默认，保底/提成互斥模式）：
  *  - 门槛（保底达标门槛）= 初始保底 × thresholdMultiplierBps（固定用初始保底），达标判定按当月流水。
  *  - 基础收益（保底工资）：无责期 → 初始保底（保底保护）；非无责期 → 达标初始保底、不达标降级保底。
  *  - 拿提点门槛（提成起征）= 初始保底 × 5（固定用初始保底），无责期同样适用。
  *  - 提成互斥：当月流水 >= 拿提点门槛 → 总工资 = 总流水 × 最终提成率（不叠加保底工资）；
  *    否则 → 总工资 = 保底工资全额（无提成）。
  *  - 阶梯提成：20% 起步，超过拿提点门槛的流水每满 1万 提点 +1%，最高叠加 5 个百分点；最终提成率不封顶。
- *  - 服务费：所有主播实际流水业绩统一扣除 3% 平台服务费。
+ *
+ * 二、固定百分比（fixed_percent）：
+ *  - 总工资 = floor(总流水 × fixedPercentBps)。忽略保底门槛/无责期保护/阶梯提成/考勤/dy 加点。
+ *  - 初始保底仍保留配置（供停播 ÷26、延误 ÷260 等调整项预设），不作为工资下限。
+ *
+ * 两种方式共用：
+ *  - 服务费 = ceil(总工资 × 服务率)（服务率按方案手动配置，默认 3%）。
  *
  * 说明：达标判定以「当月流水」为准；保底基准由「无责期 + 当月是否达标」决定，不再依赖上月达标标记。
  */
 import type { AmountInCents, RateInBps } from "@/lib/api/contracts/common";
+
+/** 主播工资结算方式：guarantee = 保底结算（初始保底/降级保底）；fixed_percent = 总流水 × 固定百分比。 */
+export type AnchorSettlementMode = "guarantee" | "fixed_percent";
 
 /** 主播工资方案（管理员按人配置，配置化非硬编码）。 */
 export interface AnchorSalaryScheme {
@@ -28,6 +39,10 @@ export interface AnchorSalaryScheme {
   thresholdMultiplierBps: RateInBps;
   /** 服务率（基点，手动配置），默认 300 bps = 3%。服务费 = ceil(实发收益 × 服务率)。 */
   serviceFeeRateBps?: RateInBps;
+  /** 结算方式；缺省视为 guarantee（兼容历史方案数据）。 */
+  settlementMode?: AnchorSettlementMode;
+  /** 固定百分比（基点，1~10000）。settlementMode = fixed_percent 时参与计算，缺省 2000 bps = 20%。 */
+  fixedPercentBps?: RateInBps;
 }
 
 /** 单次工资计算的输入。 */
@@ -57,6 +72,8 @@ export interface AnchorPayrollInput {
 
 /** 工资计算的明细结果（全部为分）。 */
 export interface AnchorPayrollResult {
+  /** 本次采用的结算方式：guarantee = 保底结算；fixed_percent = 固定百分比。 */
+  settlementMode: AnchorSettlementMode;
   /** 本月保底基准（基础收益）：无责期恒为初始保底；非无责期达标为初始保底，否则降级保底。 */
   baseGuaranteeInCents: AmountInCents;
   /** 保底达标门槛 = 初始保底 × 系数（固定用初始保底）。 */
@@ -88,6 +105,9 @@ export interface AnchorPayrollResult {
 
 /** 默认服务费费率：3% = 300 bps。 */
 export const DEFAULT_SERVICE_FEE_RATE_BPS: RateInBps = 300;
+
+/** 固定百分比默认值：20% = 2000 bps。 */
+export const DEFAULT_FIXED_PERCENT_BPS: RateInBps = 2000;
 
 /** 无责期月数上限（前3个月）。 */
 export const GRACE_PERIOD_MONTHS = 3;

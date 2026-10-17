@@ -1,6 +1,18 @@
 "use client";
 
-import { Button, Card, Col, Form, Input, InputNumber, Modal, Row, Select, Typography } from "antd";
+import {
+  Button,
+  Card,
+  Col,
+  Form,
+  Input,
+  InputNumber,
+  Modal,
+  Radio,
+  Row,
+  Select,
+  Typography,
+} from "antd";
 import dayjs from "dayjs";
 import { useMemo, useState } from "react";
 import { FormField } from "@/components/admin/form-field";
@@ -17,6 +29,14 @@ import {
 } from "@/lib/api/hooks";
 import type { Member, SalaryScheme } from "@/lib/api/data";
 import { formatCentsToYuan } from "@/lib/format";
+
+/**
+ * 主播工资结算方式（salary_schemes.settlement_mode 二选一）：
+ *  - guarantee：基础保底 + 降级保底的既有结算方式；
+ *  - fixed_percent：总工资 = 总流水 × 固定百分比（fixed_percent_bps，默认 20%）。
+ * 两种方式共用初始保底配置与服务率；降级保底仅在保底结算下参与计算。
+ */
+type SettlementMode = "guarantee" | "fixed_percent";
 
 function isAnchor(member: Member) {
   return member.user_roles.some(({ role }) => role?.code === "anchor");
@@ -41,6 +61,10 @@ type Editing = {
   douyinId: string;
   anchorType: "new" | "experienced";
   commissionPercent: number | null;
+  /** 工资结算方式，默认保底结算。 */
+  settlementMode: SettlementMode;
+  /** 固定百分比（%），固定百分比结算下参与保存。 */
+  fixedPercent: number | null;
   baseSalary: number | null;
   guaranteedSalary: number | null;
   /** 服务率（%）。 */
@@ -74,6 +98,10 @@ export default function AnchorsPage() {
       douyinId: member.douyin_id ?? "",
       anchorType: member.anchor_type,
       commissionPercent: member.anchor_base_commission_bps / 100,
+      settlementMode:
+        effective?.settlement_mode === "fixed_percent" ? "fixed_percent" : "guarantee",
+      // 固定百分比默认 20%；已有生效方案时沿用其配置。
+      fixedPercent: effective ? effective.fixed_percent_bps / 100 : 20,
       baseSalary: effective ? effective.base_salary_cents / 100 : null,
       guaranteedSalary: effective ? effective.guaranteed_salary_cents / 100 : null,
       servicePercent: effective ? effective.service_fee_rate_bps / 100 : 3,
@@ -93,6 +121,7 @@ export default function AnchorsPage() {
     const serviceBps = Math.round(Number(editing.servicePercent) * 100);
     const baseSalary = Number(editing.baseSalary);
     const guaranteedSalary = Number(editing.guaranteedSalary);
+    const fixedPercentBps = Math.round(Number(editing.fixedPercent) * 100);
     if (!Number.isInteger(commissionBps) || commissionBps < 1 || commissionBps > 10000) {
       setError("基础提成率必须在 0.01%～100% 之间，最多两位小数");
       return;
@@ -101,11 +130,27 @@ export default function AnchorsPage() {
       setError("服务率必须在 0%～100% 之间，最多两位小数");
       return;
     }
+    // 固定百分比结算：校验固定百分比与初始保底；降级保底不参与计算（沿用旧值或 0）。
+    if (editing.settlementMode === "fixed_percent") {
+      if (
+        !Number.isInteger(fixedPercentBps) ||
+        fixedPercentBps < 1 ||
+        fixedPercentBps > 10000
+      ) {
+        setError("固定百分比必须在 0.01%～100% 之间，最多两位小数");
+        return;
+      }
+      if (!Number.isFinite(baseSalary) || baseSalary <= 0) {
+        setError("初始保底必须大于 0（用于停播/延误调整项预设）");
+        return;
+      }
+    }
     if (
-      !Number.isFinite(baseSalary) ||
-      !Number.isFinite(guaranteedSalary) ||
-      baseSalary <= 0 ||
-      guaranteedSalary <= 0
+      editing.settlementMode === "guarantee" &&
+      (!Number.isFinite(baseSalary) ||
+        !Number.isFinite(guaranteedSalary) ||
+        baseSalary <= 0 ||
+        guaranteedSalary <= 0)
     ) {
       setError("初始保底和降级保底必须大于 0");
       return;
@@ -125,8 +170,11 @@ export default function AnchorsPage() {
         role_id: anchorRoleId,
         version,
         base_salary_cents: Math.round(baseSalary * 100),
-        guaranteed_salary_cents: Math.round(guaranteedSalary * 100),
+        // 固定百分比结算下降级保底不参与计算：沿用所填值（无则存 0），保持方案列非空即可。
+        guaranteed_salary_cents: Math.round((Number(editing.guaranteedSalary) || 0) * 100),
         service_fee_rate_bps: serviceBps,
+        settlement_mode: editing.settlementMode,
+        fixed_percent_bps: fixedPercentBps,
         // 用本地日期而非 toISOString()（UTC）：CST 凌晨会写成前一天
         effective_from: dayjs().format("YYYY-MM-DD"),
       });
@@ -140,7 +188,7 @@ export default function AnchorsPage() {
     <>
       <PageHeader
         title="主播管理"
-        description="统一管理主播抖音号、主播类型、基础提成率、初始保底、降级保底与服务率"
+        description="统一管理主播抖音号、主播类型、工资结算方式（保底结算/固定百分比）、初始保底、降级保底与服务率"
       />
 
       <Card>
@@ -177,6 +225,19 @@ export default function AnchorsPage() {
                 width: 130,
                 sortValue: (record) => record.anchor_base_commission_bps,
                 render: (_, record) => `${record.anchor_base_commission_bps / 100}%`,
+              },
+              {
+                title: "结算方式",
+                key: "settlement_mode",
+                width: 110,
+                sortValue: (record) => effectiveScheme(record)?.settlement_mode ?? null,
+                render: (_, record) => {
+                  const effective = effectiveScheme(record);
+                  if (!effective) return "—";
+                  return effective.settlement_mode === "fixed_percent"
+                    ? `固定 ${effective.fixed_percent_bps / 100}%`
+                    : "保底结算";
+                },
               },
               {
                 title: "初始保底",
@@ -256,6 +317,27 @@ export default function AnchorsPage() {
               </Col>
             </Row>
             <Row gutter={16}>
+              <Col span={24}>
+                <FormField
+                  label="工资结算方式"
+                  hint="保底结算：按初始/降级保底与阶梯提成计薪（现口径）；固定百分比：总工资 = 总流水 × 固定百分比。"
+                >
+                  <Radio.Group
+                    value={editing.settlementMode}
+                    optionType="button"
+                    buttonStyle="solid"
+                    options={[
+                      { value: "guarantee", label: "保底结算" },
+                      { value: "fixed_percent", label: "固定百分比" },
+                    ]}
+                    onChange={(e) =>
+                      setEditing({ ...editing, settlementMode: e.target.value as SettlementMode })
+                    }
+                  />
+                </FormField>
+              </Col>
+            </Row>
+            <Row gutter={16}>
               <Col span={12}>
                 <FormField label="主播类型">
                   <Select
@@ -282,8 +364,32 @@ export default function AnchorsPage() {
                   />
                 </FormField>
               </Col>
+              {editing.settlementMode === "fixed_percent" ? (
+                <Col span={12}>
+                  <FormField
+                    label="固定百分比（%）"
+                    hint="总工资 = 总流水 × 固定百分比；不叠加阶梯提成与考勤/dy 加点。"
+                  >
+                    <InputNumber
+                      min={0.01}
+                      max={100}
+                      step={0.01}
+                      value={editing.fixedPercent}
+                      onChange={(value) => setEditing({ ...editing, fixedPercent: value })}
+                      style={{ width: "100%" }}
+                    />
+                  </FormField>
+                </Col>
+              ) : null}
               <Col span={12}>
-                <FormField label="初始保底（元）">
+                <FormField
+                  label="初始保底（元）"
+                  hint={
+                    editing.settlementMode === "fixed_percent"
+                      ? "不作为工资下限，用于停播（÷26）、延误（÷260）调整项预设。"
+                      : "无责期及达标时的保底基准。"
+                  }
+                >
                   <InputNumber
                     min={0.01}
                     step={0.01}
@@ -293,17 +399,19 @@ export default function AnchorsPage() {
                   />
                 </FormField>
               </Col>
-              <Col span={12}>
-                <FormField label="降级保底（元）">
-                  <InputNumber
-                    min={0.01}
-                    step={0.01}
-                    value={editing.guaranteedSalary}
-                    onChange={(value) => setEditing({ ...editing, guaranteedSalary: value })}
-                    style={{ width: "100%" }}
-                  />
-                </FormField>
-              </Col>
+              {editing.settlementMode === "guarantee" ? (
+                <Col span={12}>
+                  <FormField label="降级保底（元）">
+                    <InputNumber
+                      min={0.01}
+                      step={0.01}
+                      value={editing.guaranteedSalary}
+                      onChange={(value) => setEditing({ ...editing, guaranteedSalary: value })}
+                      style={{ width: "100%" }}
+                    />
+                  </FormField>
+                </Col>
+              ) : null}
               <Col span={12}>
                 <FormField label="服务率（%）" hint="服务费 = 实发收益 × 服务率。">
                   <InputNumber

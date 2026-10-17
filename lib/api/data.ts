@@ -1137,6 +1137,8 @@ async function loadSettlementContexts(
         guaranteedSalaryInCents: scheme.guaranteed_salary_cents,
         thresholdMultiplierBps: scheme.threshold_multiplier_bps,
         serviceFeeRateBps: scheme.service_fee_rate_bps,
+        settlementMode: scheme.settlement_mode === "fixed_percent" ? "fixed_percent" : "guarantee",
+        fixedPercentBps: scheme.fixed_percent_bps,
       } : null,
       lastMonthQualified: qualified.get(key) ?? true,
     };

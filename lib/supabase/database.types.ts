@@ -878,6 +878,7 @@ export type Database = {
           scheme_id: string | null
           service_fee_cents: number
           service_fee_rate_bps: number
+          settlement_mode: string
           status: Database["public"]["Enums"]["salary_record_status"]
           team_id: string | null
           tenure_month: number
@@ -918,6 +919,7 @@ export type Database = {
           scheme_id?: string | null
           service_fee_cents: number
           service_fee_rate_bps?: number
+          settlement_mode?: string
           status?: Database["public"]["Enums"]["salary_record_status"]
           team_id?: string | null
           tenure_month: number
@@ -958,6 +960,7 @@ export type Database = {
           scheme_id?: string | null
           service_fee_cents?: number
           service_fee_rate_bps?: number
+          settlement_mode?: string
           status?: Database["public"]["Enums"]["salary_record_status"]
           team_id?: string | null
           tenure_month?: number
@@ -1021,12 +1024,14 @@ export type Database = {
           base_salary_cents: number
           created_at: string
           effective_from: string
+          fixed_percent_bps: number
           guaranteed_salary_cents: number
           id: string
           name: string
           profile_id: string | null
           role_id: number | null
           service_fee_rate_bps: number
+          settlement_mode: string
           status: Database["public"]["Enums"]["scheme_status"]
           threshold_multiplier_bps: number
           version: number
@@ -1035,12 +1040,14 @@ export type Database = {
           base_salary_cents: number
           created_at?: string
           effective_from: string
+          fixed_percent_bps?: number
           guaranteed_salary_cents: number
           id?: string
           name: string
           profile_id?: string | null
           role_id?: number | null
           service_fee_rate_bps?: number
+          settlement_mode?: string
           status?: Database["public"]["Enums"]["scheme_status"]
           threshold_multiplier_bps?: number
           version: number
@@ -1049,12 +1056,14 @@ export type Database = {
           base_salary_cents?: number
           created_at?: string
           effective_from?: string
+          fixed_percent_bps?: number
           guaranteed_salary_cents?: number
           id?: string
           name?: string
           profile_id?: string | null
           role_id?: number | null
           service_fee_rate_bps?: number
+          settlement_mode?: string
           status?: Database["public"]["Enums"]["scheme_status"]
           threshold_multiplier_bps?: number
           version?: number

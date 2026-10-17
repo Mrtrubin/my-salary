@@ -179,6 +179,8 @@ export function PayslipDetail({
     ? Math.max(item.commission_rate_bps - baseCommissionRateBps - attendanceBonusBps - dyTaskBonusBps, 0)
     : 0;
   const isAnchor = item.role?.code === "anchor";
+  // 固定百分比结算：总工资 = 总流水 × 固定百分比，门槛/保底/阶梯提点不适用。
+  const isFixedPercent = item.settlement_mode === "fixed_percent";
   // 系统只保存折算后流水，音浪按流水 × 10 反推展示。
   const soundWaves = (item.revenue_cents / 10).toLocaleString("zh-CN", { maximumFractionDigits: 1 });
 
@@ -210,7 +212,11 @@ export function PayslipDetail({
                 </p>
               </div>
               <div className="flex shrink-0 gap-1">
-                <Badge tone={item.is_qualified ? "green" : "amber"}>{item.is_qualified ? "达标" : "未达标"}</Badge>
+                {isFixedPercent ? (
+                  <Badge tone="green">固定百分比</Badge>
+                ) : (
+                  <Badge tone={item.is_qualified ? "green" : "amber"}>{item.is_qualified ? "达标" : "未达标"}</Badge>
+                )}
                 <SalaryRecordStatusBadge status={item.status} />
               </div>
             </div>
@@ -230,45 +236,72 @@ export function PayslipDetail({
               value={item.broadcast_minutes > 0 ? formatDurationSeconds(item.broadcast_minutes * 60) : "—"}
               hint="本周期该主播每日直播时长汇总"
             />
-            <Row label="拿提点门槛" value={formatCentsToYuan(item.commission_start_cents)} hint="达到该流水才开始计提成" />
-            <Row label="拿保底门槛" value={formatCentsToYuan(item.threshold_cents)} />
-            <Row label="是否达标" value={item.is_qualified ? "达标" : "未达标"} tone={item.is_qualified ? "success" : "danger"} />
+            {isFixedPercent ? (
+              <>
+                <Row label="结算方式" value="固定百分比" />
+                <Row
+                  label="结算比例"
+                  value={formatBpsAsPercent(item.commission_rate_bps)}
+                  hint="总工资 = 总流水 × 结算比例"
+                />
+              </>
+            ) : (
+              <>
+                <Row label="拿提点门槛" value={formatCentsToYuan(item.commission_start_cents)} hint="达到该流水才开始计提成" />
+                <Row label="拿保底门槛" value={formatCentsToYuan(item.threshold_cents)} />
+                <Row label="是否达标" value={item.is_qualified ? "达标" : "未达标"} tone={item.is_qualified ? "success" : "danger"} />
+              </>
+            )}
             <Row label="无责期状态" value={item.is_grace_period ? "无责期" : "非无责期"} />
             <Row label="在职月序" value={`${item.tenure_month} 月`} />
           </Section>
 
-          <Section title="提成明细">
-            <Row label="保底金额" value={formatCentsToYuan(item.base_guarantee_cents)} />
-            <Row
-              label="基础提成率"
-              value={formatBpsAsPercent(baseCommissionRateBps)}
-              hint="结算时采用的基础提成率快照"
-            />
-            <Row
-              label="阶梯提点"
-              value={formatBpsAsPercent(tierBonusBps)}
-              hint={item.commission_rate_bps === 0 ? "未达提成起征线，本次未计提" : "每满 1 万流水 +1%，最高 +5%"}
-            />
-            <Row
-              label="考勤加点"
-              value={formatBpsAsPercent(attendanceBonusBps)}
-              hint="结算保存的考勤加点，未达提成起征线时不计入提成"
-            />
-            <Row
-              label="dy任务加点"
-              value={formatBpsAsPercent(dyTaskBonusBps)}
-              hint="结算保存的 dy 任务加点，未达提成起征线时不计入提成"
-            />
-            <Row
-              label="最终提成率"
-              value={formatBpsAsPercent(item.commission_rate_bps)}
-              hint={item.commission_rate_bps === 0 ? "本次结算未计提成" : "本次结算实际采用的提成率"}
-            />
+          <Section title={isFixedPercent ? "结算明细" : "提成明细"}>
+            {isFixedPercent ? (
+              <>
+                <Row
+                  label="固定百分比"
+                  value={formatBpsAsPercent(item.commission_rate_bps)}
+                  hint="总工资 = 总流水 × 固定百分比；不叠加阶梯提成与考勤/dy 加点"
+                />
+              </>
+            ) : (
+              <>
+                <Row label="保底金额" value={formatCentsToYuan(item.base_guarantee_cents)} />
+                <Row
+                  label="基础提成率"
+                  value={formatBpsAsPercent(baseCommissionRateBps)}
+                  hint="结算时采用的基础提成率快照"
+                />
+                <Row
+                  label="阶梯提点"
+                  value={formatBpsAsPercent(tierBonusBps)}
+                  hint={item.commission_rate_bps === 0 ? "未达提成起征线，本次未计提" : "每满 1 万流水 +1%，最高 +5%"}
+                />
+                <Row
+                  label="考勤加点"
+                  value={formatBpsAsPercent(attendanceBonusBps)}
+                  hint="结算保存的考勤加点，未达提成起征线时不计入提成"
+                />
+                <Row
+                  label="dy任务加点"
+                  value={formatBpsAsPercent(dyTaskBonusBps)}
+                  hint="结算保存的 dy 任务加点，未达提成起征线时不计入提成"
+                />
+                <Row
+                  label="最终提成率"
+                  value={formatBpsAsPercent(item.commission_rate_bps)}
+                  hint={item.commission_rate_bps === 0 ? "本次结算未计提成" : "本次结算实际采用的提成率"}
+                />
+              </>
+            )}
           </Section>
 
           <Section title="收益构成">
-            <Row label="保障性部分" value={formatCentsToYuan(item.guaranteed_component_cents)} />
-            <Row label={`绩效工资（${formatBpsAsPercent(item.commission_rate_bps)}）`} value={formatCentsToYuan(item.performance_component_cents)} />
+            {!isFixedPercent ? (
+              <Row label="保障性部分" value={formatCentsToYuan(item.guaranteed_component_cents)} />
+            ) : null}
+            <Row label={isFixedPercent ? `固定百分比工资（${formatBpsAsPercent(item.commission_rate_bps)}）` : `绩效工资（${formatBpsAsPercent(item.commission_rate_bps)}）`} value={formatCentsToYuan(item.performance_component_cents)} />
             <Row label="基础收益" value={formatCentsToYuan(baseIncome)} hint="实发收益扣除调整项合计" />
             <AdjustmentSummary adjustments={adjustments} total={adjustmentTotal} />
             <Row label="实发收益" value={formatCentsToYuan(item.gross_cents)} />

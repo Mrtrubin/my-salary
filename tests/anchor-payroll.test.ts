@@ -332,3 +332,135 @@ describe("主播工资计算器 - 校验", () => {
     expect((caught as ApiError).code).toBe(ApiErrorCode.INVALID_INPUT);
   });
 });
+describe("主播工资计算器 - 固定百分比结算（fixed_percent）", () => {
+  /** 保底结算示例方案切换为固定百分比：总工资 = 总流水 × 20%。 */
+  const fixedScheme: AnchorSalaryScheme = {
+    ...scheme,
+    settlementMode: "fixed_percent",
+    fixedPercentBps: 2000,
+  };
+
+  it("总工资 = 总流水 × 20%，向下取整到分", () => {
+    const r = calculateAnchorPayroll({ scheme: fixedScheme, monthlyRevenueInCents: 1234567, tenureMonth: 6 });
+    expect(r.settlementMode).toBe("fixed_percent");
+    expect(r.commissionRateBps).toBe(2000);
+    // floor(1234567 × 2000 / 10000) = 246913 分
+    expect(r.performanceComponentInCents).toBe(246913);
+    expect(r.guaranteedComponentInCents).toBe(0);
+    expect(r.grossSalaryInCents).toBe(246913);
+    // 服务费 = ceil(246913 × 3%) = 7408
+    expect(r.serviceFeeInCents).toBe(7408);
+    expect(r.netSalaryInCents).toBe(239505);
+    // 门槛/保底口径在固定百分比下不应出现
+    expect(r.thresholdInCents).toBe(0);
+    expect(r.commissionStartInCents).toBe(0);
+    expect(r.isQualified).toBe(true);
+  });
+
+  it("无责期与零流水：不触发保底保护，总工资为 0", () => {
+    const r = calculateAnchorPayroll({ scheme: fixedScheme, monthlyRevenueInCents: 0, tenureMonth: 1 });
+    expect(r.isGracefulPeriod).toBe(true);
+    expect(r.grossSalaryInCents).toBe(0);
+    expect(r.guaranteedComponentInCents).toBe(0);
+    expect(r.netSalaryInCents).toBe(0);
+  });
+
+  it("忽略阶梯提成：高额流水费率仍为固定 20%", () => {
+    const r = calculateAnchorPayroll({ scheme: fixedScheme, monthlyRevenueInCents: 12000000, tenureMonth: 8 });
+    expect(r.commissionRateBps).toBe(2000);
+    expect(r.performanceComponentInCents).toBe(2400000);
+  });
+
+  it("忽略考勤/dy 加点：不叠加到费率", () => {
+    const r = calculateAnchorPayroll({
+      scheme: fixedScheme,
+      monthlyRevenueInCents: 5000000,
+      tenureMonth: 8,
+      attendanceBonusBps: 300,
+      dyTaskBonusBps: 200,
+    });
+    expect(r.commissionRateBps).toBe(2000);
+    expect(r.performanceComponentInCents).toBe(1000000);
+  });
+
+  it("初始保底仅作信息快照（供调整项预设），不作为工资下限", () => {
+    const low = calculateAnchorPayroll({ scheme: fixedScheme, monthlyRevenueInCents: 1000, tenureMonth: 4 });
+    expect(low.baseGuaranteeInCents).toBe(800000);
+    expect(low.grossSalaryInCents).toBe(200);
+  });
+
+  it("缺省固定百分比时按 20% 兜底", () => {
+    const r = calculateAnchorPayroll({
+      scheme: { ...scheme, settlementMode: "fixed_percent" },
+      monthlyRevenueInCents: 4000000,
+      tenureMonth: 4,
+    });
+    expect(r.commissionRateBps).toBe(2000);
+    expect(r.grossSalaryInCents).toBe(800000);
+  });
+
+  it("未标注结算方式的方案仍走保底结算（兼容历史数据）", () => {
+    const r = calculateAnchorPayroll({ scheme, monthlyRevenueInCents: 0, tenureMonth: 4 });
+    expect(r.settlementMode).toBe("guarantee");
+    expect(r.guaranteedComponentInCents).toBe(500000);
+  });
+
+  it("固定百分比边界：0.01% 与 100%", () => {
+    const min = calculateAnchorPayroll({
+      scheme: { ...scheme, settlementMode: "fixed_percent", fixedPercentBps: 1 },
+      monthlyRevenueInCents: 4000000,
+      tenureMonth: 4,
+    });
+    expect(min.commissionRateBps).toBe(1);
+    expect(min.grossSalaryInCents).toBe(400);
+    const max = calculateAnchorPayroll({
+      scheme: { ...scheme, settlementMode: "fixed_percent", fixedPercentBps: 10000 },
+      monthlyRevenueInCents: 4000000,
+      tenureMonth: 4,
+    });
+    expect(max.commissionRateBps).toBe(10000);
+    expect(max.grossSalaryInCents).toBe(4000000);
+  });
+
+  it("非法固定百分比抛 INVALID_INPUT", () => {
+    expect(() => calculateAnchorPayroll({
+      scheme: { ...scheme, settlementMode: "fixed_percent", fixedPercentBps: 0 },
+      monthlyRevenueInCents: 100,
+      tenureMonth: 4,
+    })).toThrow(expect.objectContaining({ code: ApiErrorCode.INVALID_INPUT }));
+    expect(() => calculateAnchorPayroll({
+      scheme: { ...scheme, settlementMode: "fixed_percent", fixedPercentBps: 10001 },
+      monthlyRevenueInCents: 100,
+      tenureMonth: 4,
+    })).toThrow(expect.objectContaining({ code: ApiErrorCode.INVALID_INPUT }));
+  });
+
+  it("非整数固定百分比抛 INVALID_INPUT", () => {
+    expect(() => calculateAnchorPayroll({
+      scheme: { ...scheme, settlementMode: "fixed_percent", fixedPercentBps: 1999.5 },
+      monthlyRevenueInCents: 100,
+      tenureMonth: 4,
+    })).toThrow(expect.objectContaining({ code: ApiErrorCode.INVALID_INPUT }));
+  });
+
+  it("服务费按含调整项口径重算（与保底方式一致，前端叠加由 applyAdjustments 完成，本层仅验基础口径）", () => {
+    // 服务率入参覆盖方案配置：serviceFeeRateBps 0% 时不扣服务费。
+    const r = calculateAnchorPayroll({
+      scheme: fixedScheme,
+      monthlyRevenueInCents: 4000000,
+      tenureMonth: 4,
+      serviceFeeRateBps: 0,
+    });
+    expect(r.serviceFeeInCents).toBe(0);
+    expect(r.netSalaryInCents).toBe(800000);
+  });
+
+  it("与 Deno 引擎 computePayroll 完全一致", () => {
+    const input = { scheme: fixedScheme, monthlyRevenueInCents: 8123456, tenureMonth: 7 };
+    const result = calculateAnchorPayroll(input);
+    expect(computePayroll(input)).toEqual(result);
+    // 缺省 fixedPercentBps 时两个引擎的兜底一致。
+    const fallback = { scheme: { ...scheme, settlementMode: "fixed_percent" as const }, monthlyRevenueInCents: 999999, tenureMonth: 3 };
+    expect(computePayroll(fallback)).toEqual(calculateAnchorPayroll(fallback));
+  });
+});

@@ -9,6 +9,7 @@ import {
   Form,
   Input,
   InputNumber,
+  Radio,
   Row,
   Select,
   Space,
@@ -28,6 +29,10 @@ type FormValues = {
   name: string;
   profileId: string;
   roleId: string;
+  /** 工资结算方式：guarantee = 保底结算（现口径）；fixed_percent = 总流水 × 固定百分比。 */
+  settlementMode: "guarantee" | "fixed_percent";
+  /** 固定百分比（%），settlementMode = fixed_percent 时参与保存。 */
+  fixedPercent: number | null;
   baseSalary: number | null;
   guaranteedSalary: number | null;
 };
@@ -36,6 +41,8 @@ const DEFAULTS: FormValues = {
   name: "",
   profileId: "",
   roleId: "",
+  settlementMode: "guarantee",
+  fixedPercent: 20,
   baseSalary: null,
   guaranteedSalary: null,
 };
@@ -49,12 +56,23 @@ export default function SchemesPage() {
   const create = useCreateScheme();
   const [show, setShow] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // 结算方式的受控镜像：决定渲染固定百分比还是保底字段（避免使用不可安全记忆化的 watch()）。
+  const [settlementMode, setSettlementMode] = useState<FormValues["settlementMode"]>("guarantee");
   const {
     control,
     handleSubmit,
     reset,
     formState: { errors },
   } = useForm<FormValues>({ defaultValues: formDefaults() });
+
+  /** 打开/收起新建表单：重置表单时同步结算方式的受控镜像。 */
+  function toggleForm(next: boolean) {
+    if (next) {
+      reset(formDefaults());
+      setSettlementMode("guarantee");
+    }
+    setShow(next);
+  }
 
   async function submit(value: FormValues) {
     setErrorMsg(null);
@@ -64,18 +82,43 @@ export default function SchemesPage() {
         ...(schemes.data?.filter((item) => item.name === value.name).map((item) => item.version) ??
           []),
       ) + 1;
+    const baseSalary = Number(value.baseSalary);
+    const guaranteedSalary = Number(value.guaranteedSalary);
+    const fixedPercentBps = Math.round(Number(value.fixedPercent) * 100);
+    if (value.settlementMode === "fixed_percent") {
+      if (!Number.isInteger(fixedPercentBps) || fixedPercentBps < 1 || fixedPercentBps > 10000) {
+        setErrorMsg("固定百分比必须在 0.01%～100% 之间，最多两位小数");
+        return;
+      }
+      if (!Number.isFinite(baseSalary) || baseSalary <= 0) {
+        setErrorMsg("初始保底必须大于 0（用于停播/延误调整项预设）");
+        return;
+      }
+    } else if (!Number.isFinite(baseSalary) || baseSalary <= 0 || guaranteedSalary <= 0) {
+      setErrorMsg("初始保底和降级保底必须大于 0");
+      return;
+    }
     try {
       await create.mutateAsync({
         name: value.name,
         profile_id: value.profileId || null,
         role_id: value.roleId ? Number(value.roleId) : null,
         version,
-        base_salary_cents: Math.round(Number(value.baseSalary) * 100),
-        guaranteed_salary_cents: Math.round(Number(value.guaranteedSalary) * 100),
+        base_salary_cents: Math.round(baseSalary * 100),
+        // 固定百分比结算下降级保底不参与计算：存 0 占位，保持方案列非空即可。
+        guaranteed_salary_cents: Math.round(
+          (value.settlementMode === "fixed_percent"
+            ? (guaranteedSalary > 0 ? guaranteedSalary : 0)
+            : guaranteedSalary) * 100,
+        ),
+        service_fee_rate_bps: 300,
+        settlement_mode: value.settlementMode,
+        fixed_percent_bps: fixedPercentBps,
         // 方案不再按生效日期筛选，仅保留该列做创建时间记录。
         effective_from: dayjs().format("YYYY-MM-DD"),
       });
       reset(formDefaults());
+      setSettlementMode("guarantee");
       setShow(false);
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "新建方案失败，请稍后再试");
@@ -92,8 +135,7 @@ export default function SchemesPage() {
             type="primary"
             onClick={() => {
               setErrorMsg(null);
-              if (!show) reset(formDefaults());
-              setShow(!show);
+              toggleForm(!show);
             }}
           >
             {show ? "收起" : "+ 新建方案"}
@@ -163,9 +205,59 @@ export default function SchemesPage() {
                 </FormField>
               </Col>
               <Col xs={24} md={12}>
+                <FormField label="工资结算方式">
+                  <Controller
+                    control={control}
+                    name="settlementMode"
+                    render={({ field }) => (
+                      <Radio.Group
+                        value={settlementMode}
+                        optionType="button"
+                        buttonStyle="solid"
+                        options={[
+                          { value: "guarantee", label: "保底结算" },
+                          { value: "fixed_percent", label: "固定百分比" },
+                        ]}
+                        onChange={(e) => {
+                          setSettlementMode(e.target.value);
+                          field.onChange(e.target.value);
+                        }}
+                      />
+                    )}
+                  />
+                </FormField>
+              </Col>
+              {settlementMode === "fixed_percent" ? (
+                <Col xs={24} md={12}>
+                  <FormField
+                    label="固定百分比（%）"
+                    hint="总工资 = 总流水 × 固定百分比；不叠加阶梯提成与考勤/dy 加点。"
+                  >
+                    <Controller
+                      control={control}
+                      name="fixedPercent"
+                      render={({ field }) => (
+                        <InputNumber
+                          {...field}
+                          min={0.01}
+                          max={100}
+                          step={0.01}
+                          style={{ width: "100%" }}
+                          placeholder="20"
+                        />
+                      )}
+                    />
+                  </FormField>
+                </Col>
+              ) : null}
+              <Col xs={24} md={12}>
                 <FormField
                   label="初始保底（元）"
-                  hint="无责期及上月达标时的保底基准，示例 8000"
+                  hint={
+                    settlementMode === "fixed_percent"
+                      ? "不作为工资下限，用于停播（÷26）、延误（÷260）调整项预设。"
+                      : "无责期及上月达标时的保底基准，示例 8000"
+                  }
                   error={errors.baseSalary ? "请填写初始保底" : undefined}
                   required
                 >
@@ -184,28 +276,30 @@ export default function SchemesPage() {
                   />
                 </FormField>
               </Col>
-              <Col xs={24} md={12}>
-                <FormField
-                  label="降级保底（元）"
-                  hint="第 4 月起上月不达标时的保底基准，示例 5000"
-                  error={errors.guaranteedSalary ? "请填写降级保底" : undefined}
-                  required
-                >
-                  <Controller
-                    control={control}
-                    name="guaranteedSalary"
-                    rules={{ required: true }}
-                    render={({ field }) => (
-                      <InputNumber
-                        {...field}
-                        min={0}
-                        style={{ width: "100%" }}
-                        placeholder="5000"
-                      />
-                    )}
-                  />
-                </FormField>
-              </Col>
+              {settlementMode === "guarantee" ? (
+                <Col xs={24} md={12}>
+                  <FormField
+                    label="降级保底（元）"
+                    hint="第 4 月起上月不达标时的保底基准，示例 5000"
+                    error={errors.guaranteedSalary ? "请填写降级保底" : undefined}
+                    required
+                  >
+                    <Controller
+                      control={control}
+                      name="guaranteedSalary"
+                      rules={{ required: true }}
+                      render={({ field }) => (
+                        <InputNumber
+                          {...field}
+                          min={0}
+                          style={{ width: "100%" }}
+                          placeholder="5000"
+                        />
+                      )}
+                    />
+                  </FormField>
+                </Col>
+              ) : null}
             </Row>
             <Space>
               <Button type="primary" htmlType="submit" loading={create.isPending}>
@@ -241,9 +335,9 @@ export default function SchemesPage() {
                   {item.profile?.name ?? "角色模板"} · {item.role?.name ?? "未分配"}
                 </Typography.Paragraph>
                 <Typography.Text>
-                  初始保底 {formatCentsToYuan(item.base_salary_cents)} · 降级保底{" "}
-                  {formatCentsToYuan(item.guaranteed_salary_cents)} · 基础提成 20% · 阶梯提点 0%~5% ·
-                  最终提成率不封顶
+                  {item.settlement_mode === "fixed_percent"
+                    ? `固定百分比 ${item.fixed_percent_bps / 100}% · 总工资 = 总流水 × 固定百分比 · 初始保底 ${formatCentsToYuan(item.base_salary_cents)}（用于停播/延误预设）`
+                    : `初始保底 ${formatCentsToYuan(item.base_salary_cents)} · 降级保底 ${formatCentsToYuan(item.guaranteed_salary_cents)} · 基础提成 20% · 阶梯提点 0%~5% · 最终提成率不封顶`}
                 </Typography.Text>
               </Card>
             ))}

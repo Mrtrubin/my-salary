@@ -137,6 +137,8 @@ interface AnchorRow {
   guaranteedComponentCents: number;
   /** 方案里的初始保底（分）：停播扣款按「初始保底 ÷ 26」，与是否达标签约无关。 */
   initialGuaranteeCents: number;
+  /** 结算方式：guarantee = 保底结算（现口径）；fixed_percent = 总流水 × 固定百分比。 */
+  settlementMode: "guarantee" | "fixed_percent";
   /** 本周期直播时长（分钟，按主播逐日汇总）。 */
   broadcastMinutes: number;
   adjustmentTotalCents: number;
@@ -278,6 +280,7 @@ function AnchorRevenueWorkspace() {
           performanceComponentCents: 0,
           guaranteedComponentCents: 0,
           initialGuaranteeCents: 0,
+          settlementMode: "guarantee" as const,
           broadcastMinutes,
           adjustmentTotalCents: 0,
           grossCents: 0,
@@ -320,6 +323,7 @@ function AnchorRevenueWorkspace() {
         performanceComponentCents: adjusted.performanceComponentInCents,
         guaranteedComponentCents: adjusted.guaranteedComponentInCents,
         initialGuaranteeCents: ctx.scheme.baseSalaryInCents,
+        settlementMode: ctx.scheme.settlementMode ?? "guarantee",
         broadcastMinutes,
         adjustmentTotalCents: adjusted.adjustmentTotalInCents,
         grossCents: adjusted.grossSalaryInCents,
@@ -715,9 +719,15 @@ function AnchorRevenueWorkspace() {
       key,
       width: 170,
       sortValue: (row: AnchorRow) =>
-        parseCommissionBonusPoints(bonuses[row.memberKey]?.[key] ?? ""),
+        row.settlementMode === "fixed_percent"
+          ? -1
+          : parseCommissionBonusPoints(bonuses[row.memberKey]?.[key] ?? ""),
       render: (_: unknown, row: AnchorRow) =>
-        row.hasScheme ? (
+        row.settlementMode === "fixed_percent" ? (
+          <Typography.Text type="secondary" style={{ fontSize: 12 }} title="固定百分比结算，不叠加加点">
+            不适用
+          </Typography.Text>
+        ) : row.hasScheme ? (
           <Input
             inputMode="decimal"
             aria-label={`${row.profileName}的${label}（百分点）`}
@@ -778,7 +788,10 @@ function AnchorRevenueWorkspace() {
       align: "right" as const,
       onCell: noSchemeCell,
       sortValue: (row: AnchorRow) => row.guaranteedComponentCents,
-      render: (_: unknown, row: AnchorRow) => formatCentsToYuan(row.guaranteedComponentCents),
+      render: (_: unknown, row: AnchorRow) =>
+        row.settlementMode === "fixed_percent"
+          ? "—"
+          : formatCentsToYuan(row.guaranteedComponentCents),
     },
     ...adjustmentColumns.map((name) => ({
       title: name,
@@ -1173,11 +1186,20 @@ function AnchorRevenueWorkspace() {
                               : "无生效工资方案，暂不可调整。"}
                           </Typography.Paragraph>
                         </div>
-                        <Tag>本期保底 {formatCentsToYuan(row.guaranteedComponentCents)}</Tag>
+                        <Tag>
+                          {row.settlementMode === "fixed_percent"
+                            ? `固定百分比 ${row.commissionRateBps / 100}%`
+                            : `本期保底 ${formatCentsToYuan(row.guaranteedComponentCents)}`}
+                        </Tag>
                       </Flex>
 
                       <Row gutter={[8, 8]} style={{ marginTop: 12 }}>
-                        {getAdjustmentPresets(row.guaranteedComponentCents).map((preset) => (
+                        {/* 固定百分比结算的停播/延误预设按「初始保底」折算；保底结算沿用本周期保底分量。 */}
+                        {getAdjustmentPresets(
+                          row.settlementMode === "fixed_percent"
+                            ? row.initialGuaranteeCents
+                            : row.guaranteedComponentCents,
+                        ).map((preset) => (
                           <Col xs={24} sm={8} key={preset.name}>
                             <Button
                               block

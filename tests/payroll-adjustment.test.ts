@@ -13,6 +13,7 @@ import {
  * 用于验证调整项叠加后的重算口径。
  */
 const base: AnchorPayrollResult = {
+  settlementMode: "guarantee",
   baseGuaranteeInCents: 800000,
   thresholdInCents: 2120000,
   commissionStartInCents: 4000000,
